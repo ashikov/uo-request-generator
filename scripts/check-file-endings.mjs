@@ -7,15 +7,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const skippedDirectories = new Set([
   ".git",
-  ".next",
   "coverage",
+  "dist",
   "node_modules",
   "playwright-report",
   "reports",
   "test-results",
 ]);
 
-const generatedFiles = new Set(["next-env.d.ts", "pnpm-lock.yaml"]);
+const generatedFiles = new Set(["pnpm-lock.yaml"]);
 const markdownExtensions = new Set([".md", ".mdx"]);
 const textExtensions = new Set([
   ".cjs",
@@ -24,12 +24,10 @@ const textExtensions = new Set([
   ".js",
   ".json",
   ".jsonc",
-  ".jsx",
   ".mjs",
   ".sh",
   ".toml",
   ".ts",
-  ".tsx",
   ".txt",
   ".yaml",
   ".yml",

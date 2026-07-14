@@ -1,4 +1,4 @@
-.PHONY: dev compose build lint lint-md format format-check typecheck test check
+.PHONY: dev compose build start lint lint-md format format-check typecheck test check
 
 dev:
 	pnpm dev
@@ -8,6 +8,9 @@ compose:
 
 build:
 	pnpm build
+
+start:
+	pnpm start
 
 lint:
 	pnpm lint

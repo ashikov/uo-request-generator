@@ -7,4 +7,4 @@ cacheDir: .pnpm-cache
 stateDir: .pnpm-state
 
 allowBuilds:
-  sharp: true
+  esbuild: true

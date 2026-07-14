@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Подготовка заявки для управляющей организации по описанию жителя"
+    />
+    <title>Заявка в УО</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="request-card" aria-labelledby="page-title">
+        <header class="page-header">
+          <h1 id="page-title">Заявка в УО</h1>
+          <p>Опишите как есть — получите готовую заявку</p>
+        </header>
+
+        <form id="request-form" class="request-form" novalidate>
+          <div class="field-group">
+            <label for="description">Описание проблемы</label>
+            <textarea
+              id="description"
+              name="description"
+              minlength="10"
+              maxlength="2000"
+              rows="7"
+              required
+              aria-describedby="description-hint description-count"
+            ></textarea>
+            <div class="field-meta">
+              <span id="description-hint">Опишите одну проблему обычными словами</span>
+              <span id="description-count" aria-live="polite">0 / 2000</span>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="location">Где это произошло</label>
+            <input
+              id="location"
+              name="location"
+              type="text"
+              maxlength="120"
+              aria-describedby="location-hint"
+            />
+            <span id="location-hint" class="field-hint">
+              Необязательно, например: подъезд или этаж
+            </span>
+          </div>
+
+          <button id="submit-button" type="submit">Составить заявку</button>
+        </form>
+
+        <div id="error-area" class="message-area" aria-live="assertive" tabindex="-1" hidden></div>
+
+        <section id="result-area" class="result-area" aria-labelledby="result-title">
+          <h2 id="result-title">Готовая заявка</h2>
+          <p id="result-placeholder">Здесь появится результат после успешной генерации.</p>
+        </section>
+
+        <p class="service-note">
+          Генерация через LLM пока не подключена. Форма вернёт контролируемую ошибку.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

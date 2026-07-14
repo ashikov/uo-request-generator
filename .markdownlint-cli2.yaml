@@ -13,7 +13,7 @@ gitignore: true
 
 ignores:
   - "**/node_modules/**"
-  - "**/.next/**"
+  - "**/dist/**"
   - "**/coverage/**"
   - "**/test-results/**"
   - "**/playwright-report/**"

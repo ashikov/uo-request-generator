@@ -1,4 +1,4 @@
 export {
   DisabledLlmGateway,
   GenerationProviderUnavailableError,
-} from "./disabled-llm-gateway";
+} from "./disabled-llm-gateway.js";

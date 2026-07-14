@@ -123,12 +123,7 @@ button:disabled {
 }
 
 .message-area {
-  min-height: 52px;
-  padding-top: 16px;
-}
-
-.error-message {
-  margin: 0;
+  margin-top: 16px;
   border-left: 4px solid #c42b1c;
   background: #fff1f0;
   color: #8f1d13;
@@ -137,6 +132,7 @@ button:disabled {
 
 .result-area {
   min-height: 150px;
+  margin-top: 16px;
   border: 1px dashed #9aa5b1;
   border-radius: 10px;
   padding: 20px;
@@ -153,7 +149,7 @@ button:disabled {
   white-space: pre-wrap;
 }
 
-.result-content p {
+.result-area h3 + p {
   color: #17202a;
 }
 

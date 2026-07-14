@@ -1,9 +1,11 @@
 .git
-.next
-node_modules
-coverage
-test-results
-playwright-report
+.pnpm-cache
+.pnpm-state
 .pnpm-store
-.env*
 *.tsbuildinfo
+coverage
+dist
+.env*
+node_modules
+reports
+test-results

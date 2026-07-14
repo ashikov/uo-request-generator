@@ -4,5 +4,5 @@ export {
   generateRequestResultSchema,
   type GenerateRequestInput,
   type GenerateRequestResult,
-} from "./contracts";
-export type { LlmGateway } from "./llm-gateway";
+} from "./contracts.js";
+export type { LlmGateway } from "./llm-gateway.js";

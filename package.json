@@ -10,7 +10,8 @@
   },
   "scripts": {
     "dev": "pnpm --filter @uo-request-generator/web dev",
-    "build": "pnpm --filter @uo-request-generator/web build",
+    "build": "pnpm --filter @uo-request-generator/core build && pnpm --filter @uo-request-generator/llm build && pnpm --filter @uo-request-generator/web build",
+    "start": "pnpm --filter @uo-request-generator/web start",
     "lint": "biome lint .",
     "lint:md": "markdownlint-cli2 && node scripts/check-file-endings.mjs",
     "format": "biome format --write .",

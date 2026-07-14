@@ -5,7 +5,7 @@
       "**",
       "!**/*.md",
       "!**/pnpm-lock.yaml",
-      "!**/.next",
+      "!**/dist",
       "!**/coverage",
       "!**/test-results",
       "!**/playwright-report"
