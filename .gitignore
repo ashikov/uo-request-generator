@@ -10,3 +10,5 @@ playwright-report/
 .pnpm-cache/
 .pnpm-state/
 .DS_Store
+start-server.bat
+server.log

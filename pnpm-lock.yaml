@@ -57,6 +57,10 @@ importers:
       '@uo-request-generator/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: 26.1.1
+        version: 26.1.1
 
 packages:
 
