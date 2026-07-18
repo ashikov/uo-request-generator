@@ -5,6 +5,7 @@ import {
   type GenerateRequestResult,
   type LlmGateway,
 } from "@uo-request-generator/core";
+import { z } from "zod";
 import { GenerationProviderUnavailableError } from "./disabled-llm-gateway.js";
 
 export type OpenAiCompatibleGatewayConfig = {
@@ -30,13 +31,17 @@ type OpenAiChatCompletionRequest = {
   temperature: number;
 };
 
-type OpenAiChatCompletionResponse = {
-  choices: Array<{
-    message: {
-      content: string;
-    };
-  }>;
-};
+const openAiChatCompletionResponseSchema = z.object({
+  choices: z
+    .array(
+      z.object({
+        message: z.object({
+          content: z.string(),
+        }),
+      }),
+    )
+    .min(1),
+});
 
 /** @see https://yandex.cloud/ru/docs/yandexgpt/api-ref/v1/ */
 const DEFAULT_API_URL = "https://ai.api.cloud.yandex.net/v1/chat/completions";
@@ -69,6 +74,15 @@ const SYSTEM_PROMPT = [
   "ПРЕДУПРЕЖДЕНИЯ:",
   "— <предупреждение, если нужно>",
 ].join("\n");
+
+function truncateToLength(str: string, max: number): string {
+  let result = "";
+  for (const char of str) {
+    if (result.length >= max) break;
+    result += char;
+  }
+  return result;
+}
 
 function parseResponse(text: string): GenerateRequestResult {
   const lines = text.split("\n").map((l) => l.trim());
@@ -106,12 +120,12 @@ function parseResponse(text: string): GenerateRequestResult {
 
   const validWarnings = warnings
     .slice(0, generateRequestLimits.result.warningsMax)
-    .map((w) => w.slice(0, generateRequestLimits.result.warningMax))
+    .map((w) => truncateToLength(w, generateRequestLimits.result.warningMax))
     .filter((w) => w.length > 0);
 
   const result = generateRequestResultSchema.safeParse({
-    title: title.slice(0, generateRequestLimits.result.titleMax),
-    body: body.slice(0, generateRequestLimits.result.bodyMax),
+    title: truncateToLength(title, generateRequestLimits.result.titleMax),
+    body: truncateToLength(body, generateRequestLimits.result.bodyMax),
     warnings: validWarnings,
   });
 
@@ -172,7 +186,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
         signal,
       });
     } catch (error) {
-      if (error instanceof DOMException && error.name === "TimeoutError") {
+      if (error instanceof DOMException && error.name === "AbortError") {
         throw new GenerationProviderUnavailableError();
       }
       throw new GenerationProviderUnavailableError();
@@ -190,8 +204,19 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       throw new GenerationProviderUnavailableError();
     }
 
-    const parsed = data as OpenAiChatCompletionResponse;
-    const content = parsed.choices?.[0]?.message?.content;
+    const apiResult = openAiChatCompletionResponseSchema.safeParse(data);
+
+    if (!apiResult.success) {
+      throw new GenerationProviderUnavailableError();
+    }
+
+    const firstChoice = apiResult.data.choices[0];
+
+    if (firstChoice === undefined) {
+      throw new GenerationProviderUnavailableError();
+    }
+
+    const content = firstChoice.message.content;
 
     if (!content || content.trim().length === 0) {
       throw new Error("LLM API вернул пустой ответ");

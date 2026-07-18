@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@uo-request-generator/core": "workspace:*"
+    "@uo-request-generator/core": "workspace:*",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "26.1.1"
