@@ -140,6 +140,63 @@ describe("OpenAiCompatibleGateway", () => {
     expect(headers["x-folder-id"]).toBe("test-folder");
   });
 
+  it("бросает GenerationProviderUnavailableError при сетевой ошибке", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+      "Generation provider is not configured",
+    );
+  });
+
+  it("бросает GenerationProviderUnavailableError при таймауте (AbortError)", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new DOMException("The operation was aborted", "AbortError"),
+    );
+
+    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+      "Generation provider is not configured",
+    );
+  });
+
+  it("бросает GenerationProviderUnavailableError при невалидном JSON от API", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json", { status: 200 }));
+
+    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+      "Generation provider is not configured",
+    );
+  });
+
+  it("бросает GenerationProviderUnavailableError при невалидной структуре ответа API", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ wrong: "data" }), { status: 200 }),
+    );
+
+    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+      "Generation provider is not configured",
+    );
+  });
+
+  it("бросает ошибку при whitespace-only ответе от LLM", async () => {
+    const body = { choices: [{ message: { content: "   " } }] };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(body), { status: 200 }),
+    );
+
+    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+      "LLM API вернул пустой ответ",
+    );
+  });
+
   it("включает location в запрос, если он передан", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
