@@ -73,7 +73,7 @@ describe("OpenAiCompatibleGateway", () => {
     const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
 
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-      "LLM API вернул ошибку: 503",
+      "Generation provider is not configured",
     );
   });
 

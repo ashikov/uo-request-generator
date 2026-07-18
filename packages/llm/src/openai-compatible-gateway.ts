@@ -5,6 +5,7 @@ import {
   type GenerateRequestResult,
   type LlmGateway,
 } from "@uo-request-generator/core";
+import { GenerationProviderUnavailableError } from "./disabled-llm-gateway.js";
 
 export type OpenAiCompatibleGatewayConfig = {
   apiUrl?: string;
@@ -14,6 +15,8 @@ export type OpenAiCompatibleGatewayConfig = {
   authScheme?: string;
   /** Заголовки, которые нужно добавить к запросу (например x-folder-id для Yandex AI) */
   extraHeaders?: Record<string, string>;
+  /** Таймаут HTTP-запроса в миллисекундах (по умолчанию 30 000) */
+  timeoutMs?: number;
 };
 
 type OpenAiChatMessage = {
@@ -35,8 +38,8 @@ type OpenAiChatCompletionResponse = {
   }>;
 };
 
-const DEFAULT_API_URL = "https://llm.api.cloud.yandex.net/v1/chat/completions";
-const DEFAULT_MODEL = "yandexgpt/latest";
+/** @see https://yandex.cloud/ru/docs/yandexgpt/api-ref/v1/ */
+const DEFAULT_API_URL = "https://ai.api.cloud.yandex.net/v1/chat/completions";
 
 const SYSTEM_PROMPT = [
   "Ты — помощник жителя многоквартирного дома. Составь официальную заявку для управляющей организации (УО) по описанию проблемы.",
@@ -45,19 +48,8 @@ const SYSTEM_PROMPT = [
   "- Используй официально-деловой тон",
   "- Подробно опиши проблему, её признаки и последствия",
   "- Укажи последствия, только если они известны из ввода",
-  "- Сначала определи тип проблемы, затем выбери одно подходящее законодательство:",
-  "  • Постановление Правительства РФ № 290 (от 03.04.2013) — содержание общего имущества",
-  "  • Постановление Правительства РФ № 354 (от 06.05.2011) — коммунальные услуги",
-  "  • СанПиН — санитарные нормы (плесень, сырость, чистота)",
-  "  • Жилищный кодекс РФ — жилищные права",
-  "  • Постановление Правительства РФ № 410 (от 14.05.2013) — газовое оборудование",
-  "- Если проблема относится к содержанию общего имущества — используй № 290",
-  "- Если проблема с отоплением, горячей/холодной водой — используй № 354",
-  "- Обоснуй, почему выбранное постановление применимо",
-  "- Обязательно укажи полное название постановления (номер и дату)",
-  "- Не выдумывай несуществующие номера постановлений",
-  "- Обязательно используй фразу «На основании вышеизложенного прошу:»",
-  "- После списка пунктов добавь фразу «Прошу сообщить о принятом решении и планируемых сроках выполнения работ.»",
+  "- Используй фразу «На основании вышеизложенного прошу:»",
+  "- Добавь раздел «Прошу:» с нумерованными пунктами",
   "- Преобразуй эмоции в наблюдаемые факты",
   "- Не придумывай место, причину, виновника или повреждения",
   "- Не добавляй неподтверждённые обвинения",
@@ -68,15 +60,11 @@ const SYSTEM_PROMPT = [
   "",
   "<подробное описание проблемы, признаков и последствий>",
   "",
-  "В соответствии с <полное название постановления> <обоснование применимости>.",
-  "",
   "На основании вышеизложенного прошу:",
   "",
   "1. <пункт>",
   "2. <пункт>",
   "3. <пункт>",
-  "",
-  "Прошу сообщить о принятом решении и планируемых сроках выполнения работ.",
   "",
   "ПРЕДУПРЕЖДЕНИЯ:",
   "— <предупреждение, если нужно>",
@@ -85,34 +73,26 @@ const SYSTEM_PROMPT = [
 function parseResponse(text: string): GenerateRequestResult {
   const lines = text.split("\n").map((l) => l.trim());
 
-  let title = "";
-  let body = "";
-  const warnings: string[] = [];
-
   const titleLine = lines.find((l) => l.startsWith("ЗАГОЛОВОК:"));
   const titleIdx = titleLine !== undefined ? lines.indexOf(titleLine) : -1;
   const warningsIdx = lines.findIndex((l) => l.startsWith("ПРЕДУПРЕЖДЕНИЯ:"));
 
-  if (titleLine !== undefined) {
-    title = titleLine.slice("ЗАГОЛОВОК:".length).trim();
+  if (titleLine === undefined) {
+    throw new Error("LLM вернул некорректный формат заявки");
   }
 
-  const bodyStart = titleIdx !== -1 ? titleIdx + 1 : 0;
+  const title = titleLine.slice("ЗАГОЛОВОК:".length).trim();
+  if (title.length === 0) {
+    throw new Error("LLM вернул некорректный формат заявки");
+  }
+
   const bodyEnd = warningsIdx !== -1 ? warningsIdx : lines.length;
-  body = lines
-    .slice(bodyStart, bodyEnd)
+  const body = lines
+    .slice(titleIdx + 1, bodyEnd)
     .filter((l) => l.length > 0)
     .join("\n");
 
-  if (!title) {
-    const firstLine = lines.find((l) => l.length > 0);
-    title = firstLine ?? "Заявка";
-    body = lines
-      .filter((l) => l.length > 0)
-      .slice(1)
-      .join("\n");
-  }
-
+  const warnings: string[] = [];
   if (warningsIdx !== -1) {
     for (let i = warningsIdx + 1; i < lines.length; i++) {
       const line = lines[i];
@@ -124,24 +104,14 @@ function parseResponse(text: string): GenerateRequestResult {
     }
   }
 
-  title = title.slice(0, generateRequestLimits.result.titleMax);
-  if (title.length === 0) {
-    title = "Заявка";
-  }
-
-  body = body.slice(0, generateRequestLimits.result.bodyMax);
-  if (body.length === 0) {
-    body = "Не удалось составить заявку";
-  }
-
   const validWarnings = warnings
     .slice(0, generateRequestLimits.result.warningsMax)
     .map((w) => w.slice(0, generateRequestLimits.result.warningMax))
     .filter((w) => w.length > 0);
 
   const result = generateRequestResultSchema.safeParse({
-    title,
-    body,
+    title: title.slice(0, generateRequestLimits.result.titleMax),
+    body: body.slice(0, generateRequestLimits.result.bodyMax),
     warnings: validWarnings,
   });
 
@@ -158,6 +128,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
   private readonly model: string;
   private readonly authScheme: string;
   private readonly extraHeaders: Record<string, string>;
+  private readonly timeoutMs: number;
 
   constructor(config: OpenAiCompatibleGatewayConfig) {
     if (!config.apiKey) {
@@ -166,9 +137,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
 
     this.apiUrl = config.apiUrl ?? DEFAULT_API_URL;
     this.apiKey = config.apiKey;
-    this.model = config.model ?? DEFAULT_MODEL;
+    this.model = config.model ?? "yandexgpt/latest";
     this.authScheme = config.authScheme ?? "Api-Key";
     this.extraHeaders = config.extraHeaders ?? {};
+    this.timeoutMs = config.timeoutMs ?? 30_000;
   }
 
   async generateRequest(input: GenerateRequestInput): Promise<GenerateRequestResult> {
@@ -185,24 +157,43 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       temperature: 0.3,
     };
 
-    const response = await fetch(this.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `${this.authScheme} ${this.apiKey}`,
-        ...this.extraHeaders,
-      },
-      body: JSON.stringify(requestBody),
-    });
+    let response: Response;
 
-    if (!response.ok) {
-      throw new Error(`LLM API вернул ошибку: ${response.status}`);
+    try {
+      const signal = AbortSignal.timeout(this.timeoutMs);
+      response = await fetch(this.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `${this.authScheme} ${this.apiKey}`,
+          ...this.extraHeaders,
+        },
+        body: JSON.stringify(requestBody),
+        signal,
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        throw new GenerationProviderUnavailableError();
+      }
+      throw new GenerationProviderUnavailableError();
     }
 
-    const data = (await response.json()) as OpenAiChatCompletionResponse;
-    const content = data.choices?.[0]?.message?.content;
+    if (!response.ok) {
+      throw new GenerationProviderUnavailableError();
+    }
 
-    if (!content) {
+    let data: unknown;
+
+    try {
+      data = await response.json();
+    } catch {
+      throw new GenerationProviderUnavailableError();
+    }
+
+    const parsed = data as OpenAiChatCompletionResponse;
+    const content = parsed.choices?.[0]?.message?.content;
+
+    if (!content || content.trim().length === 0) {
       throw new Error("LLM API вернул пустой ответ");
     }
 
