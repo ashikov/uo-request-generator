@@ -56,6 +56,29 @@ async function injectGenerate(
 }
 
 describe("POST /api/generate", () => {
+  it("возвращает результат настроенного gateway", async () => {
+    const generatedRequest = {
+      title: "Не работает освещение",
+      body: "На лестничной площадке не горит свет.\nПрошу: проверить и восстановить освещение.",
+      warnings: [],
+    };
+    const generateRequest = vi
+      .fn<LlmGateway["generateRequest"]>()
+      .mockResolvedValue(generatedRequest);
+    const gateway: LlmGateway = { generateRequest };
+    const input = {
+      description: "На лестничной площадке не горит свет",
+      location: "Третий этаж",
+    };
+
+    const response = await injectGenerate(input, gateway);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(generatedRequest);
+    expect(generateRequest).toHaveBeenCalledOnce();
+    expect(generateRequest).toHaveBeenCalledWith(input);
+  });
+
   it("passes valid input to the disabled gateway and returns its public error", async () => {
     const gateway = new DisabledLlmGateway();
     const generateRequest = vi.spyOn(gateway, "generateRequest");
