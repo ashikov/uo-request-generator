@@ -7,21 +7,41 @@
 
 ## Текущий статус
 
-Репозиторий содержит рабочий модульный монолит. Форма, HTTP API и
-OpenAiCompatibleGateway для Yandex GPT реализованы. Без настройки LLM запрос
-завершается контролируемой ошибкой и не создаёт фиктивную заявку.
+Репозиторий содержит рабочий модульный монолит. Форма, HTTP API и универсальный
+`OpenAiCompatibleGateway` реализованы. Yandex AI — одна из поддерживаемых
+конфигураций этого gateway, а не отдельный транспорт.
 
-### Переменные окружения для Yandex GPT
+Коннектор поддерживает совместимое подмножество Chat Completions API. Провайдер
+должен возвращать текст заявки в `choices[0].message.content`.
 
-| Переменная | Обязательная | Описание |
-| --- | --- | --- |
-| `LLM_API_KEY` | да | Ключ API Yandex |
-| `LLM_FOLDER_ID` | да, если нет `LLM_MODEL` | Каталог в Yandex Cloud (модель конструируется как `gpt://{FOLDER_ID}/yandexgpt/latest`) |
-| `LLM_MODEL` | да, если нет `LLM_FOLDER_ID` | Модель (например `gpt://{FOLDER_ID}/yandexgpt/latest`, `gpt-4o-mini`) |
-| `LLM_AUTH_SCHEME` | нет | Схема авторизации: `Api-Key` (по умолчанию для Yandex) или `Bearer` |
-| `LLM_API_URL` | нет | URL API (по умолчанию Yandex GPT) |
+### Настройка LLM-провайдера
 
 Создайте файл `.env` в корне проекта на основе `.env.example`.
+
+Для Yandex AI достаточно API-ключа и идентификатора каталога:
+
+```dotenv
+LLM_API_KEY=ваш_api_ключ
+LLM_FOLDER_ID=ваш_folder_id
+```
+
+Приложение использует Yandex endpoint, схему `Api-Key` и URI модели
+`gpt://<LLM_FOLDER_ID>/yandexgpt/latest`. Модель можно переопределить через
+`LLM_MODEL`.
+
+Для другого OpenAI-compatible провайдера явно задайте URL, ключ, схему
+авторизации и модель:
+
+```dotenv
+LLM_API_URL=https://provider.example/v1/chat/completions
+LLM_API_KEY=ваш_api_ключ
+LLM_AUTH_SCHEME=Bearer
+LLM_MODEL=provider-model-name
+```
+
+Без API-ключа или при неполной конфигурации реальный gateway не создаётся.
+Приложение использует `DisabledLlmGateway`, а API возвращает контролируемый
+ответ `503` без фиктивной заявки.
 
 ## Структура
 
@@ -40,6 +60,10 @@ make compose
 ```
 
 Приложение будет доступно по адресу `http://localhost:3000`.
+Необходим Docker Compose 2.24.0 или новее: корневой `.env` подключается как
+необязательный env-файл. Поэтому контейнер запускается и в режиме заглушки, а
+при наличии `.env` получает заданные `LLM_*` переменные. Файл `.env` исключён из
+контекста сборки и репозитория.
 
 Для разработки без контейнера нужны Node.js 26.3.0 и pnpm 11.12.0:
 
