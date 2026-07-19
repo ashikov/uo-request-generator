@@ -74,7 +74,7 @@ pnpm check
 ```text
 feat: add result copy action
 fix: handle provider timeout
- docs: document issue workflow
+docs: document issue workflow
 ```
 
 ## Pull request
