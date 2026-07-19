@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenAiCompatibleGateway } from "../src";
+import { OpenAiCompatibleGateway, type OpenAiCompatibleGatewayConfig } from "../src";
 
 const MOCK_API_KEY = "test-key-123";
 const VALID_INPUT = { description: "На лестничной площадке не горит свет" };
+const GATEWAY_CONFIG: OpenAiCompatibleGatewayConfig = {
+  apiUrl: "https://provider.example/v1/chat/completions",
+  apiKey: MOCK_API_KEY,
+  model: "test-model",
+  authScheme: "Api-Key",
+};
 
 const VALID_LLM_TEXT = [
   "ЗАГОЛОВОК: Не работает освещение на этаже",
@@ -25,25 +31,29 @@ function createMockFetch(llmText: string, status = 200) {
     .mockResolvedValue(new Response(JSON.stringify(body), { status }));
 }
 
+function createGateway(config: Partial<OpenAiCompatibleGatewayConfig> = {}) {
+  return new OpenAiCompatibleGateway({ ...GATEWAY_CONFIG, ...config });
+}
+
 describe("OpenAiCompatibleGateway", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it("отклоняет пустой API-ключ", () => {
-    expect(() => new OpenAiCompatibleGateway({ apiKey: "" })).toThrow("LLM_API_KEY");
+    expect(() => createGateway({ apiKey: "" })).toThrow("LLM_API_KEY");
   });
 
   it("отправляет запрос с корректным телом и парсит ответ", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
     const result = await gateway.generateRequest(VALID_INPUT);
 
     expect(result).toEqual(VALID_LLM_RESPONSE);
 
     const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
-    expect(callBody.model).toBe("yandexgpt/latest");
+    expect(callBody.model).toBe("test-model");
     expect(callBody.messages).toHaveLength(2);
     expect(callBody.messages[0]?.role).toBe("system");
     expect(callBody.messages[1]?.role).toBe("user");
@@ -56,10 +66,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("использует переданную authScheme", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
-    const gateway = new OpenAiCompatibleGateway({
-      apiKey: MOCK_API_KEY,
-      authScheme: "Bearer",
-    });
+    const gateway = createGateway({ authScheme: "Bearer" });
 
     await gateway.generateRequest(VALID_INPUT);
 
@@ -70,7 +77,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("бросает ошибку при HTTP-ошибке", async () => {
     createMockFetch("", 503);
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
       "Generation provider is not configured",
@@ -80,7 +87,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("бросает ошибку при пустом ответе", async () => {
     createMockFetch("");
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
       "LLM API вернул пустой ответ",
@@ -100,7 +107,7 @@ describe("OpenAiCompatibleGateway", () => {
 
     createMockFetch(text);
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     const result = await gateway.generateRequest(VALID_INPUT);
 
@@ -112,8 +119,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("принимает кастомный URL и модель", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
-    const gateway = new OpenAiCompatibleGateway({
-      apiKey: MOCK_API_KEY,
+    const gateway = createGateway({
       apiUrl: "https://custom.api.com/v1/chat/completions",
       model: "custom-model",
     });
@@ -129,8 +135,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("передаёт extraHeaders в запрос", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
-    const gateway = new OpenAiCompatibleGateway({
-      apiKey: MOCK_API_KEY,
+    const gateway = createGateway({
       extraHeaders: { "x-folder-id": "test-folder" },
     });
 
@@ -143,7 +148,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("бросает GenerationProviderUnavailableError при сетевой ошибке", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
       "Generation provider is not configured",
@@ -155,7 +160,7 @@ describe("OpenAiCompatibleGateway", () => {
       new DOMException("The operation was aborted", "AbortError"),
     );
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
       "Generation provider is not configured",
@@ -165,7 +170,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("бросает GenerationProviderUnavailableError при невалидном JSON от API", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json", { status: 200 }));
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
       "Generation provider is not configured",
@@ -177,7 +182,7 @@ describe("OpenAiCompatibleGateway", () => {
       new Response(JSON.stringify({ wrong: "data" }), { status: 200 }),
     );
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
       "Generation provider is not configured",
@@ -190,7 +195,7 @@ describe("OpenAiCompatibleGateway", () => {
       new Response(JSON.stringify(body), { status: 200 }),
     );
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
       "LLM API вернул пустой ответ",
@@ -200,7 +205,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("включает location в запрос, если он передан", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
 
     await gateway.generateRequest({
       description: "Течёт кран",
@@ -221,7 +226,7 @@ describe("OpenAiCompatibleGateway", () => {
 
     createMockFetch(text);
 
-    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const gateway = createGateway();
     const result = await gateway.generateRequest(VALID_INPUT);
 
     expect(result.title).toBe(prefix);

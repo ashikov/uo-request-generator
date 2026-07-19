@@ -9,14 +9,11 @@ import { z } from "zod";
 import { GenerationProviderUnavailableError } from "./disabled-llm-gateway.js";
 
 export type OpenAiCompatibleGatewayConfig = {
-  apiUrl?: string;
+  apiUrl: string;
   apiKey: string;
-  model?: string;
-  /** Схема авторизации: "Api-Key" (для Yandex AI) или "Bearer" (для OpenAI/Groq) */
-  authScheme?: string;
-  /** Заголовки, которые нужно добавить к запросу (например x-folder-id для Yandex AI) */
+  model: string;
+  authScheme: string;
   extraHeaders?: Record<string, string>;
-  /** Таймаут HTTP-запроса в миллисекундах (по умолчанию 30 000) */
   timeoutMs?: number;
 };
 
@@ -42,9 +39,6 @@ const openAiChatCompletionResponseSchema = z.object({
     )
     .min(1),
 });
-
-/** @see https://yandex.cloud/ru/docs/yandexgpt/api-ref/v1/ */
-const DEFAULT_API_URL = "https://ai.api.cloud.yandex.net/v1/chat/completions";
 
 const SYSTEM_PROMPT = [
   "Ты — помощник жителя многоквартирного дома. Составь короткую заявку для управляющей организации (УО) по описанию проблемы.",
@@ -148,10 +142,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       throw new Error("LLM_API_KEY не может быть пустым");
     }
 
-    this.apiUrl = config.apiUrl ?? DEFAULT_API_URL;
+    this.apiUrl = config.apiUrl;
     this.apiKey = config.apiKey;
-    this.model = config.model ?? "yandexgpt/latest";
-    this.authScheme = config.authScheme ?? "Api-Key";
+    this.model = config.model;
+    this.authScheme = config.authScheme;
     this.extraHeaders = config.extraHeaders ?? {};
     this.timeoutMs = config.timeoutMs ?? 30_000;
   }
