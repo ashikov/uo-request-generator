@@ -210,4 +210,21 @@ describe("OpenAiCompatibleGateway", () => {
     const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     expect(callBody.messages[1]?.content).toContain("Кухня");
   });
+
+  it("безопасно обрезает текст с эмодзи на границе лимита", async () => {
+    const emoji = "🎉";
+    const titleMax = 120;
+    const prefix = "а".repeat(titleMax - 1);
+    const title = prefix + emoji;
+
+    const text = [`ЗАГОЛОВОК: ${title}`, "", "Течёт кран. Прошу: отремонтировать."].join("\n");
+
+    createMockFetch(text);
+
+    const gateway = new OpenAiCompatibleGateway({ apiKey: MOCK_API_KEY });
+    const result = await gateway.generateRequest(VALID_INPUT);
+
+    expect(result.title).toBe(prefix);
+    expect(result.title.length).toBe(titleMax - 1);
+  });
 });

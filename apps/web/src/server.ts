@@ -33,6 +33,10 @@ function createLlmGateway() {
     userModel ??
     (folderId !== undefined && folderId !== "" ? `gpt://${folderId}/yandexgpt/latest` : undefined);
 
+  if (model === undefined) {
+    return undefined;
+  }
+
   return new OpenAiCompatibleGateway({
     apiKey,
     ...(apiUrl !== undefined ? { apiUrl } : {}),
