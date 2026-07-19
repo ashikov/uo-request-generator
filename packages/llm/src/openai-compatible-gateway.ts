@@ -95,7 +95,7 @@ function parseResponse(text: string): GenerateRequestResult {
     .filter((l) => l.length > 0)
     .join("\n");
 
-  if (!body.includes("Прошу:")) {
+  if (body.length > generateRequestLimits.result.bodyMax || !body.includes("Прошу:")) {
     throw new Error("LLM вернул некорректный формат заявки");
   }
 
@@ -118,7 +118,7 @@ function parseResponse(text: string): GenerateRequestResult {
 
   const result = generateRequestResultSchema.safeParse({
     title: truncateToLength(title, generateRequestLimits.result.titleMax),
-    body: truncateToLength(body, generateRequestLimits.result.bodyMax),
+    body,
     warnings: validWarnings,
   });
 
