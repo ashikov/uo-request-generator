@@ -1,5 +1,5 @@
-import { OpenAiCompatibleGateway } from "@uo-request-generator/llm";
 import { createApp } from "./app.js";
+import { createLlmGateway } from "./llm-config.js";
 
 const DEFAULT_PORT = 3000;
 
@@ -12,43 +12,8 @@ function readPort(value: string | undefined): number {
   return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : DEFAULT_PORT;
 }
 
-function createLlmGateway() {
-  const apiKey = process.env.LLM_API_KEY;
-
-  if (apiKey === undefined || apiKey === "") {
-    return undefined;
-  }
-
-  const apiUrl = process.env.LLM_API_URL;
-  const userModel = process.env.LLM_MODEL;
-  const authScheme = process.env.LLM_AUTH_SCHEME;
-  const folderId = process.env.LLM_FOLDER_ID;
-
-  const extraHeaders: Record<string, string> = {};
-  if (folderId !== undefined && folderId !== "") {
-    extraHeaders["x-folder-id"] = folderId;
-  }
-
-  const model =
-    userModel ??
-    (folderId !== undefined && folderId !== "" ? `gpt://${folderId}/yandexgpt/latest` : undefined);
-
-  if (model === undefined) {
-    return undefined;
-  }
-
-  return new OpenAiCompatibleGateway({
-    apiKey,
-    ...(apiUrl !== undefined ? { apiUrl } : {}),
-    ...(model !== undefined ? { model } : {}),
-    ...(authScheme !== undefined ? { authScheme } : {}),
-    ...(Object.keys(extraHeaders).length > 0 ? { extraHeaders } : {}),
-  });
-}
-
 async function main(): Promise<void> {
-  const llmGateway = createLlmGateway();
-  const app = llmGateway !== undefined ? createApp({ llmGateway }) : createApp();
+  const app = createApp({ llmGateway: createLlmGateway(process.env) });
   let isClosing = false;
 
   async function close(): Promise<void> {
