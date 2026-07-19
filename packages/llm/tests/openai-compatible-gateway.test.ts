@@ -1,3 +1,4 @@
+import { generateRequestLimits } from "@uo-request-generator/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAiCompatibleGateway, type OpenAiCompatibleGatewayConfig } from "../src";
 
@@ -114,6 +115,54 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.title).toBe("Течь на кухне");
     expect(result.body).toContain("отремонтировать");
     expect(result.warnings).toHaveLength(2);
+  });
+
+  it("принимает body в пределах лимита", async () => {
+    const request = "Прошу: устранить неисправность.";
+    const description = "а".repeat(generateRequestLimits.result.bodyMax - request.length - 1);
+    const body = `${description}\n${request}`;
+    const text = ["ЗАГОЛОВОК: Тестовая заявка", "", body].join("\n");
+
+    createMockFetch(text);
+
+    const result = await createGateway().generateRequest(VALID_INPUT);
+
+    expect(result.body).toBe(body);
+    expect(result.body).toHaveLength(generateRequestLimits.result.bodyMax);
+  });
+
+  it("отклоняет body длиннее лимита", async () => {
+    const body = `Прошу: ${"а".repeat(generateRequestLimits.result.bodyMax)}`;
+    const text = ["ЗАГОЛОВОК: Тестовая заявка", "", body].join("\n");
+
+    createMockFetch(text);
+
+    await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
+      "LLM вернул некорректный формат заявки",
+    );
+  });
+
+  it("отклоняет ответ, если раздел «Прошу:» находится после границы body", async () => {
+    const body = `${"а".repeat(generateRequestLimits.result.bodyMax)}\nПрошу: устранить неисправность.`;
+    const text = ["ЗАГОЛОВОК: Тестовая заявка", "", body].join("\n");
+
+    createMockFetch(text);
+
+    await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
+      "LLM вернул некорректный формат заявки",
+    );
+  });
+
+  it("отклоняет body без раздела «Прошу:»", async () => {
+    const text = ["ЗАГОЛОВОК: Тестовая заявка", "", "На лестничной площадке не горит свет."].join(
+      "\n",
+    );
+
+    createMockFetch(text);
+
+    await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
+      "LLM вернул некорректный формат заявки",
+    );
   });
 
   it("принимает кастомный URL и модель", async () => {
