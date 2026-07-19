@@ -10,14 +10,15 @@ flowchart LR
     Browser[HTML, CSS и browser JavaScript] --> Route[Fastify API]
     Route --> Core[Схемы и порт core]
     Route --> Adapter[OpenAiCompatibleGateway / DisabledLlmGateway]
-    Adapter --> LLM[Yandex GPT / Контролируемая ошибка]
+    Adapter --> LLM[OpenAI-compatible провайдер / Контролируемая ошибка]
 ```
 
 ## Модули
 
 - `apps/web` содержит Fastify-сервер, HTTP-маршруты и статические файлы формы
 - `packages/core` содержит Zod-схемы, типы и интерфейс `LlmGateway`
-- `packages/llm` реализует `DisabledLlmGateway` (заглушка) и `OpenAiCompatibleGateway` (реальный вызов Yandex GPT / любого OpenAI-совместимого API)
+- `packages/llm` реализует `DisabledLlmGateway` и провайдер-независимый
+  `OpenAiCompatibleGateway` для совместимого подмножества Chat Completions API
 
 `web` зависит от `core` и `llm`, а `llm` зависит от `core`. Пакет `core` не знает
 о Fastify, HTTP, браузерном коде, переменных окружения приложения и
@@ -29,11 +30,11 @@ LLM-провайдерах.
 `POST /api/generate`. Fastify-маршрут повторно валидирует недоверенный ввод
 схемой из `core` и вызывает `LlmGateway`.
 
-При наличии `LLM_API_KEY` в окружении используется `OpenAiCompatibleGateway`:
-он отправляет промпт в OpenAI-совместимый LLM-провайдер (по умолчанию
-Yandex GPT) и парсит структурированный текст ответа. При отсутствии ключа
-используется `DisabledLlmGateway`, возвращающий контролируемую ошибку
-`generation_provider_unavailable`.
+Конфигурационный слой `apps/web` валидирует переменные окружения и передаёт в
+`OpenAiCompatibleGateway` готовые URL, модель, ключ и схему авторизации. Yandex
+AI настраивается в этом слое как один из OpenAI-compatible провайдеров. При
+отсутствующей или неполной конфигурации используется `DisabledLlmGateway`,
+возвращающий контролируемую ошибку `generation_provider_unavailable`.
 
 API не логирует пользовательский текст и не возвращает фиктивную заявку.
 Неизвестная ошибка возвращается как `internal_error` без внутренних деталей.
