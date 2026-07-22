@@ -11,6 +11,18 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
   const resultTitle = document.querySelector("#result-title");
   const resultPlaceholder = document.querySelector("#result-placeholder");
 
+  const apiErrorCodes = new Set([
+    "generation_provider_unavailable",
+    "internal_error",
+    "validation_error",
+  ]);
+  const generationResultLimits = {
+    title: 120,
+    body: 2500,
+    warnings: 5,
+    warning: 200,
+  };
+
   let currentResult = null;
   let copyOperationId = 0;
 
@@ -43,43 +55,68 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
     return undefined;
   }
 
-  async function submitRequest(input) {
-    const response = await fetch("/api/generate", {
+  function submitRequest(input) {
+    return fetch("/api/generate", {
       method: "POST",
       headers: {
         "content-type": "application/json",
       },
       body: JSON.stringify(input),
     });
-    const payload = await response.json();
-
-    return { payload, response };
   }
 
   function readErrorMessage(payload) {
-    if (typeof payload !== "object" || payload === null || !("error" in payload)) {
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      Object.keys(payload).length !== 1 ||
+      !("error" in payload)
+    ) {
       return undefined;
     }
 
     const error = payload.error;
-    if (typeof error !== "object" || error === null || !("message" in error)) {
+    if (
+      typeof error !== "object" ||
+      error === null ||
+      Object.keys(error).length !== 3 ||
+      !("code" in error) ||
+      !("message" in error) ||
+      !("requestId" in error) ||
+      !apiErrorCodes.has(error.code) ||
+      typeof error.message !== "string" ||
+      error.message.length === 0 ||
+      typeof error.requestId !== "string" ||
+      error.requestId.length === 0
+    ) {
       return undefined;
     }
 
-    return typeof error.message === "string" ? error.message : undefined;
+    return error.message;
   }
 
   function isGenerationResult(payload) {
     return (
       typeof payload === "object" &&
       payload !== null &&
+      Object.keys(payload).length === 3 &&
       "title" in payload &&
       typeof payload.title === "string" &&
+      payload.title.length > 0 &&
+      payload.title.length <= generationResultLimits.title &&
       "body" in payload &&
       typeof payload.body === "string" &&
+      payload.body.length > 0 &&
+      payload.body.length <= generationResultLimits.body &&
       "warnings" in payload &&
       Array.isArray(payload.warnings) &&
-      payload.warnings.every((warning) => typeof warning === "string")
+      payload.warnings.length <= generationResultLimits.warnings &&
+      payload.warnings.every(
+        (warning) =>
+          typeof warning === "string" &&
+          warning.length > 0 &&
+          warning.length <= generationResultLimits.warning,
+      )
     );
   }
 
@@ -177,7 +214,22 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
     setSubmitting(true);
 
     try {
-      const { payload, response } = await submitRequest(input);
+      let response;
+      try {
+        response = await submitRequest(input);
+      } catch {
+        renderError("Не удалось связаться с сервисом. Попробуйте позже");
+        return;
+      }
+
+      let payload;
+      try {
+        payload = await response.json();
+      } catch {
+        renderError("Сервис вернул некорректный ответ. Попробуйте позже");
+        return;
+      }
+
       if (!response.ok) {
         renderError(readErrorMessage(payload) ?? "Не удалось составить заявку");
         return;
@@ -189,8 +241,6 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
       }
 
       renderResult(payload);
-    } catch {
-      renderError("Не удалось связаться с сервисом. Попробуйте позже");
     } finally {
       setSubmitting(false);
     }
