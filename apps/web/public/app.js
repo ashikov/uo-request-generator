@@ -12,6 +12,7 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
   const resultPlaceholder = document.querySelector("#result-placeholder");
 
   let currentResult = null;
+  let copyOperationId = 0;
 
   function updateCharacterCount() {
     descriptionCount.textContent = `${description.value.length} / ${description.maxLength}`;
@@ -101,6 +102,7 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
 
     const status = document.createElement("span");
     status.className = `copy-status copy-status--${type}`;
+    status.role = "status";
     status.textContent = message;
     resultArea.append(status);
   }
@@ -108,8 +110,11 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
   function handleCopy() {
     if (currentResult === null) return;
 
+    const operationId = copyOperationId;
     const text = formatCopyText(currentResult.title, currentResult.body);
     copyToClipboard(text).then(({ success }) => {
+      if (operationId !== copyOperationId) return;
+
       if (success) {
         showCopyStatus("success", "Скопировано");
       } else {
@@ -148,6 +153,7 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
 
   function resetResult() {
     currentResult = null;
+    copyOperationId++;
     resultArea.replaceChildren(resultTitle, resultPlaceholder);
   }
 
