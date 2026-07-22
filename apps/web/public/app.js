@@ -1,3 +1,5 @@
+import { formatCopyText, copyToClipboard } from "./copy-utils.js";
+
 (() => {
   const form = document.querySelector("#request-form");
   const description = document.querySelector("#description");
@@ -8,6 +10,8 @@
   const resultArea = document.querySelector("#result-area");
   const resultTitle = document.querySelector("#result-title");
   const resultPlaceholder = document.querySelector("#result-placeholder");
+
+  let currentResult = null;
 
   function updateCharacterCount() {
     descriptionCount.textContent = `${description.value.length} / ${description.maxLength}`;
@@ -89,14 +93,47 @@
     errorArea.hidden = true;
   }
 
+  function showCopyStatus(type, message) {
+    const existing = resultArea.querySelector(".copy-status");
+    if (existing !== null) {
+      existing.remove();
+    }
+
+    const status = document.createElement("span");
+    status.className = `copy-status copy-status--${type}`;
+    status.textContent = message;
+    resultArea.append(status);
+  }
+
+  function handleCopy() {
+    if (currentResult === null) return;
+
+    const text = formatCopyText(currentResult.title, currentResult.body);
+    copyToClipboard(text).then(({ success }) => {
+      if (success) {
+        showCopyStatus("success", "Скопировано");
+      } else {
+        showCopyStatus("error", "Не удалось скопировать. Попробуйте выделить текст вручную");
+      }
+    });
+  }
+
   function renderResult(result) {
+    currentResult = result;
+
     const title = document.createElement("h3");
     title.textContent = result.title;
 
     const body = document.createElement("p");
     body.textContent = result.body;
 
-    resultArea.replaceChildren(resultTitle, title, body);
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "copy-button";
+    copyButton.textContent = "Скопировать заявку";
+    copyButton.addEventListener("click", handleCopy);
+
+    resultArea.replaceChildren(resultTitle, title, body, copyButton);
 
     if (result.warnings.length > 0) {
       const warnings = document.createElement("ul");
@@ -110,6 +147,7 @@
   }
 
   function resetResult() {
+    currentResult = null;
     resultArea.replaceChildren(resultTitle, resultPlaceholder);
   }
 
