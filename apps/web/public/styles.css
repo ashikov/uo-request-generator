@@ -159,6 +159,43 @@ button:disabled {
   font-size: 0.875rem;
 }
 
+.copy-button {
+  margin-top: 16px;
+  border: 1px solid #9aa5b1;
+  background: transparent;
+  color: #17202a;
+  font-weight: 600;
+}
+
+.copy-button:hover:not(:disabled) {
+  background: #f3f5f7;
+}
+
+.copy-button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.copy-status {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.875rem;
+}
+
+.copy-status--success {
+  border-left: 4px solid #1f8b4c;
+  background: #e6f7ec;
+  color: #0d6635;
+  padding: 8px 12px;
+}
+
+.copy-status--error {
+  border-left: 4px solid #c42b1c;
+  background: #fff1f0;
+  color: #8f1d13;
+  padding: 8px 12px;
+}
+
 @media (max-width: 560px) {
   .page-shell {
     padding: 0;
