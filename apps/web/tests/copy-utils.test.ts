@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi, beforeEach } from "vitest";
+/// <reference lib="dom" />
+import { describe, expect, it, vi, beforeAll, beforeEach } from "vitest";
 import { formatCopyText, copyToClipboard } from "../public/copy-utils.js";
 
 describe("formatCopyText", () => {
@@ -58,63 +59,103 @@ describe("copyToClipboard", () => {
   });
 });
 
-describe("copy status element", () => {
-  it('созданный элемент статуса имеет role="status"', () => {
-    const span = document.createElement("span");
-    span.className = "copy-status copy-status--success";
-    span.role = "status";
-    span.textContent = "Скопировано";
+const mockResult = {
+  title: "Заголовок заявки",
+  body: "Тело заявки",
+  warnings: [],
+};
 
-    expect(span.getAttribute("role")).toBe("status");
-  });
-});
+function setupFormDOM() {
+  document.body.innerHTML = `
+    <form id="request-form">
+      <textarea id="description" minlength="10" maxlength="500">
+        Описание неисправности для проверки работы формы
+      </textarea>
+      <input id="location" maxlength="200" />
+      <button id="submit-button" type="submit">Составить заявку</button>
+    </form>
+    <div id="error-area" hidden></div>
+    <div id="result-area">
+      <h2 id="result-title">Результат</h2>
+      <p id="result-placeholder">Заполните форму</p>
+    </div>
+    <span id="description-count">0 / 500</span>
+  `;
+}
 
-describe("race condition guard", () => {
-  it("устаревший статус не показывается после новой генерации", async () => {
-    let copyOperationId = 0;
-    let statusShown = false;
-
-    const simulateCopy = () => {
-      const operationId = copyOperationId;
-      return new Promise<void>((resolve) => {
-        setTimeout(() => {
-          if (operationId !== copyOperationId) {
-            resolve();
-            return;
-          }
-          statusShown = true;
-          resolve();
-        }, 5);
-      });
-    };
-
-    const copyPromise = simulateCopy();
-    copyOperationId++;
-    await copyPromise;
-
-    expect(statusShown).toBe(false);
+describe("copy button in app", () => {
+  beforeAll(() => {
+    setupFormDOM();
+    return import("../public/app.js");
   });
 
-  it("статус показывается если не было новой генерации", async () => {
-    const copyOperationId = 0;
-    let statusShown = false;
+  beforeEach(() => {
+    const textarea = document.getElementById("description") as HTMLTextAreaElement;
+    textarea.value = "Описание неисправности для проверки работы формы";
+    (document.getElementById("location") as HTMLInputElement).value = "";
+    const submitBtn = document.getElementById("submit-button") as HTMLButtonElement;
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Составить заявку";
 
-    const simulateCopy = () => {
-      const operationId = copyOperationId;
-      return new Promise<void>((resolve) => {
-        setTimeout(() => {
-          if (operationId !== copyOperationId) {
-            resolve();
-            return;
-          }
-          statusShown = true;
-          resolve();
-        }, 5);
-      });
-    };
+    const errorArea = document.getElementById("error-area") as HTMLElement;
+    errorArea.textContent = "";
+    errorArea.hidden = true;
 
-    await simulateCopy();
+    const resultArea = document.getElementById("result-area") as HTMLElement;
+    const resultTitle = document.getElementById("result-title") as HTMLElement;
+    const resultPlaceholder = document.getElementById("result-placeholder") as HTMLElement;
+    resultArea.replaceChildren(resultTitle, resultPlaceholder);
 
-    expect(statusShown).toBe(true);
+    const descriptionCount = document.getElementById("description-count") as HTMLElement;
+    descriptionCount.textContent = "0 / 500";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockResult),
+      }),
+    );
+    vi.stubGlobal("navigator", {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+  });
+
+  it('добавляет role="status" элементу статуса после копирования', async () => {
+    document.getElementById("request-form")?.dispatchEvent(new Event("submit"));
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".copy-button")).not.toBeNull();
+    });
+
+    (document.querySelector(".copy-button") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      const status = document.querySelector(".copy-status");
+      expect(status).not.toBeNull();
+      expect(status?.getAttribute("role")).toBe("status");
+    });
+  });
+
+  it("не показывает старый статус после повторной отправки формы", async () => {
+    const form = document.getElementById("request-form") as HTMLFormElement;
+    form.dispatchEvent(new Event("submit"));
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".copy-button")).not.toBeNull();
+    });
+
+    (document.querySelector(".copy-button") as HTMLButtonElement).click();
+    form.dispatchEvent(new Event("submit"));
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".copy-button")).not.toBeNull();
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(document.querySelector(".copy-status")).toBeNull();
   });
 });
