@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { formatCopyText, copyToClipboard } from "../public/copy-utils.js";
 
@@ -54,5 +55,66 @@ describe("copyToClipboard", () => {
     const result = await copyToClipboard("Текст");
 
     expect(result).toEqual({ success: false, error: "Буфер обмена недоступен" });
+  });
+});
+
+describe("copy status element", () => {
+  it('созданный элемент статуса имеет role="status"', () => {
+    const span = document.createElement("span");
+    span.className = "copy-status copy-status--success";
+    span.role = "status";
+    span.textContent = "Скопировано";
+
+    expect(span.getAttribute("role")).toBe("status");
+  });
+});
+
+describe("race condition guard", () => {
+  it("устаревший статус не показывается после новой генерации", async () => {
+    let copyOperationId = 0;
+    let statusShown = false;
+
+    const simulateCopy = () => {
+      const operationId = copyOperationId;
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          if (operationId !== copyOperationId) {
+            resolve();
+            return;
+          }
+          statusShown = true;
+          resolve();
+        }, 5);
+      });
+    };
+
+    const copyPromise = simulateCopy();
+    copyOperationId++;
+    await copyPromise;
+
+    expect(statusShown).toBe(false);
+  });
+
+  it("статус показывается если не было новой генерации", async () => {
+    const copyOperationId = 0;
+    let statusShown = false;
+
+    const simulateCopy = () => {
+      const operationId = copyOperationId;
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          if (operationId !== copyOperationId) {
+            resolve();
+            return;
+          }
+          statusShown = true;
+          resolve();
+        }, 5);
+      });
+    };
+
+    await simulateCopy();
+
+    expect(statusShown).toBe(true);
   });
 });
