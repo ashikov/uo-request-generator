@@ -13,9 +13,14 @@ export type OpenAiCompatibleGatewayConfig = {
   apiKey: string;
   model: string;
   authScheme: string;
+  apiProtocol: LlmApiProtocol;
   extraHeaders?: Record<string, string>;
   timeoutMs?: number;
+  maxOutputTokens?: number;
 };
+
+export const LLM_API_PROTOCOLS = ["chat-completions", "responses"] as const;
+export type LlmApiProtocol = (typeof LLM_API_PROTOCOLS)[number];
 
 type OpenAiChatMessage = {
   role: "system" | "user";
@@ -26,6 +31,14 @@ type OpenAiChatCompletionRequest = {
   model: string;
   messages: OpenAiChatMessage[];
   temperature: number;
+};
+
+type OpenAiResponsesRequest = {
+  model: string;
+  instructions: string;
+  input: string;
+  temperature: number;
+  max_output_tokens: number;
 };
 
 const openAiChatCompletionResponseSchema = z.object({
@@ -39,6 +52,13 @@ const openAiChatCompletionResponseSchema = z.object({
     )
     .min(1),
 });
+
+const openAiResponsesResponseSchema = z.object({
+  output_text: z.string(),
+});
+
+const DEFAULT_MAX_OUTPUT_TOKENS = 1000;
+const TEMPERATURE = 0.3;
 
 const SYSTEM_PROMPT = [
   "Ты — помощник жителя многоквартирного дома. Составь короткую заявку для управляющей организации (УО) по описанию проблемы.",
@@ -63,6 +83,58 @@ const SYSTEM_PROMPT = [
   "ПРЕДУПРЕЖДЕНИЯ:",
   "— <предупреждение, если нужно>",
 ].join("\n");
+
+function createRequestBody(
+  apiProtocol: LlmApiProtocol,
+  model: string,
+  userMessage: string,
+  maxOutputTokens: number,
+): OpenAiChatCompletionRequest | OpenAiResponsesRequest {
+  if (apiProtocol === "responses") {
+    return {
+      model,
+      instructions: SYSTEM_PROMPT,
+      input: userMessage,
+      temperature: TEMPERATURE,
+      max_output_tokens: maxOutputTokens,
+    };
+  }
+
+  return {
+    model,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userMessage },
+    ],
+    temperature: TEMPERATURE,
+  };
+}
+
+function extractResponseText(apiProtocol: LlmApiProtocol, responseBody: unknown): string {
+  if (apiProtocol === "responses") {
+    const apiResult = openAiResponsesResponseSchema.safeParse(responseBody);
+
+    if (!apiResult.success) {
+      throw new GenerationProviderUnavailableError();
+    }
+
+    return apiResult.data.output_text;
+  }
+
+  const apiResult = openAiChatCompletionResponseSchema.safeParse(responseBody);
+
+  if (!apiResult.success) {
+    throw new GenerationProviderUnavailableError();
+  }
+
+  const firstChoice = apiResult.data.choices[0];
+
+  if (firstChoice === undefined) {
+    throw new GenerationProviderUnavailableError();
+  }
+
+  return firstChoice.message.content;
+}
 
 function truncateToLength(str: string, max: number): string {
   let result = "";
@@ -134,8 +206,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly authScheme: string;
+  private readonly apiProtocol: LlmApiProtocol;
   private readonly extraHeaders: Record<string, string>;
   private readonly timeoutMs: number;
+  private readonly maxOutputTokens: number;
 
   constructor(config: OpenAiCompatibleGatewayConfig) {
     if (!config.apiKey) {
@@ -146,8 +220,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.authScheme = config.authScheme;
+    this.apiProtocol = config.apiProtocol;
     this.extraHeaders = config.extraHeaders ?? {};
     this.timeoutMs = config.timeoutMs ?? 30_000;
+    this.maxOutputTokens = config.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
   }
 
   async generateRequest(input: GenerateRequestInput): Promise<GenerateRequestResult> {
@@ -155,14 +231,12 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       ? `Проблема: ${input.description}\n\nМесто: ${input.location}`
       : `Проблема: ${input.description}`;
 
-    const requestBody: OpenAiChatCompletionRequest = {
-      model: this.model,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      temperature: 0.3,
-    };
+    const requestBody = createRequestBody(
+      this.apiProtocol,
+      this.model,
+      userMessage,
+      this.maxOutputTokens,
+    );
 
     let response: Response;
 
@@ -197,19 +271,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       throw new GenerationProviderUnavailableError();
     }
 
-    const apiResult = openAiChatCompletionResponseSchema.safeParse(data);
-
-    if (!apiResult.success) {
-      throw new GenerationProviderUnavailableError();
-    }
-
-    const firstChoice = apiResult.data.choices[0];
-
-    if (firstChoice === undefined) {
-      throw new GenerationProviderUnavailableError();
-    }
-
-    const content = firstChoice.message.content;
+    const content = extractResponseText(this.apiProtocol, data);
 
     if (!content || content.trim().length === 0) {
       throw new Error("LLM API вернул пустой ответ");
