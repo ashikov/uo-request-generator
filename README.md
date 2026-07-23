@@ -15,6 +15,8 @@
 API. Для Chat Completions текст заявки читается из
 `choices[0].message.content`. Для Responses API gateway нормализует
 Yandex-compatible и стандартный сырой HTTP-ответ без SDK провайдера.
+Упрощённый Yandex-compatible ответ с непустым `output_text` может не содержать
+`status`, а стандартный вложенный ответ принимается только при `status: completed`.
 
 ### Настройка LLM-провайдера
 

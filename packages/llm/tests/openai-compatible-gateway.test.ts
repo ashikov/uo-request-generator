@@ -41,12 +41,14 @@ function createResponsesMockFetch(responseBody: unknown, status = 200) {
 
 function createOpenAiResponsesBody(
   outputText: unknown = VALID_LLM_TEXT,
-  status: unknown = "completed",
+  options: { includeStatus?: boolean; status?: unknown } = {},
 ) {
+  const { includeStatus = true, status = "completed" } = options;
+
   return {
     id: "resp_test",
     object: "response",
-    status,
+    ...(includeStatus ? { status } : {}),
     output: [
       {
         id: "msg_test",
@@ -373,7 +375,16 @@ describe("OpenAiCompatibleGateway", () => {
     });
 
     it("отклоняет incomplete-ответ с валидным вложенным текстом", async () => {
-      createResponsesMockFetch(createOpenAiResponsesBody(VALID_LLM_TEXT, "incomplete"));
+      createResponsesMockFetch(createOpenAiResponsesBody(VALID_LLM_TEXT, { status: "incomplete" }));
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+        "Generation provider is not configured",
+      );
+    });
+
+    it("отклоняет стандартный вложенный Responses-ответ без status", async () => {
+      createResponsesMockFetch(createOpenAiResponsesBody(VALID_LLM_TEXT, { includeStatus: false }));
       const gateway = createGateway(responsesConfig);
 
       await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
@@ -512,7 +523,7 @@ describe("OpenAiCompatibleGateway", () => {
       ["пустом", ""],
       ["состоящем только из пробелов", "   "],
       ["равном null", null],
-    ])("использует вложенный текст при %s верхнеуровневом output_text", async (_caseName, text) => {
+    ])("использует вложенный текст при %s верхнеуровневом output_text и status completed", async (_caseName, text) => {
       createResponsesMockFetch({
         ...createOpenAiResponsesBody(),
         output_text: text,
@@ -520,6 +531,22 @@ describe("OpenAiCompatibleGateway", () => {
       const gateway = createGateway(responsesConfig);
 
       await expect(gateway.generateRequest(VALID_INPUT)).resolves.toEqual(VALID_LLM_RESPONSE);
+    });
+
+    it.each([
+      ["пустом", ""],
+      ["состоящем только из пробелов", "   "],
+      ["равном null", null],
+    ])("отклоняет вложенный текст при %s верхнеуровневом output_text без status", async (_caseName, text) => {
+      createResponsesMockFetch({
+        ...createOpenAiResponsesBody(VALID_LLM_TEXT, { includeStatus: false }),
+        output_text: text,
+      });
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+        "Generation provider is not configured",
+      );
     });
 
     it("передаёт location в input", async () => {
@@ -577,10 +604,11 @@ describe("OpenAiCompatibleGateway", () => {
     });
 
     it.each([
-      ["без текстовых элементов", { output: [] }],
+      ["без текстовых элементов", { status: "completed", output: [] }],
       [
         "только с refusal",
         {
+          status: "completed",
           output: [
             {
               type: "message",
