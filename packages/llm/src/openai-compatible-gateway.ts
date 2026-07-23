@@ -53,9 +53,39 @@ const openAiChatCompletionResponseSchema = z.object({
     .min(1),
 });
 
-const openAiResponsesResponseSchema = z.object({
-  output_text: z.string(),
-});
+const openAiResponsesResponseSchema = z
+  .object({
+    output_text: z.string().nullable().optional(),
+    output: z.array(z.unknown()).optional(),
+  })
+  .passthrough()
+  .refine((response) => response.output_text !== undefined || response.output !== undefined);
+
+const openAiResponsesOutputItemSchema = z
+  .object({
+    type: z.string(),
+  })
+  .passthrough();
+
+const openAiResponsesMessageSchema = z
+  .object({
+    type: z.literal("message"),
+    content: z.array(z.unknown()),
+  })
+  .passthrough();
+
+const openAiResponsesContentItemSchema = z
+  .object({
+    type: z.string(),
+  })
+  .passthrough();
+
+const openAiResponsesOutputTextSchema = z
+  .object({
+    type: z.literal("output_text"),
+    text: z.string(),
+  })
+  .passthrough();
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 1000;
 const TEMPERATURE = 0.3;
@@ -110,15 +140,65 @@ function createRequestBody(
   };
 }
 
-function extractResponseText(apiProtocol: LlmApiProtocol, responseBody: unknown): string {
-  if (apiProtocol === "responses") {
-    const apiResult = openAiResponsesResponseSchema.safeParse(responseBody);
+function extractResponsesText(responseBody: unknown): string {
+  const responseResult = openAiResponsesResponseSchema.safeParse(responseBody);
 
-    if (!apiResult.success) {
+  if (!responseResult.success) {
+    throw new GenerationProviderUnavailableError();
+  }
+
+  const aggregatedText = responseResult.data.output_text;
+
+  if (typeof aggregatedText === "string" && aggregatedText.trim().length > 0) {
+    return aggregatedText;
+  }
+
+  const textParts: string[] = [];
+
+  for (const outputItem of responseResult.data.output ?? []) {
+    const outputItemResult = openAiResponsesOutputItemSchema.safeParse(outputItem);
+
+    if (!outputItemResult.success) {
       throw new GenerationProviderUnavailableError();
     }
 
-    return apiResult.data.output_text;
+    if (outputItemResult.data.type !== "message") {
+      continue;
+    }
+
+    const messageResult = openAiResponsesMessageSchema.safeParse(outputItem);
+
+    if (!messageResult.success) {
+      throw new GenerationProviderUnavailableError();
+    }
+
+    for (const contentItem of messageResult.data.content) {
+      const contentItemResult = openAiResponsesContentItemSchema.safeParse(contentItem);
+
+      if (!contentItemResult.success) {
+        throw new GenerationProviderUnavailableError();
+      }
+
+      if (contentItemResult.data.type !== "output_text") {
+        continue;
+      }
+
+      const outputTextResult = openAiResponsesOutputTextSchema.safeParse(contentItem);
+
+      if (!outputTextResult.success) {
+        throw new GenerationProviderUnavailableError();
+      }
+
+      textParts.push(outputTextResult.data.text);
+    }
+  }
+
+  return textParts.join("");
+}
+
+function extractResponseText(apiProtocol: LlmApiProtocol, responseBody: unknown): string {
+  if (apiProtocol === "responses") {
+    return extractResponsesText(responseBody);
   }
 
   const apiResult = openAiChatCompletionResponseSchema.safeParse(responseBody);

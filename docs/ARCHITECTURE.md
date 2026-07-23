@@ -56,7 +56,16 @@ Chat Completions получает `model`, `messages` и `temperature`. Текс
 из `choices[0].message.content`.
 
 Responses API получает `model`, `instructions`, `input`, `temperature` и
-`max_output_tokens`. Текст извлекается из верхнеуровневого `output_text`.
+`max_output_tokens`. Yandex-compatible ответ может содержать агрегированный
+текст в верхнеуровневом `output_text`. Стандартный сырой HTTP-ответ Responses
+API передаёт текст в блоках `output[].content[]` с типом `output_text`.
+
+Gateway сначала использует непустой верхнеуровневый `output_text`, а при его
+отсутствии последовательно объединяет `text` всех текстовых блоков в
+message-элементах. Нетекстовые, неизвестные и refusal-блоки не попадают во
+внутренний текст. После нормализации оба формата используют общий
+`parseResponse`. Проект не зависит от SDK провайдера.
+
 Streaming, tools, conversations, background responses и хранение `response_id`
 не поддерживаются.
 
