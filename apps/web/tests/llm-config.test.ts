@@ -123,6 +123,7 @@ describe("createLlmGateway", () => {
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
     expect(requestBody.model).toBe("gpt://test-folder-id/aliceai-llm-flash/latest");
     expect(requestBody.messages).toBeUndefined();
+    expect(requestBody.store).toBe(false);
   });
 
   it("переопределяет модель Yandex Responses через LLM_MODEL", async () => {
@@ -168,6 +169,7 @@ describe("createLlmGateway", () => {
     expect(requestBody.model).toBe("provider-model-name");
     expect(requestBody.messages !== undefined).toBe(apiProtocol === "chat-completions");
     expect(requestBody.input !== undefined).toBe(apiProtocol === "responses");
+    expect(requestBody.store).toBe(apiProtocol === "responses" ? false : undefined);
   });
 
   it("не определяет протокол по URL", async () => {

@@ -39,6 +39,7 @@ type OpenAiResponsesRequest = {
   input: string;
   temperature: number;
   max_output_tokens: number;
+  store: false;
 };
 
 const openAiChatCompletionResponseSchema = z.object({
@@ -55,6 +56,7 @@ const openAiChatCompletionResponseSchema = z.object({
 
 const openAiResponsesResponseSchema = z
   .object({
+    status: z.string().optional(),
     output_text: z.string().nullable().optional(),
     output: z.array(z.unknown()).optional(),
   })
@@ -127,6 +129,7 @@ function createRequestBody(
       input: userMessage,
       temperature: TEMPERATURE,
       max_output_tokens: maxOutputTokens,
+      store: false,
     };
   }
 
@@ -144,6 +147,10 @@ function extractResponsesText(responseBody: unknown): string {
   const responseResult = openAiResponsesResponseSchema.safeParse(responseBody);
 
   if (!responseResult.success) {
+    throw new GenerationProviderUnavailableError();
+  }
+
+  if (responseResult.data.status !== undefined && responseResult.data.status !== "completed") {
     throw new GenerationProviderUnavailableError();
   }
 

@@ -56,15 +56,19 @@ Chat Completions получает `model`, `messages` и `temperature`. Текс
 из `choices[0].message.content`.
 
 Responses API получает `model`, `instructions`, `input`, `temperature` и
-`max_output_tokens`. Yandex-compatible ответ может содержать агрегированный
-текст в верхнеуровневом `output_text`. Стандартный сырой HTTP-ответ Responses
-API передаёт текст в блоках `output[].content[]` с типом `output_text`.
+`max_output_tokens`, а также передаёт `store: false`: приложение не использует
+сохранённое состояние ответа. Yandex-compatible ответ может содержать
+агрегированный текст в верхнеуровневом `output_text`. Стандартный сырой
+HTTP-ответ Responses API передаёт текст в блоках `output[].content[]` с типом
+`output_text`.
 
-Gateway сначала использует непустой верхнеуровневый `output_text`, а при его
-отсутствии последовательно объединяет `text` всех текстовых блоков в
-message-элементах. Нетекстовые, неизвестные и refusal-блоки не попадают во
-внутренний текст. После нормализации оба формата используют общий
-`parseResponse`. Проект не зависит от SDK провайдера.
+Если провайдер передал `status`, gateway принимает текст только при значении
+`completed`. Отсутствие `status` допускается для совместимых упрощённых
+ответов. После этой проверки gateway сначала использует непустой
+верхнеуровневый `output_text`, а при его отсутствии последовательно объединяет
+`text` всех текстовых блоков в message-элементах. Нетекстовые, неизвестные и
+refusal-блоки не попадают во внутренний текст. После нормализации оба формата
+используют общий `parseResponse`. Проект не зависит от SDK провайдера.
 
 Streaming, tools, conversations, background responses и хранение `response_id`
 не поддерживаются.

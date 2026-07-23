@@ -39,11 +39,14 @@ function createResponsesMockFetch(responseBody: unknown, status = 200) {
     .mockResolvedValue(new Response(JSON.stringify(responseBody), { status }));
 }
 
-function createOpenAiResponsesBody(outputText: unknown = VALID_LLM_TEXT) {
+function createOpenAiResponsesBody(
+  outputText: unknown = VALID_LLM_TEXT,
+  status: unknown = "completed",
+) {
   return {
     id: "resp_test",
     object: "response",
-    status: "completed",
+    status,
     output: [
       {
         id: "msg_test",
@@ -329,7 +332,7 @@ describe("OpenAiCompatibleGateway", () => {
       authScheme: "Bearer",
     };
 
-    it("отправляет Responses-запрос и преобразует верхнеуровневый output_text в результат", async () => {
+    it("отправляет Responses-запрос с отключённым хранением и поддерживает output_text без status", async () => {
       const mockFetch = createResponsesMockFetch({ output_text: VALID_LLM_TEXT });
       const gateway = createGateway(responsesConfig);
 
@@ -345,15 +348,58 @@ describe("OpenAiCompatibleGateway", () => {
         input: "Проблема: На лестничной площадке не горит свет",
         temperature: 0.3,
         max_output_tokens: 1000,
+        store: false,
       });
       expect(callBody.messages).toBeUndefined();
     });
 
-    it("преобразует стандартный вложенный Responses-ответ в результат", async () => {
+    it("обрабатывает стандартный вложенный Responses-ответ со status completed", async () => {
       createResponsesMockFetch(createOpenAiResponsesBody());
       const gateway = createGateway(responsesConfig);
 
       await expect(gateway.generateRequest(VALID_INPUT)).resolves.toEqual(VALID_LLM_RESPONSE);
+    });
+
+    it("отклоняет incomplete-ответ с валидным верхнеуровневым текстом", async () => {
+      createResponsesMockFetch({
+        status: "incomplete",
+        output_text: VALID_LLM_TEXT,
+      });
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+        "Generation provider is not configured",
+      );
+    });
+
+    it("отклоняет incomplete-ответ с валидным вложенным текстом", async () => {
+      createResponsesMockFetch(createOpenAiResponsesBody(VALID_LLM_TEXT, "incomplete"));
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+        "Generation provider is not configured",
+      );
+    });
+
+    it.each([
+      "failed",
+      "unknown_status",
+    ])("отклоняет незавершённый status %s с валидным текстом", async (status) => {
+      createResponsesMockFetch({ status, output_text: VALID_LLM_TEXT });
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+        "Generation provider is not configured",
+      );
+    });
+
+    it("контролируемо отклоняет status неверного типа", async () => {
+      createResponsesMockFetch({ status: 42, output_text: VALID_LLM_TEXT });
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
+        "Generation provider is not configured",
+      );
     });
 
     it("находит текст не в первом элементе output", async () => {
