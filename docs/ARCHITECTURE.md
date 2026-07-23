@@ -18,7 +18,8 @@ flowchart LR
 - `apps/web` содержит Fastify-сервер, HTTP-маршруты и статические файлы формы
 - `packages/core` содержит Zod-схемы, типы и интерфейс `LlmGateway`
 - `packages/llm` реализует `DisabledLlmGateway` и провайдер-независимый
-  `OpenAiCompatibleGateway` для совместимого подмножества Chat Completions API
+  `OpenAiCompatibleGateway` для совместимых подмножеств Chat Completions и
+  Responses API
 
 `web` зависит от `core` и `llm`, а `llm` зависит от `core`. Пакет `core` не знает
 о Fastify, HTTP, браузерном коде, переменных окружения приложения и
@@ -31,10 +32,33 @@ LLM-провайдерах.
 схемой из `core` и вызывает `LlmGateway`.
 
 Конфигурационный слой `apps/web` валидирует переменные окружения и передаёт в
-`OpenAiCompatibleGateway` готовые URL, модель, ключ и схему авторизации. Yandex
-AI настраивается в этом слое как один из OpenAI-compatible провайдеров. При
-отсутствующей или неполной конфигурации используется `DisabledLlmGateway`,
+`OpenAiCompatibleGateway` выбранный протокол, готовые URL, модель, ключ и схему
+авторизации. `LLM_API_PROTOCOL` принимает `chat-completions` или `responses`.
+При отсутствии переменной для обратной совместимости выбирается
+`chat-completions`. Протокол не определяется по URL, модели или провайдеру.
+
+Yandex AI настраивается в этом слое как один из OpenAI-compatible провайдеров.
+Для Chat Completions слой выбирает `/v1/chat/completions` и YandexGPT, для
+Responses API — `/v1/responses` и Alice AI LLM Flash. Идентификатор каталога
+передаётся gateway через общий механизм дополнительных заголовков, поэтому
+пакет `llm` не зависит от Yandex AI.
+
+При отсутствующей или неполной конфигурации используется `DisabledLlmGateway`,
 возвращающий контролируемую ошибку `generation_provider_unavailable`.
+
+## Протоколы LLM
+
+Оба протокола используют общий системный промпт, формирование пользовательского
+сообщения, HTTP-транспорт, таймаут, обработку ошибок и парсер заявки.
+Различаются только тело запроса, схема ответа и извлечение текста.
+
+Chat Completions получает `model`, `messages` и `temperature`. Текст извлекается
+из `choices[0].message.content`.
+
+Responses API получает `model`, `instructions`, `input`, `temperature` и
+`max_output_tokens`. Текст извлекается из верхнеуровневого `output_text`.
+Streaming, tools, conversations, background responses и хранение `response_id`
+не поддерживаются.
 
 API не логирует пользовательский текст и не возвращает фиктивную заявку.
 Неизвестная ошибка возвращается как `internal_error` без внутренних деталей.

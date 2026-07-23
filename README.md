@@ -11,19 +11,25 @@
 `OpenAiCompatibleGateway` реализованы. Yandex AI — одна из поддерживаемых
 конфигураций этого gateway, а не отдельный транспорт.
 
-Коннектор поддерживает совместимое подмножество Chat Completions API. Провайдер
-должен возвращать текст заявки в `choices[0].message.content`.
+Коннектор поддерживает совместимые подмножества Chat Completions и Responses
+API. Для Chat Completions текст заявки читается из
+`choices[0].message.content`, для Responses API — из `output_text`.
 
 ### Настройка LLM-провайдера
 
 Создайте файл `.env` в корне проекта на основе `.env.example`.
 
-Поддерживаются два сценария конфигурации:
+Протокол выбирается через `LLM_API_PROTOCOL`. Поддерживаются значения
+`chat-completions` и `responses`. Для обратной совместимости отсутствие
+переменной означает `chat-completions`, но в новых конфигурациях её следует
+указывать явно. URL и имя модели не используются для определения протокола.
 
-- Yandex AI: достаточно `LLM_API_KEY` и `LLM_FOLDER_ID`. `LLM_MODEL` можно
-  не задавать, тогда будет использована `gpt://<LLM_FOLDER_ID>/yandexgpt/latest`
-- OpenAI-compatible: обязательны `LLM_API_URL`, `LLM_API_KEY`,
-  `LLM_AUTH_SCHEME`, `LLM_MODEL`
+Встроенная конфигурация Yandex AI использует endpoint
+`https://ai.api.cloud.yandex.net/v1/chat/completions` и модель YandexGPT для
+Chat Completions. Для Responses API используются endpoint
+`https://ai.api.cloud.yandex.net/v1/responses` и Alice AI LLM Flash.
+Произвольный OpenAI-compatible провайдер настраивается полными URL, моделью,
+схемой авторизации и выбранным протоколом.
 
 `HOST` и `PORT` по умолчанию равны `0.0.0.0` и `3000`. Обычно их менять не
 нужно.
@@ -64,11 +70,23 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
+Ручной smoke-check выполняет один реальный запрос с фиксированным обезличенным
+вводом через текущую конфигурацию:
+
+```bash
+pnpm smoke:llm
+```
+
+Для команды нужны локальные учётные данные провайдера. Запрос может быть
+платным. Smoke-check запускается только вручную и не входит в CI или
+`pnpm check`.
+
 ## Команды
 
 - `pnpm dev` — запустить приложение для разработки
 - `pnpm build` — собрать production-версию
 - `pnpm start` — запустить собранное приложение
+- `pnpm smoke:llm` — вручную выполнить один реальный запрос к LLM-провайдеру
 - `pnpm lint` — проверить код с Biome
 - `pnpm lint:md` — проверить Markdown и окончания файлов
 - `pnpm format` — отформатировать поддерживаемые файлы
