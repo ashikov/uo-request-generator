@@ -7,6 +7,7 @@
     "dev": "node --env-file-if-exists=../../.env --conditions=development --import tsx --watch src/server.ts",
     "build": "tsc --build --clean tsconfig.build.json && tsc -p tsconfig.build.json",
     "start": "node --env-file-if-exists=../../.env dist/server.js",
+    "smoke:llm": "node --env-file-if-exists=../../.env --conditions=development --import tsx src/llm-smoke.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
