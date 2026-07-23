@@ -16,12 +16,38 @@ function mockProviderResponse() {
     .mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
 }
 
-function mockResponsesProviderResponse() {
+function mockYandexResponsesProviderResponse() {
   return vi
     .spyOn(globalThis, "fetch")
     .mockResolvedValue(
       new Response(JSON.stringify({ output_text: VALID_LLM_TEXT }), { status: 200 }),
     );
+}
+
+function mockOpenAiResponsesProviderResponse() {
+  const body = {
+    id: "resp_test",
+    object: "response",
+    status: "completed",
+    output: [
+      {
+        id: "msg_test",
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [
+          {
+            type: "output_text",
+            text: VALID_LLM_TEXT,
+            annotations: [],
+          },
+        ],
+      },
+    ],
+  };
+  return vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
 }
 
 describe("createLlmGateway", () => {
@@ -76,7 +102,7 @@ describe("createLlmGateway", () => {
   });
 
   it("создаёт Yandex Responses-конфигурацию с Alice AI LLM Flash", async () => {
-    const fetchMock = mockResponsesProviderResponse();
+    const fetchMock = mockYandexResponsesProviderResponse();
     const gateway = createLlmGateway({
       LLM_API_PROTOCOL: "responses",
       LLM_API_KEY: "test-api-key",
@@ -100,7 +126,7 @@ describe("createLlmGateway", () => {
   });
 
   it("переопределяет модель Yandex Responses через LLM_MODEL", async () => {
-    const fetchMock = mockResponsesProviderResponse();
+    const fetchMock = mockYandexResponsesProviderResponse();
     const gateway = createLlmGateway({
       LLM_API_PROTOCOL: "responses",
       LLM_API_KEY: "test-api-key",
@@ -119,7 +145,7 @@ describe("createLlmGateway", () => {
     ["responses", "https://provider.example/v1/custom-responses"],
   ] as const)("создаёт стандартную Bearer-конфигурацию для протокола %s", async (apiProtocol, apiUrl) => {
     const fetchMock =
-      apiProtocol === "responses" ? mockResponsesProviderResponse() : mockProviderResponse();
+      apiProtocol === "responses" ? mockOpenAiResponsesProviderResponse() : mockProviderResponse();
     const gateway = createLlmGateway({
       LLM_API_PROTOCOL: apiProtocol,
       LLM_API_URL: apiUrl,
