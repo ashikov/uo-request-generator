@@ -160,6 +160,10 @@ function extractResponsesText(responseBody: unknown): string {
     return aggregatedText;
   }
 
+  if (responseResult.data.status === undefined && responseResult.data.output !== undefined) {
+    throw new GenerationProviderUnavailableError();
+  }
+
   const textParts: string[] = [];
 
   for (const outputItem of responseResult.data.output ?? []) {
