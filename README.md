@@ -18,26 +18,18 @@
 
 Создайте файл `.env` в корне проекта на основе `.env.example`.
 
-Для Yandex AI достаточно API-ключа и идентификатора каталога:
+Поддерживаются два сценария конфигурации:
 
-```dotenv
-LLM_API_KEY=ваш_api_ключ
-LLM_FOLDER_ID=ваш_folder_id
-```
+- Yandex AI: достаточно `LLM_API_KEY` и `LLM_FOLDER_ID`. `LLM_MODEL` можно
+  не задавать, тогда будет использована `gpt://<LLM_FOLDER_ID>/yandexgpt/latest`
+- OpenAI-compatible: обязательны `LLM_API_URL`, `LLM_API_KEY`,
+  `LLM_AUTH_SCHEME`, `LLM_MODEL`
 
-Приложение использует Yandex endpoint, схему `Api-Key` и URI модели
-`gpt://<LLM_FOLDER_ID>/yandexgpt/latest`. Модель можно переопределить через
-`LLM_MODEL`.
+`HOST` и `PORT` по умолчанию равны `0.0.0.0` и `3000`. Обычно их менять не
+нужно.
 
-Для другого OpenAI-compatible провайдера явно задайте URL, ключ, схему
-авторизации и модель:
-
-```dotenv
-LLM_API_URL=https://provider.example/v1/chat/completions
-LLM_API_KEY=ваш_api_ключ
-LLM_AUTH_SCHEME=Bearer
-LLM_MODEL=provider-model-name
-```
+Полный практический шаблон и пометки обязательных/опциональных переменных
+смотрите в `.env.example`.
 
 Без API-ключа или при неполной конфигурации реальный gateway не создаётся.
 Приложение использует `DisabledLlmGateway`, а API возвращает контролируемый
