@@ -13,7 +13,8 @@
 
 Коннектор поддерживает совместимые подмножества Chat Completions и Responses
 API. Для Chat Completions текст заявки читается из
-`choices[0].message.content`, для Responses API — из `output_text`.
+`choices[0].message.content`. Для Responses API gateway нормализует
+Yandex-compatible и стандартный сырой HTTP-ответ без SDK провайдера.
 
 ### Настройка LLM-провайдера
 
