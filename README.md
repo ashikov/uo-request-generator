@@ -37,6 +37,8 @@ Chat Completions. Для Responses API используются endpoint
 `https://ai.api.cloud.yandex.net/v1/responses` и Alice AI LLM Flash.
 Произвольный OpenAI-compatible провайдер настраивается полными URL, моделью,
 схемой авторизации и выбранным протоколом.
+Для протокола `responses` выбранные endpoint и модель должны поддерживать
+Structured Outputs через `text.format` с типом `json_schema`.
 
 `HOST` и `PORT` по умолчанию равны `0.0.0.0` и `3000`. Обычно их менять не
 нужно.
