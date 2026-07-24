@@ -8,6 +8,8 @@ import { GenerationProviderUnavailableError } from "./disabled-llm-gateway.js";
 import {
   formatRequestDraft,
   parseRequestDraft,
+  REQUEST_DRAFT_JSON_SCHEMA,
+  REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
   REQUEST_DRAFT_SYSTEM_PROMPT,
 } from "./request-draft.js";
 
@@ -43,6 +45,14 @@ type OpenAiResponsesRequest = {
   temperature: number;
   max_output_tokens: number;
   store: false;
+  text: {
+    format: {
+      type: "json_schema";
+      name: typeof REQUEST_DRAFT_RESPONSE_FORMAT_NAME;
+      strict: true;
+      schema: typeof REQUEST_DRAFT_JSON_SCHEMA;
+    };
+  };
 };
 
 const openAiChatCompletionResponseSchema = z.object({
@@ -109,6 +119,14 @@ function createRequestBody(
       temperature: TEMPERATURE,
       max_output_tokens: maxOutputTokens,
       store: false,
+      text: {
+        format: {
+          type: "json_schema",
+          name: REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
+          strict: true,
+          schema: REQUEST_DRAFT_JSON_SCHEMA,
+        },
+      },
     };
   }
 

@@ -17,6 +17,52 @@ export const requestDraftLimits = {
   warningMax: generateRequestLimits.result.warningMax,
 } as const;
 
+export const REQUEST_DRAFT_RESPONSE_FORMAT_NAME = "request_draft";
+
+// Провайдерская схема ограничивает только устойчиво поддерживаемую структуру ответа.
+// Локальная requestDraftSchema остаётся окончательной проверкой предметных и межполевых правил.
+export const REQUEST_DRAFT_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    title: {
+      type: "string",
+      minLength: 1,
+      maxLength: requestDraftLimits.titleMax,
+    },
+    problem: {
+      type: "string",
+      minLength: 1,
+      maxLength: requestDraftLimits.problemMax,
+    },
+    impact: {
+      type: ["string", "null"],
+      minLength: 1,
+      maxLength: requestDraftLimits.impactMax,
+    },
+    requests: {
+      type: "array",
+      minItems: 1,
+      maxItems: requestDraftLimits.requestsMax,
+      items: {
+        type: "string",
+        minLength: 1,
+        maxLength: requestDraftLimits.requestMax,
+      },
+    },
+    warnings: {
+      type: "array",
+      maxItems: requestDraftLimits.warningsMax,
+      items: {
+        type: "string",
+        minLength: 1,
+        maxLength: requestDraftLimits.warningMax,
+      },
+    },
+  },
+  required: ["title", "problem", "impact", "requests", "warnings"],
+  additionalProperties: false,
+} as const;
+
 const requestDraftString = (maxLength: number) =>
   z
     .string()

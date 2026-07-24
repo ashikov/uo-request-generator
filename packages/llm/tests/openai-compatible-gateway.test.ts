@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAiCompatibleGateway, type OpenAiCompatibleGatewayConfig } from "../src";
+import { requestDraftLimits } from "../src/request-draft.js";
 
 const MOCK_API_KEY = "test-key-123";
 const VALID_INPUT = { description: "На лестничной площадке не горит свет" };
@@ -112,6 +113,7 @@ describe("OpenAiCompatibleGateway", () => {
     expect(callBody.instructions).toBeUndefined();
     expect(callBody.input).toBeUndefined();
     expect(callBody.max_output_tokens).toBeUndefined();
+    expect(callBody.text).toBeUndefined();
 
     const headers = mockFetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Api-Key test-key-123");
@@ -301,7 +303,7 @@ describe("OpenAiCompatibleGateway", () => {
       authScheme: "Bearer",
     };
 
-    it("отправляет Responses-запрос с отключённым хранением и поддерживает output_text без status", async () => {
+    it("отправляет Responses-запрос со строгой схемой черновика и поддерживает output_text без status", async () => {
       const mockFetch = createResponsesMockFetch({ output_text: VALID_LLM_TEXT });
       const gateway = createGateway(responsesConfig);
 
@@ -318,6 +320,46 @@ describe("OpenAiCompatibleGateway", () => {
         temperature: 0.3,
         max_output_tokens: 1000,
         store: false,
+        text: {
+          format: {
+            type: "json_schema",
+            name: "request_draft",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                title: { type: "string", minLength: 1, maxLength: requestDraftLimits.titleMax },
+                problem: { type: "string", minLength: 1, maxLength: requestDraftLimits.problemMax },
+                impact: {
+                  type: ["string", "null"],
+                  minLength: 1,
+                  maxLength: requestDraftLimits.impactMax,
+                },
+                requests: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: requestDraftLimits.requestsMax,
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: requestDraftLimits.requestMax,
+                  },
+                },
+                warnings: {
+                  type: "array",
+                  maxItems: requestDraftLimits.warningsMax,
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: requestDraftLimits.warningMax,
+                  },
+                },
+              },
+              required: ["title", "problem", "impact", "requests", "warnings"],
+              additionalProperties: false,
+            },
+          },
+        },
       });
       expect(callBody.messages).toBeUndefined();
     });
