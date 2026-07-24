@@ -52,6 +52,7 @@ describe("parseRequestDraft", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       `body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
     );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Все строковые поля должны быть однострочными");
   });
 
   it("валидирует черновик с impact и несколькими предупреждениями", () => {
@@ -98,6 +99,36 @@ describe("parseRequestDraft", () => {
       requests: ["Восстановить освещение"],
       warnings: ["Неизвестна причина неисправности"],
     });
+  });
+
+  it.each([
+    ["title", { title: "Не работает\nосвещение" }],
+    ["problem", { problem: "Не работает\r\nосвещение" }],
+    ["impact", { impact: "Проход затруднён\nвечером" }],
+    ["элемент requests", { requests: ["Проверить освещение\r"] }],
+    ["элемент warnings", { warnings: ["Не указано место\n"] }],
+  ])("отклоняет перевод строки в поле %s", (_caseName, overrides) => {
+    expectInvalidResponse(JSON.stringify(createDraft(overrides)));
+  });
+
+  it.each([
+    ["обычным регистром", "Прошу: проверить освещение"],
+    ["смешанным регистром и пробелом перед двоеточием", "пРоШу : проверить освещение"],
+    ["пробелами перед префиксом", "  Прошу: проверить освещение"],
+  ])("отклоняет требование с префиксом «Прошу:» %s", (_caseName, request) => {
+    expectInvalidResponse(JSON.stringify(createDraft({ requests: [request] })));
+  });
+
+  it("принимает однострочное требование без форматирующего префикса", () => {
+    const draft = createDraft({ requests: ["Проверить освещение"] });
+
+    expect(parseRequestDraft(JSON.stringify(draft))).toEqual(draft);
+  });
+
+  it("не отклоняет обычное употребление слова «прошу» без форматирующего префикса", () => {
+    const draft = createDraft({ requests: ["Пожалуйста, прошу проверить освещение"] });
+
+    expect(parseRequestDraft(JSON.stringify(draft))).toEqual(draft);
   });
 
   it.each([

@@ -17,7 +17,17 @@ export const requestDraftLimits = {
   warningMax: generateRequestLimits.result.warningMax,
 } as const;
 
-const requestDraftString = (maxLength: number) => z.string().trim().min(1).max(maxLength);
+const requestDraftString = (maxLength: number) =>
+  z
+    .string()
+    .regex(/^[^\r\n]*$/)
+    .trim()
+    .min(1)
+    .max(maxLength);
+
+const requestDraftRequest = requestDraftString(requestDraftLimits.requestMax).refine(
+  (request) => !/^прошу\s*:/iu.test(request),
+);
 
 type RequestDraftBodyParts = {
   problem: string;
@@ -44,10 +54,7 @@ export const requestDraftSchema = z
     title: requestDraftString(requestDraftLimits.titleMax),
     problem: requestDraftString(requestDraftLimits.problemMax),
     impact: z.union([requestDraftString(requestDraftLimits.impactMax), z.null()]),
-    requests: z
-      .array(requestDraftString(requestDraftLimits.requestMax))
-      .min(1)
-      .max(requestDraftLimits.requestsMax),
+    requests: z.array(requestDraftRequest).min(1).max(requestDraftLimits.requestsMax),
     warnings: z
       .array(requestDraftString(requestDraftLimits.warningMax))
       .max(requestDraftLimits.warningsMax),
@@ -77,6 +84,7 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   `- requests: массив от 1 до ${requestDraftLimits.requestsMax} непустых строк, каждая до ${requestDraftLimits.requestMax} символов`,
   `- warnings: массив до ${requestDraftLimits.warningsMax} непустых строк, каждая до ${requestDraftLimits.warningMax} символов`,
   `- Сформированный из problem, impact, раздела «Прошу:» и нумерованных требований body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
+  "- Все строковые поля должны быть однострочными и не содержать переводов строк",
   "",
   "Правила содержания:",
   "- Сохраняй переданные объект, место, наблюдаемые признаки, длительность, повторяемость и известные последствия",
