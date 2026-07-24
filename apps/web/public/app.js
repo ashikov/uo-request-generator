@@ -5,6 +5,7 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
   const description = document.querySelector("#description");
   const location = document.querySelector("#location");
   const descriptionCount = document.querySelector("#description-count");
+  const locationCount = document.querySelector("#location-count");
   const submitButton = document.querySelector("#submit-button");
   const errorArea = document.querySelector("#error-area");
   const resultArea = document.querySelector("#result-area");
@@ -25,9 +26,10 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
 
   let currentResult = null;
   let copyOperationId = 0;
+  let isSubmitting = false;
 
-  function updateCharacterCount() {
-    descriptionCount.textContent = `${description.value.length} / ${description.maxLength}`;
+  function updateCharacterCount(field, count) {
+    count.textContent = `${field.value.length} / ${field.maxLength}`;
   }
 
   function readForm() {
@@ -194,15 +196,17 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
     resultArea.replaceChildren(resultTitle, resultPlaceholder);
   }
 
-  function setSubmitting(isSubmitting) {
-    submitButton.disabled = isSubmitting;
-    submitButton.textContent = isSubmitting ? "Составляем…" : "Составить заявку";
+  function setSubmitting(nextIsSubmitting) {
+    isSubmitting = nextIsSubmitting;
+    form.setAttribute("aria-busy", String(nextIsSubmitting));
+    submitButton.disabled = nextIsSubmitting;
+    submitButton.textContent = nextIsSubmitting ? "Составляем…" : "Составить заявку";
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
-    clearError();
-    resetResult();
+
+    if (isSubmitting) return;
 
     const input = readForm();
     const validationMessage = validateForm(input);
@@ -211,6 +215,8 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
       return;
     }
 
+    clearError();
+    resetResult();
     setSubmitting(true);
 
     try {
@@ -246,6 +252,10 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
     }
   }
 
-  description.addEventListener("input", updateCharacterCount);
+  description.addEventListener("input", () => updateCharacterCount(description, descriptionCount));
+  location.addEventListener("input", () => updateCharacterCount(location, locationCount));
+  updateCharacterCount(description, descriptionCount);
+  updateCharacterCount(location, locationCount);
+  setSubmitting(false);
   form.addEventListener("submit", handleSubmit);
 })();

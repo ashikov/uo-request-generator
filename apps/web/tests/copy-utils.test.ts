@@ -71,7 +71,7 @@ function setupFormDOM() {
       <textarea id="description" minlength="10" maxlength="500">
         Описание неисправности для проверки работы формы
       </textarea>
-      <input id="location" maxlength="200" />
+      <input id="location" maxlength="200" aria-describedby="location-count" />
       <button id="submit-button" type="submit">Составить заявку</button>
     </form>
     <div id="error-area" hidden></div>
@@ -80,6 +80,7 @@ function setupFormDOM() {
       <p id="result-placeholder">Заполните форму</p>
     </div>
     <span id="description-count">0 / 500</span>
+    <span id="location-count">0 / 200</span>
   `;
 }
 

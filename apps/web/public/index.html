@@ -44,11 +44,12 @@
               name="location"
               type="text"
               maxlength="120"
-              aria-describedby="location-hint"
+              aria-describedby="location-hint location-count"
             />
-            <span id="location-hint" class="field-hint">
-              Необязательно, например: подъезд или этаж
-            </span>
+            <div class="field-meta">
+              <span id="location-hint">Необязательно, например: подъезд или этаж</span>
+              <span id="location-count" aria-live="polite">0 / 120</span>
+            </div>
           </div>
 
           <button id="submit-button" type="submit">Составить заявку</button>
