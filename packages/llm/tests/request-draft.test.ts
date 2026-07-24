@@ -4,6 +4,7 @@ import {
   formatRequestDraft,
   parseRequestDraft,
   requestDraftLimits,
+  REQUEST_DRAFT_SYSTEM_PROMPT,
   type RequestDraft,
 } from "../src/request-draft.js";
 
@@ -31,7 +32,28 @@ function expectInvalidResponse(responseText: string): void {
   expect(() => parseRequestDraft(responseText)).toThrow(INVALID_RESPONSE_MESSAGE);
 }
 
+function createDraftAtBodyLength(bodyLength: number): RequestDraft {
+  const fixedDraft = createDraft({
+    problem: "а".repeat(requestDraftLimits.problemMax),
+    impact: "б",
+    requests: ["Проверить освещение"],
+  });
+  const fixedBodyLength = formatRequestDraft(fixedDraft).body.length;
+
+  return createDraft({
+    problem: fixedDraft.problem,
+    impact: "б".repeat(bodyLength - fixedBodyLength + 1),
+    requests: fixedDraft.requests,
+  });
+}
+
 describe("parseRequestDraft", () => {
+  it("указывает в prompt общий лимит сформированного body", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      `body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
+    );
+  });
+
   it("валидирует черновик с impact и несколькими предупреждениями", () => {
     const draft = createDraft({
       warnings: ["Не указана причина неисправности", "Неизвестен точный срок возникновения"],
@@ -165,6 +187,48 @@ ${JSON.stringify(createDraft())}
     );
   });
 
+  it("отклоняет черновик с допустимыми отдельными полями и слишком длинным body", () => {
+    const draft = createDraft({
+      title: "а".repeat(requestDraftLimits.titleMax),
+      problem: "б".repeat(requestDraftLimits.problemMax),
+      impact: "в".repeat(requestDraftLimits.impactMax),
+      requests: Array.from({ length: requestDraftLimits.requestsMax }, () =>
+        "г".repeat(requestDraftLimits.requestMax),
+      ),
+      warnings: [],
+    });
+
+    expectInvalidResponse(JSON.stringify(draft));
+  });
+
+  it("принимает черновик с body ровно на внешнем лимите", () => {
+    const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
+
+    const parsedDraft = parseRequestDraft(JSON.stringify(draft));
+    const result = formatRequestDraft(parsedDraft);
+
+    expect(result.body).toHaveLength(generateRequestLimits.result.bodyMax);
+  });
+
+  it("проверяет длину body после нормализации пробелов", () => {
+    const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
+    const parsedDraft = parseRequestDraft(
+      JSON.stringify({
+        ...draft,
+        problem: `  ${draft.problem}  `,
+        impact: `  ${draft.impact ?? ""}  `,
+      }),
+    );
+
+    expect(formatRequestDraft(parsedDraft).body).toHaveLength(generateRequestLimits.result.bodyMax);
+  });
+
+  it("отклоняет черновик с body длиннее внешнего лимита на один символ", () => {
+    const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax + 1);
+
+    expectInvalidResponse(JSON.stringify(draft));
+  });
+
   it.each([
     ["корневой массив", []],
     ["числовой title", createRawDraft({ title: 42 })],
@@ -223,11 +287,7 @@ describe("formatRequestDraft", () => {
   });
 
   it("повторно отклоняет итоговый body сверх внешнего лимита", () => {
-    const draft = createDraft({
-      problem: "а".repeat(requestDraftLimits.problemMax),
-      impact: "б".repeat(requestDraftLimits.impactMax),
-      requests: ["в".repeat(requestDraftLimits.requestMax)],
-    });
+    const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax + 1);
 
     expect(() => formatRequestDraft(draft)).toThrow(INVALID_RESPONSE_MESSAGE);
   });

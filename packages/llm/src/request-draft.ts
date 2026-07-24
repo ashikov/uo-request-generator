@@ -19,6 +19,26 @@ export const requestDraftLimits = {
 
 const requestDraftString = (maxLength: number) => z.string().trim().min(1).max(maxLength);
 
+type RequestDraftBodyParts = {
+  problem: string;
+  impact: string | null;
+  requests: string[];
+};
+
+function buildRequestBody(draft: RequestDraftBodyParts): string {
+  const requestLines = draft.requests.map((request, index) => `${String(index + 1)}. ${request}`);
+  const requestBlock = ["Прошу:", ...requestLines].join("\n");
+  const bodyBlocks = [draft.problem];
+
+  if (draft.impact !== null) {
+    bodyBlocks.push(draft.impact);
+  }
+
+  bodyBlocks.push(requestBlock);
+
+  return bodyBlocks.join("\n\n");
+}
+
 export const requestDraftSchema = z
   .object({
     title: requestDraftString(requestDraftLimits.titleMax),
@@ -32,7 +52,15 @@ export const requestDraftSchema = z
       .array(requestDraftString(requestDraftLimits.warningMax))
       .max(requestDraftLimits.warningsMax),
   })
-  .strict();
+  .strict()
+  .superRefine((draft, context) => {
+    if (buildRequestBody(draft).length > generateRequestLimits.result.bodyMax) {
+      context.addIssue({
+        code: "custom",
+        message: "Сформированный текст заявки превышает допустимую длину",
+      });
+    }
+  });
 
 export type RequestDraft = z.infer<typeof requestDraftSchema>;
 
@@ -48,6 +76,7 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   `- impact: непустая строка до ${requestDraftLimits.impactMax} символов или null`,
   `- requests: массив от 1 до ${requestDraftLimits.requestsMax} непустых строк, каждая до ${requestDraftLimits.requestMax} символов`,
   `- warnings: массив до ${requestDraftLimits.warningsMax} непустых строк, каждая до ${requestDraftLimits.warningMax} символов`,
+  `- Сформированный из problem, impact, раздела «Прошу:» и нумерованных требований body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
   "",
   "Правила содержания:",
   "- Сохраняй переданные объект, место, наблюдаемые признаки, длительность, повторяемость и известные последствия",
@@ -96,19 +125,9 @@ export function parseRequestDraft(responseText: string): RequestDraft {
 }
 
 export function formatRequestDraft(draft: RequestDraft): GenerateRequestResult {
-  const requestLines = draft.requests.map((request, index) => `${String(index + 1)}. ${request}`);
-  const requestBlock = ["Прошу:", ...requestLines].join("\n");
-  const bodyBlocks = [draft.problem];
-
-  if (draft.impact !== null) {
-    bodyBlocks.push(draft.impact);
-  }
-
-  bodyBlocks.push(requestBlock);
-
   const result = generateRequestResultSchema.safeParse({
     title: draft.title,
-    body: bodyBlocks.join("\n\n"),
+    body: buildRequestBody(draft),
     warnings: draft.warnings,
   });
 
