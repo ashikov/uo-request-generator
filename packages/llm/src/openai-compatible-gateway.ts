@@ -1,12 +1,15 @@
-import {
-  generateRequestResultSchema,
-  generateRequestLimits,
-  type GenerateRequestInput,
-  type GenerateRequestResult,
-  type LlmGateway,
+import type {
+  GenerateRequestInput,
+  GenerateRequestResult,
+  LlmGateway,
 } from "@uo-request-generator/core";
 import { z } from "zod";
 import { GenerationProviderUnavailableError } from "./disabled-llm-gateway.js";
+import {
+  formatRequestDraft,
+  parseRequestDraft,
+  REQUEST_DRAFT_SYSTEM_PROMPT,
+} from "./request-draft.js";
 
 export type OpenAiCompatibleGatewayConfig = {
   apiUrl: string;
@@ -92,30 +95,6 @@ const openAiResponsesOutputTextSchema = z
 const DEFAULT_MAX_OUTPUT_TOKENS = 1000;
 const TEMPERATURE = 0.3;
 
-const SYSTEM_PROMPT = [
-  "Ты — помощник жителя многоквартирного дома. Составь короткую заявку для управляющей организации (УО) по описанию проблемы.",
-  "",
-  "Правила:",
-  "- Используй спокойный человеческий тон без канцелярита",
-  "- Кратко описывай одну наблюдаемую проблему",
-  "- Указывай практические последствия, только если они известны из ввода",
-  "- Добавляй раздел «Прошу:» с выполнимым требованием",
-  "- Преобразуй эмоции в наблюдаемые факты",
-  "- Не придумывай место, причину, виновника или повреждения",
-  "- Не добавляй неподтверждённые обвинения",
-  "- Не добавляй вымышленные даты, номера договоров и актов",
-  "",
-  "Формат ответа:",
-  "ЗАГОЛОВОК: <короткий заголовок до 120 символов>",
-  "",
-  "<краткое описание проблемы>",
-  "",
-  "Прошу: <выполнимое требование>",
-  "",
-  "ПРЕДУПРЕЖДЕНИЯ:",
-  "— <предупреждение, если нужно>",
-].join("\n");
-
 function createRequestBody(
   apiProtocol: LlmApiProtocol,
   model: string,
@@ -125,7 +104,7 @@ function createRequestBody(
   if (apiProtocol === "responses") {
     return {
       model,
-      instructions: SYSTEM_PROMPT,
+      instructions: REQUEST_DRAFT_SYSTEM_PROMPT,
       input: userMessage,
       temperature: TEMPERATURE,
       max_output_tokens: maxOutputTokens,
@@ -136,7 +115,7 @@ function createRequestBody(
   return {
     model,
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: REQUEST_DRAFT_SYSTEM_PROMPT },
       { role: "user", content: userMessage },
     ],
     temperature: TEMPERATURE,
@@ -227,71 +206,6 @@ function extractResponseText(apiProtocol: LlmApiProtocol, responseBody: unknown)
   return firstChoice.message.content;
 }
 
-function truncateToLength(str: string, max: number): string {
-  let result = "";
-  for (const char of str) {
-    if (result.length + char.length > max) break;
-    result += char;
-  }
-  return result;
-}
-
-function parseResponse(text: string): GenerateRequestResult {
-  const lines = text.split("\n").map((l) => l.trim());
-
-  const titleLine = lines.find((l) => l.startsWith("ЗАГОЛОВОК:"));
-  const titleIdx = titleLine !== undefined ? lines.indexOf(titleLine) : -1;
-  const warningsIdx = lines.findIndex((l) => l.startsWith("ПРЕДУПРЕЖДЕНИЯ:"));
-
-  if (titleLine === undefined) {
-    throw new Error("LLM вернул некорректный формат заявки");
-  }
-
-  const title = titleLine.slice("ЗАГОЛОВОК:".length).trim();
-  if (title.length === 0) {
-    throw new Error("LLM вернул некорректный формат заявки");
-  }
-
-  const bodyEnd = warningsIdx !== -1 ? warningsIdx : lines.length;
-  const body = lines
-    .slice(titleIdx + 1, bodyEnd)
-    .filter((l) => l.length > 0)
-    .join("\n");
-
-  if (body.length > generateRequestLimits.result.bodyMax || !body.includes("Прошу:")) {
-    throw new Error("LLM вернул некорректный формат заявки");
-  }
-
-  const warnings: string[] = [];
-  if (warningsIdx !== -1) {
-    for (let i = warningsIdx + 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (line === undefined) continue;
-      const trimmed = line.replace(/^[—\-•]\s*/, "").trim();
-      if (trimmed.length > 0) {
-        warnings.push(trimmed);
-      }
-    }
-  }
-
-  const validWarnings = warnings
-    .slice(0, generateRequestLimits.result.warningsMax)
-    .map((w) => truncateToLength(w, generateRequestLimits.result.warningMax))
-    .filter((w) => w.length > 0);
-
-  const result = generateRequestResultSchema.safeParse({
-    title: truncateToLength(title, generateRequestLimits.result.titleMax),
-    body,
-    warnings: validWarnings,
-  });
-
-  if (!result.success) {
-    throw new Error("LLM вернул некорректный формат заявки");
-  }
-
-  return result.data;
-}
-
 export class OpenAiCompatibleGateway implements LlmGateway {
   private readonly apiUrl: string;
   private readonly apiKey: string;
@@ -368,6 +282,6 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       throw new Error("LLM API вернул пустой ответ");
     }
 
-    return parseResponse(content);
+    return formatRequestDraft(parseRequestDraft(content));
   }
 }
