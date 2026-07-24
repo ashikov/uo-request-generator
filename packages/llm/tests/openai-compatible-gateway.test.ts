@@ -1,4 +1,3 @@
-import { generateRequestLimits } from "@uo-request-generator/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAiCompatibleGateway, type OpenAiCompatibleGatewayConfig } from "../src";
 
@@ -12,17 +11,23 @@ const GATEWAY_CONFIG: OpenAiCompatibleGatewayConfig = {
   apiProtocol: "chat-completions",
 };
 
-const VALID_LLM_TEXT = [
-  "ЗАГОЛОВОК: Не работает освещение на этаже",
-  "",
-  "На лестничной площадке не горит свет. Прошу: проверить и восстановить освещение.",
-  "",
-  "ПРЕДУПРЕЖДЕНИЯ:",
-].join("\n");
+const VALID_DRAFT = {
+  title: "Не работает освещение на этаже",
+  problem: "На лестничной площадке не горит свет.",
+  impact: null,
+  requests: ["Проверить и восстановить освещение"],
+  warnings: [],
+};
+const VALID_LLM_TEXT = JSON.stringify(VALID_DRAFT);
 
 const VALID_LLM_RESPONSE = {
   title: "Не работает освещение на этаже",
-  body: "На лестничной площадке не горит свет. Прошу: проверить и восстановить освещение.",
+  body: [
+    "На лестничной площадке не горит свет.",
+    "",
+    "Прошу:",
+    "1. Проверить и восстановить освещение",
+  ].join("\n"),
   warnings: [],
 };
 
@@ -80,7 +85,7 @@ describe("OpenAiCompatibleGateway", () => {
     expect(() => createGateway({ apiKey: "" })).toThrow("LLM_API_KEY");
   });
 
-  it("отправляет запрос с корректным телом и парсит ответ", async () => {
+  it("передаёт новый общий prompt в Chat Completions и парсит JSON-черновик", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
     const gateway = createGateway();
@@ -100,7 +105,10 @@ describe("OpenAiCompatibleGateway", () => {
       ],
       temperature: 0.3,
     });
-    expect(callBody.messages[0]?.content).toContain("Формат ответа:");
+    expect(callBody.messages[0]?.content).toContain("Верни только один валидный JSON-объект");
+    expect(callBody.messages[0]?.content).toContain('"impact": null');
+    expect(callBody.messages[0]?.content).toContain('"warnings": []');
+    expect(callBody.messages[0]?.content).toContain("без нумерации");
     expect(callBody.instructions).toBeUndefined();
     expect(callBody.input).toBeUndefined();
     expect(callBody.max_output_tokens).toBeUndefined();
@@ -141,15 +149,13 @@ describe("OpenAiCompatibleGateway", () => {
   });
 
   it("парсит ответ с предупреждениями", async () => {
-    const text = [
-      "ЗАГОЛОВОК: Течь на кухне",
-      "",
-      "На кухне течёт кран. Прошу: отремонтировать.",
-      "",
-      "ПРЕДУПРЕЖДЕНИЯ:",
-      "— Пользователь выразил эмоции",
-      "— Не указана причина протечки",
-    ].join("\n");
+    const text = JSON.stringify({
+      title: "Течь на кухне",
+      problem: "На кухне течёт кран.",
+      impact: null,
+      requests: ["Отремонтировать кран"],
+      warnings: ["Пользователь выразил эмоции", "Не указана причина протечки"],
+    });
 
     createMockFetch(text);
 
@@ -158,52 +164,12 @@ describe("OpenAiCompatibleGateway", () => {
     const result = await gateway.generateRequest(VALID_INPUT);
 
     expect(result.title).toBe("Течь на кухне");
-    expect(result.body).toContain("отремонтировать");
+    expect(result.body).toContain("Отремонтировать");
     expect(result.warnings).toHaveLength(2);
   });
 
-  it("принимает body в пределах лимита", async () => {
-    const request = "Прошу: устранить неисправность.";
-    const description = "а".repeat(generateRequestLimits.result.bodyMax - request.length - 1);
-    const body = `${description}\n${request}`;
-    const text = ["ЗАГОЛОВОК: Тестовая заявка", "", body].join("\n");
-
-    createMockFetch(text);
-
-    const result = await createGateway().generateRequest(VALID_INPUT);
-
-    expect(result.body).toBe(body);
-    expect(result.body).toHaveLength(generateRequestLimits.result.bodyMax);
-  });
-
-  it("отклоняет body длиннее лимита", async () => {
-    const body = `Прошу: ${"а".repeat(generateRequestLimits.result.bodyMax)}`;
-    const text = ["ЗАГОЛОВОК: Тестовая заявка", "", body].join("\n");
-
-    createMockFetch(text);
-
-    await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
-      "LLM вернул некорректный формат заявки",
-    );
-  });
-
-  it("отклоняет ответ, если раздел «Прошу:» находится после границы body", async () => {
-    const body = `${"а".repeat(generateRequestLimits.result.bodyMax)}\nПрошу: устранить неисправность.`;
-    const text = ["ЗАГОЛОВОК: Тестовая заявка", "", body].join("\n");
-
-    createMockFetch(text);
-
-    await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
-      "LLM вернул некорректный формат заявки",
-    );
-  });
-
-  it("отклоняет body без раздела «Прошу:»", async () => {
-    const text = ["ЗАГОЛОВОК: Тестовая заявка", "", "На лестничной площадке не горит свет."].join(
-      "\n",
-    );
-
-    createMockFetch(text);
+  it("отклоняет синтаксически корректный JSON, не соответствующий схеме черновика", async () => {
+    createMockFetch(JSON.stringify({ title: "Тестовая заявка" }));
 
     await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
       "LLM вернул некорректный формат заявки",
@@ -310,21 +276,22 @@ describe("OpenAiCompatibleGateway", () => {
     expect(callBody.messages[1]?.content).toContain("Кухня");
   });
 
-  it("безопасно обрезает текст с эмодзи на границе лимита", async () => {
+  it("не обрезает и отклоняет заголовок сверх лимита", async () => {
     const emoji = "🎉";
     const titleMax = 120;
     const prefix = "а".repeat(titleMax - 1);
     const title = prefix + emoji;
 
-    const text = [`ЗАГОЛОВОК: ${title}`, "", "Течёт кран. Прошу: отремонтировать."].join("\n");
+    const text = JSON.stringify({
+      ...VALID_DRAFT,
+      title,
+    });
 
     createMockFetch(text);
 
-    const gateway = createGateway();
-    const result = await gateway.generateRequest(VALID_INPUT);
-
-    expect(result.title).toBe(prefix);
-    expect(result.title.length).toBe(titleMax - 1);
+    await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
+      "LLM вернул некорректный формат заявки",
+    );
   });
 
   describe("Responses API", () => {
@@ -346,7 +313,7 @@ describe("OpenAiCompatibleGateway", () => {
       const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
       expect(callBody).toEqual({
         model: "test-model",
-        instructions: expect.stringContaining("Формат ответа:"),
+        instructions: expect.stringContaining("Верни только один валидный JSON-объект"),
         input: "Проблема: На лестничной площадке не горит свет",
         temperature: 0.3,
         max_output_tokens: 1000,
@@ -429,11 +396,12 @@ describe("OpenAiCompatibleGateway", () => {
     });
 
     it("объединяет текстовые части из нескольких сообщений в исходном порядке", async () => {
+      const firstBoundary = Math.floor(VALID_LLM_TEXT.length / 3);
+      const secondBoundary = Math.floor((VALID_LLM_TEXT.length * 2) / 3);
       const textParts = [
-        "ЗАГОЛОВОК: Не работает освещение на этаже\n\n",
-        "На лестничной площадке не горит свет. ",
-        "Прошу: проверить и восстановить освещение.\n\n",
-        "ПРЕДУПРЕЖДЕНИЯ:",
+        VALID_LLM_TEXT.slice(0, firstBoundary),
+        VALID_LLM_TEXT.slice(firstBoundary, secondBoundary),
+        VALID_LLM_TEXT.slice(secondBoundary),
       ];
       createResponsesMockFetch({
         id: "resp_test",
@@ -448,16 +416,7 @@ describe("OpenAiCompatibleGateway", () => {
             content: [
               { type: "output_text", text: textParts[0], annotations: [] },
               { type: "output_text", text: textParts[1], annotations: [] },
-            ],
-          },
-          {
-            id: "msg_second",
-            type: "message",
-            role: "assistant",
-            status: "completed",
-            content: [
               { type: "output_text", text: textParts[2], annotations: [] },
-              { type: "output_text", text: textParts[3], annotations: [] },
             ],
           },
         ],
@@ -511,7 +470,7 @@ describe("OpenAiCompatibleGateway", () => {
       createResponsesMockFetch({
         output_text: VALID_LLM_TEXT,
         ...createOpenAiResponsesBody(
-          VALID_LLM_TEXT.replace("Не работает освещение на этаже", "Вложенный заголовок"),
+          JSON.stringify({ ...VALID_DRAFT, title: "Вложенный заголовок" }),
         ),
       });
       const gateway = createGateway(responsesConfig);
@@ -693,6 +652,29 @@ describe("OpenAiCompatibleGateway", () => {
       await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
         "LLM вернул некорректный формат заявки",
       );
+    });
+
+    it("использует тот же prompt и формирует тот же результат для обоих протоколов", async () => {
+      const mockFetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ choices: [{ message: { content: VALID_LLM_TEXT } }] }), {
+            status: 200,
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ output_text: VALID_LLM_TEXT }), { status: 200 }),
+        );
+
+      const chatResult = await createGateway().generateRequest(VALID_INPUT);
+      const responsesResult = await createGateway(responsesConfig).generateRequest(VALID_INPUT);
+
+      const chatBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+      const responsesBody = JSON.parse(mockFetch.mock.calls[1]?.[1]?.body as string);
+
+      expect(responsesBody.instructions).toBe(chatBody.messages[0]?.content);
+      expect(responsesResult).toEqual(chatResult);
+      expect(responsesResult).toEqual(VALID_LLM_RESPONSE);
     });
   });
 });

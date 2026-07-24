@@ -2,12 +2,13 @@ import { DisabledLlmGateway, OpenAiCompatibleGateway } from "@uo-request-generat
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLlmGateway } from "../src/llm-config.js";
 
-const VALID_LLM_TEXT = [
-  "ЗАГОЛОВОК: Не работает освещение",
-  "",
-  "На лестничной площадке не горит свет.",
-  "Прошу: проверить и восстановить освещение.",
-].join("\n");
+const VALID_LLM_TEXT = JSON.stringify({
+  title: "Не работает освещение",
+  problem: "На лестничной площадке не горит свет.",
+  impact: null,
+  requests: ["Проверить и восстановить освещение"],
+  warnings: [],
+});
 
 function mockProviderResponse() {
   const body = { choices: [{ message: { content: VALID_LLM_TEXT } }] };
