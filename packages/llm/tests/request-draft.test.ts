@@ -53,6 +53,9 @@ describe("parseRequestDraft", () => {
       `body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
     );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Все строковые поля должны быть однострочными");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Учитывай известные последствия и желаемые действия только если они явно переданы пользователем",
+    );
   });
 
   it("валидирует черновик с impact и несколькими предупреждениями", () => {

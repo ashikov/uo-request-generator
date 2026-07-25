@@ -52,6 +52,36 @@
             </div>
           </div>
 
+          <div class="field-group">
+            <label for="consequences">Известные последствия</label>
+            <textarea
+              id="consequences"
+              name="consequences"
+              maxlength="500"
+              rows="3"
+              aria-describedby="consequences-hint consequences-count"
+            ></textarea>
+            <div class="field-meta">
+              <span id="consequences-hint">Необязательно. Укажите только уже известные последствия проблемы</span>
+              <span id="consequences-count" aria-live="polite">0 / 500</span>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="desired-actions">Желаемые действия</label>
+            <textarea
+              id="desired-actions"
+              name="desiredActions"
+              maxlength="500"
+              rows="3"
+              aria-describedby="desired-actions-hint desired-actions-count"
+            ></textarea>
+            <div class="field-meta">
+              <span id="desired-actions-hint">Необязательно. Укажите, что должна сделать УО, если это известно</span>
+              <span id="desired-actions-count" aria-live="polite">0 / 500</span>
+            </div>
+          </div>
+
           <button id="submit-button" type="submit">Составить заявку</button>
         </form>
 

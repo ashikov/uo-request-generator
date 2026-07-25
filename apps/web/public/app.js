@@ -4,8 +4,12 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
   const form = document.querySelector("#request-form");
   const description = document.querySelector("#description");
   const location = document.querySelector("#location");
+  const consequences = document.querySelector("#consequences");
+  const desiredActions = document.querySelector("#desired-actions");
   const descriptionCount = document.querySelector("#description-count");
   const locationCount = document.querySelector("#location-count");
+  const consequencesCount = document.querySelector("#consequences-count");
+  const desiredActionsCount = document.querySelector("#desired-actions-count");
   const submitButton = document.querySelector("#submit-button");
   const errorArea = document.querySelector("#error-area");
   const resultArea = document.querySelector("#result-area");
@@ -34,10 +38,14 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
 
   function readForm() {
     const normalizedLocation = location.value.trim();
+    const normalizedConsequences = consequences.value.trim();
+    const normalizedDesiredActions = desiredActions.value.trim();
 
     return {
       description: description.value,
       ...(normalizedLocation === "" ? {} : { location: normalizedLocation }),
+      ...(normalizedConsequences === "" ? {} : { consequences: normalizedConsequences }),
+      ...(normalizedDesiredActions === "" ? {} : { desiredActions: normalizedDesiredActions }),
     };
   }
 
@@ -52,6 +60,17 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
 
     if (input.location !== undefined && input.location.length > location.maxLength) {
       return `Место должно содержать не более ${location.maxLength} символов`;
+    }
+
+    if (input.consequences !== undefined && input.consequences.length > consequences.maxLength) {
+      return `Последствия должны содержать не более ${consequences.maxLength} символов`;
+    }
+
+    if (
+      input.desiredActions !== undefined &&
+      input.desiredActions.length > desiredActions.maxLength
+    ) {
+      return `Желаемые действия должны содержать не более ${desiredActions.maxLength} символов`;
     }
 
     return undefined;
@@ -254,8 +273,16 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
 
   description.addEventListener("input", () => updateCharacterCount(description, descriptionCount));
   location.addEventListener("input", () => updateCharacterCount(location, locationCount));
+  consequences.addEventListener("input", () =>
+    updateCharacterCount(consequences, consequencesCount),
+  );
+  desiredActions.addEventListener("input", () =>
+    updateCharacterCount(desiredActions, desiredActionsCount),
+  );
   updateCharacterCount(description, descriptionCount);
   updateCharacterCount(location, locationCount);
+  updateCharacterCount(consequences, consequencesCount);
+  updateCharacterCount(desiredActions, desiredActionsCount);
   setSubmitting(false);
   form.addEventListener("submit", handleSubmit);
 })();

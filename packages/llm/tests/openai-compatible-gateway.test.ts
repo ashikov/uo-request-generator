@@ -278,6 +278,56 @@ describe("OpenAiCompatibleGateway", () => {
     expect(callBody.messages[1]?.content).toContain("Кухня");
   });
 
+  it.each([
+    [
+      "только с обязательным описанием",
+      { description: "Не работает освещение" },
+      "Проблема: Не работает освещение",
+    ],
+    [
+      "с последствиями",
+      {
+        description: "Не работает освещение",
+        consequences: "В вечернее время проход затруднён",
+      },
+      "Проблема: Не работает освещение\n\nИзвестные последствия: В вечернее время проход затруднён",
+    ],
+    [
+      "с желаемыми действиями",
+      {
+        description: "Не работает освещение",
+        desiredActions: "Проверить и восстановить освещение",
+      },
+      "Проблема: Не работает освещение\n\nЖелаемые действия: Проверить и восстановить освещение",
+    ],
+    [
+      "с обоими дополнительными полями",
+      {
+        description: "Не работает освещение",
+        consequences: "В вечернее время проход затруднён",
+        desiredActions: "Проверить и восстановить освещение",
+      },
+      [
+        "Проблема: Не работает освещение",
+        "Известные последствия: В вечернее время проход затруднён",
+        "Желаемые действия: Проверить и восстановить освещение",
+      ].join("\n\n"),
+    ],
+    [
+      "с пустыми дополнительными полями",
+      { description: "Не работает освещение", consequences: "   ", desiredActions: "" },
+      "Проблема: Не работает освещение",
+    ],
+  ] as const)("формирует сообщение %s без пустых разделов", async (_caseName, input, expectedMessage) => {
+    const mockFetch = createMockFetch(VALID_LLM_TEXT);
+
+    await createGateway().generateRequest(input);
+
+    const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+    expect(callBody.messages[1]?.content).toBe(expectedMessage);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
   it("не обрезает и отклоняет заголовок сверх лимита", async () => {
     const emoji = "🎉";
     const titleMax = 120;
@@ -550,17 +600,26 @@ describe("OpenAiCompatibleGateway", () => {
       );
     });
 
-    it("передаёт location в input", async () => {
+    it("передаёт все заполненные поля контекста в input", async () => {
       const mockFetch = createResponsesMockFetch({ output_text: VALID_LLM_TEXT });
       const gateway = createGateway(responsesConfig);
 
       await gateway.generateRequest({
         description: "Не работает освещение",
         location: "Общий коридор",
+        consequences: "В вечернее время проход затруднён",
+        desiredActions: "Проверить и восстановить освещение",
       });
 
       const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
-      expect(callBody.input).toBe("Проблема: Не работает освещение\n\nМесто: Общий коридор");
+      expect(callBody.input).toBe(
+        [
+          "Проблема: Не работает освещение",
+          "Место: Общий коридор",
+          "Известные последствия: В вечернее время проход затруднён",
+          "Желаемые действия: Проверить и восстановить освещение",
+        ].join("\n\n"),
+      );
     });
 
     it("использует заданный лимит выходных токенов", async () => {

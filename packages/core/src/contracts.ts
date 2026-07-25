@@ -8,6 +8,12 @@ export const generateRequestLimits = {
   location: {
     max: 120,
   },
+  consequences: {
+    max: 500,
+  },
+  desiredActions: {
+    max: 500,
+  },
   result: {
     titleMax: 120,
     bodyMax: 2_500,
@@ -33,6 +39,24 @@ export const generateRequestInputSchema = z
       .max(
         generateRequestLimits.location.max,
         `Место должно содержать не более ${generateRequestLimits.location.max} символов`,
+      )
+      .optional(),
+    consequences: z
+      .string()
+      .trim()
+      .min(1, "Последствия не должны быть пустыми")
+      .max(
+        generateRequestLimits.consequences.max,
+        `Последствия должны содержать не более ${generateRequestLimits.consequences.max} символов`,
+      )
+      .optional(),
+    desiredActions: z
+      .string()
+      .trim()
+      .min(1, "Желаемые действия не должны быть пустыми")
+      .max(
+        generateRequestLimits.desiredActions.max,
+        `Желаемые действия должны содержать не более ${generateRequestLimits.desiredActions.max} символов`,
       )
       .optional(),
   })

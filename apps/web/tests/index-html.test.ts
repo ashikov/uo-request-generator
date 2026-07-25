@@ -16,4 +16,20 @@ describe("публичная страница", () => {
       "Генерация через LLM пока не подключена. Форма вернёт контролируемую ошибку.",
     );
   });
+
+  it("содержит необязательные поля контекста с доступными подсказками и счётчиками", async () => {
+    const html = await readFile(join(publicDirectory, "index.html"), "utf8");
+
+    expect(html).toMatch(/<label for="consequences">Известные последствия<\/label>/);
+    expect(html).toMatch(/id="consequences"[\s\S]*maxlength="500"/);
+    expect(html).toContain('aria-describedby="consequences-hint consequences-count"');
+    expect(html).toContain('id="consequences-hint"');
+    expect(html).toContain('id="consequences-count" aria-live="polite"');
+
+    expect(html).toMatch(/<label for="desired-actions">Желаемые действия<\/label>/);
+    expect(html).toMatch(/id="desired-actions"[\s\S]*maxlength="500"/);
+    expect(html).toContain('aria-describedby="desired-actions-hint desired-actions-count"');
+    expect(html).toContain('id="desired-actions-hint"');
+    expect(html).toContain('id="desired-actions-count" aria-live="polite"');
+  });
 });

@@ -4,8 +4,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const initialDescription = "На тестовой площадке не работает освещение";
 const initialLocation = "Учебная зона";
+const initialConsequences = "В вечернее время проход затруднён";
+const initialDesiredActions = "Проверить и восстановить освещение";
 
-async function initializeApp(locationValue = "", locationMaxLength = 120): Promise<void> {
+async function initializeApp(
+  locationValue = "",
+  locationMaxLength = 120,
+  consequencesValue = "",
+  desiredActionsValue = "",
+  contextMaxLength = 500,
+): Promise<void> {
   document.body.innerHTML = `
     <form id="request-form">
       <textarea id="description" minlength="10" maxlength="2000"></textarea>
@@ -15,6 +23,16 @@ async function initializeApp(locationValue = "", locationMaxLength = 120): Promi
         value="${locationValue}"
         aria-describedby="location-hint location-count"
       />
+      <textarea
+        id="consequences"
+        maxlength="${contextMaxLength}"
+        aria-describedby="consequences-hint consequences-count"
+      >${consequencesValue}</textarea>
+      <textarea
+        id="desired-actions"
+        maxlength="${contextMaxLength}"
+        aria-describedby="desired-actions-hint desired-actions-count"
+      >${desiredActionsValue}</textarea>
       <button id="submit-button" type="submit">Составить заявку</button>
     </form>
     <div id="error-area" hidden tabindex="-1"></div>
@@ -24,6 +42,8 @@ async function initializeApp(locationValue = "", locationMaxLength = 120): Promi
     </div>
     <span id="description-count">0 / 2000</span>
     <span id="location-count">0 / ${locationMaxLength}</span>
+    <span id="consequences-count">0 / ${contextMaxLength}</span>
+    <span id="desired-actions-count">0 / ${contextMaxLength}</span>
   `;
 
   await import("../public/app.js");
@@ -35,6 +55,14 @@ function getDescription(): HTMLTextAreaElement {
 
 function getLocation(): HTMLInputElement {
   return document.getElementById("location") as HTMLInputElement;
+}
+
+function getConsequences(): HTMLTextAreaElement {
+  return document.getElementById("consequences") as HTMLTextAreaElement;
+}
+
+function getDesiredActions(): HTMLTextAreaElement {
+  return document.getElementById("desired-actions") as HTMLTextAreaElement;
 }
 
 function getErrorArea(): HTMLElement {
@@ -53,20 +81,42 @@ function getLocationCount(): HTMLElement {
   return document.getElementById("location-count") as HTMLElement;
 }
 
+function getConsequencesCount(): HTMLElement {
+  return document.getElementById("consequences-count") as HTMLElement;
+}
+
+function getDesiredActionsCount(): HTMLElement {
+  return document.getElementById("desired-actions-count") as HTMLElement;
+}
+
 function submitForm(): void {
   (document.getElementById("request-form") as HTMLFormElement).dispatchEvent(
     new Event("submit", { cancelable: true }),
   );
 }
 
-function setFormValues(description = initialDescription, location = initialLocation): void {
+function setFormValues(
+  description = initialDescription,
+  location = initialLocation,
+  consequences = "",
+  desiredActions = "",
+): void {
   getDescription().value = description;
   getLocation().value = location;
+  getConsequences().value = consequences;
+  getDesiredActions().value = desiredActions;
 }
 
-function expectFormValues(description = initialDescription, location = initialLocation): void {
+function expectFormValues(
+  description = initialDescription,
+  location = initialLocation,
+  consequences = "",
+  desiredActions = "",
+): void {
   expect(getDescription().value).toBe(description);
   expect(getLocation().value).toBe(location);
+  expect(getConsequences().value).toBe(consequences);
+  expect(getDesiredActions().value).toBe(desiredActions);
 }
 
 async function expectError(message: string): Promise<void> {
@@ -103,16 +153,107 @@ describe("обработка ответа генерации в приложен
     expect(getLocationCount().textContent).toBe("4 / 37");
   });
 
+  it("инициализирует и обновляет счётчики дополнительных полей", async () => {
+    vi.resetModules();
+    await initializeApp("", 120, "Проход затруднён", "Проверить освещение", 77);
+
+    expect(getConsequencesCount().textContent).toBe("16 / 77");
+    expect(getDesiredActionsCount().textContent).toBe("19 / 77");
+    expect(getConsequences().getAttribute("aria-describedby")).toBe(
+      "consequences-hint consequences-count",
+    );
+    expect(getDesiredActions().getAttribute("aria-describedby")).toBe(
+      "desired-actions-hint desired-actions-count",
+    );
+
+    getConsequences().value = "Известно";
+    getDesiredActions().value = "Проверить";
+    getConsequences().dispatchEvent(new Event("input"));
+    getDesiredActions().dispatchEvent(new Event("input"));
+
+    expect(getConsequencesCount().textContent).toBe("8 / 77");
+    expect(getDesiredActionsCount().textContent).toBe("9 / 77");
+  });
+
+  it("не отправляет пустые дополнительные поля", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues(initialDescription, initialLocation, "   ", "");
+
+    submitForm();
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      description: initialDescription,
+      location: initialLocation,
+    });
+  });
+
+  it("отправляет каждое дополнительное поле отдельно и вместе", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    setFormValues(initialDescription, "", "Проход затруднён");
+    submitForm();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(getSubmitButton().disabled).toBe(false));
+
+    setFormValues(initialDescription, "", "", "Проверить освещение");
+    submitForm();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(getSubmitButton().disabled).toBe(false));
+
+    setFormValues(initialDescription, "", "Проход затруднён", "Проверить освещение");
+    submitForm();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({
+      consequences: "Проход затруднён",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toMatchObject({
+      desiredActions: "Проверить освещение",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[2]?.[1]?.body as string)).toMatchObject({
+      consequences: "Проход затруднён",
+      desiredActions: "Проверить освещение",
+    });
+  });
+
+  it.each([
+    ["последствия", getConsequences, initialDesiredActions, "Последствия"],
+    ["желаемые действия", getDesiredActions, initialConsequences, "Желаемые действия"],
+  ])("блокирует слишком длинные %s до запроса и сохраняет дополнительные поля", async (_caseName, getField, otherValue, fieldLabel) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const value = "а".repeat(getField().maxLength + 1);
+    const values = fieldLabel === "Последствия" ? [value, otherValue] : [otherValue, value];
+    setFormValues(initialDescription, initialLocation, values[0], values[1]);
+
+    submitForm();
+
+    await expectError(`${fieldLabel} должны содержать не более ${getField().maxLength} символов`);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expectFormValues(initialDescription, initialLocation, values[0], values[1]);
+  });
+
   it("показывает локальную ошибку до сетевого запроса и сохраняет поля", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    setFormValues("Коротко");
+    setFormValues("Коротко", initialLocation, initialConsequences, initialDesiredActions);
 
     submitForm();
 
     await expectError("Описание должно содержать не менее 10 символов");
     expect(fetchMock).not.toHaveBeenCalled();
-    expectFormValues("Коротко");
+    expectFormValues("Коротко", initialLocation, initialConsequences, initialDesiredActions);
   });
 
   it("не удаляет предыдущий успешный результат при локально невалидной отправке", async () => {
@@ -128,7 +269,7 @@ describe("обработка ответа генерации в приложен
           }),
       }),
     );
-    setFormValues();
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
     submitForm();
 
     await vi.waitFor(() => {
@@ -144,13 +285,18 @@ describe("обработка ответа генерации в приложен
 
   it("показывает сетевую ошибку только при исключении fetch и сохраняет поля", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network unavailable")));
-    setFormValues();
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
 
     submitForm();
 
     await expectError("Не удалось связаться с сервисом. Попробуйте позже");
     expect(getErrorArea().textContent).not.toContain("некорректный ответ");
-    expectFormValues();
+    expectFormValues(
+      initialDescription,
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
   });
 
   it("показывает контролируемое сообщение API и не раскрывает его служебные поля", async () => {
@@ -168,14 +314,19 @@ describe("обработка ответа генерации в приложен
           }),
       }),
     );
-    setFormValues();
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
 
     submitForm();
 
     await expectError("Проверьте формат и содержание запроса");
     expect(getErrorArea().textContent).not.toContain("validation_error");
     expect(getErrorArea().textContent).not.toContain("test-request-id");
-    expectFormValues();
+    expectFormValues(
+      initialDescription,
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
   });
 
   it("заменяет некорректную ошибку API безопасным общим сообщением", async () => {
@@ -193,13 +344,18 @@ describe("обработка ответа генерации в приложен
           }),
       }),
     );
-    setFormValues();
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
 
     submitForm();
 
     await expectError("Не удалось составить заявку");
     expect(getErrorArea().textContent).not.toContain(internalMessage);
-    expectFormValues();
+    expectFormValues(
+      initialDescription,
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
   });
 
   it("отделяет не-JSON ответ от сетевой ошибки и сохраняет поля", async () => {
@@ -210,13 +366,18 @@ describe("обработка ответа генерации в приложен
         json: () => Promise.reject(new SyntaxError("Unexpected token")),
       }),
     );
-    setFormValues();
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
 
     submitForm();
 
     await expectError("Сервис вернул некорректный ответ. Попробуйте позже");
     expect(getErrorArea().textContent).not.toContain("Не удалось связаться с сервисом");
-    expectFormValues();
+    expectFormValues(
+      initialDescription,
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
   });
 
   it("не отображает некорректный успешный результат и не создаёт кнопку копирования", async () => {
@@ -227,14 +388,19 @@ describe("обработка ответа генерации в приложен
         json: () => Promise.resolve({ title: "", body: "Текст заявки", warnings: [] }),
       }),
     );
-    setFormValues();
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
 
     submitForm();
 
     await expectError("Сервис вернул некорректный результат");
     expect(document.querySelector("#result-area h3")).toBeNull();
     expect(document.querySelector(".copy-button")).toBeNull();
-    expectFormValues();
+    expectFormValues(
+      initialDescription,
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
   });
 
   it("отображает корректный результат и сохраняет работу кнопки копирования", async () => {
