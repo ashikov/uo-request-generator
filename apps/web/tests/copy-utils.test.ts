@@ -72,6 +72,8 @@ function setupFormDOM() {
         Описание неисправности для проверки работы формы
       </textarea>
       <input id="location" maxlength="200" aria-describedby="location-count" />
+      <textarea id="consequences" maxlength="500" aria-describedby="consequences-count"></textarea>
+      <textarea id="desired-actions" maxlength="500" aria-describedby="desired-actions-count"></textarea>
       <button id="submit-button" type="submit">Составить заявку</button>
     </form>
     <div id="error-area" hidden></div>
@@ -81,6 +83,8 @@ function setupFormDOM() {
     </div>
     <span id="description-count">0 / 500</span>
     <span id="location-count">0 / 200</span>
+    <span id="consequences-count">0 / 500</span>
+    <span id="desired-actions-count">0 / 500</span>
   `;
 }
 
@@ -94,6 +98,8 @@ describe("copy button in app", () => {
     const textarea = document.getElementById("description") as HTMLTextAreaElement;
     textarea.value = "Описание неисправности для проверки работы формы";
     (document.getElementById("location") as HTMLInputElement).value = "";
+    (document.getElementById("consequences") as HTMLTextAreaElement).value = "";
+    (document.getElementById("desired-actions") as HTMLTextAreaElement).value = "";
     const submitBtn = document.getElementById("submit-button") as HTMLButtonElement;
     submitBtn.disabled = false;
     submitBtn.textContent = "Составить заявку";
@@ -109,6 +115,12 @@ describe("copy button in app", () => {
 
     const descriptionCount = document.getElementById("description-count") as HTMLElement;
     descriptionCount.textContent = "0 / 500";
+
+    const consequencesCount = document.getElementById("consequences-count") as HTMLElement;
+    consequencesCount.textContent = "0 / 500";
+
+    const desiredActionsCount = document.getElementById("desired-actions-count") as HTMLElement;
+    desiredActionsCount.textContent = "0 / 500";
 
     vi.stubGlobal(
       "fetch",

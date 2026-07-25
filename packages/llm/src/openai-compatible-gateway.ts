@@ -140,6 +140,26 @@ function createRequestBody(
   };
 }
 
+function createUserMessage(input: GenerateRequestInput): string {
+  const messageParts = [`Проблема: ${input.description}`];
+  const consequences = input.consequences?.trim();
+  const desiredActions = input.desiredActions?.trim();
+
+  if (input.location) {
+    messageParts.push(`Место: ${input.location}`);
+  }
+
+  if (consequences) {
+    messageParts.push(`Известные последствия: ${consequences}`);
+  }
+
+  if (desiredActions) {
+    messageParts.push(`Желаемые действия: ${desiredActions}`);
+  }
+
+  return messageParts.join("\n\n");
+}
+
 function extractResponsesText(responseBody: unknown): string {
   const responseResult = openAiResponsesResponseSchema.safeParse(responseBody);
 
@@ -250,9 +270,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
   }
 
   async generateRequest(input: GenerateRequestInput): Promise<GenerateRequestResult> {
-    const userMessage = input.location
-      ? `Проблема: ${input.description}\n\nМесто: ${input.location}`
-      : `Проблема: ${input.description}`;
+    const userMessage = createUserMessage(input);
 
     const requestBody = createRequestBody(
       this.apiProtocol,
