@@ -39,6 +39,53 @@ describe("generateRequestInputSchema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it.each([
+    ["последствия", { consequences: "В вечернее время проход затруднён" }],
+    ["желаемые действия", { desiredActions: "Проверить и восстановить освещение" }],
+    [
+      "оба дополнительных поля",
+      {
+        consequences: "В вечернее время проход затруднён",
+        desiredActions: "Проверить и восстановить освещение",
+      },
+    ],
+  ])("принимает %s как необязательный контекст", (_caseName, context) => {
+    const result = generateRequestInputSchema.safeParse({
+      description: "На лестничной площадке не горит свет",
+      ...context,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it.each([
+    ["пустые последствия", { consequences: "" }],
+    ["последствия из пробелов", { consequences: "   " }],
+    ["пустые желаемые действия", { desiredActions: "" }],
+    ["желаемые действия из пробелов", { desiredActions: "   " }],
+  ])("отклоняет %s", (_caseName, context) => {
+    const result = generateRequestInputSchema.safeParse({
+      description: "На лестничной площадке не горит свет",
+      ...context,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    ["consequences", "consequences", generateRequestLimits.consequences.max],
+    ["desiredActions", "desiredActions", generateRequestLimits.desiredActions.max],
+  ] as const)("принимает %s на граничной длине и отклоняет превышение", (_caseName, field, max) => {
+    const input = { description: "На лестничной площадке не горит свет", [field]: "а".repeat(max) };
+    const tooLongInput = {
+      description: "На лестничной площадке не горит свет",
+      [field]: "а".repeat(max + 1),
+    };
+
+    expect(generateRequestInputSchema.safeParse(input).success).toBe(true);
+    expect(generateRequestInputSchema.safeParse(tooLongInput).success).toBe(false);
+  });
 });
 
 describe("generateRequestResultSchema", () => {

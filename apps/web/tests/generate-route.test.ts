@@ -153,6 +153,44 @@ describe("POST /api/generate", () => {
     expect(response.statusCode).toBe(503);
   });
 
+  it.each([
+    ["только последствия", { consequences: "В вечернее время проход затруднён" }],
+    ["только желаемые действия", { desiredActions: "Проверить и восстановить освещение" }],
+    [
+      "оба дополнительных поля",
+      {
+        consequences: "В вечернее время проход затруднён",
+        desiredActions: "Проверить и восстановить освещение",
+      },
+    ],
+  ])("передаёт gateway %s", async (_caseName, context) => {
+    const gateway = new DisabledLlmGateway();
+    const generateRequest = vi.spyOn(gateway, "generateRequest");
+    const input = {
+      description: "На лестничной площадке не горит свет",
+      ...context,
+    };
+
+    const response = await injectGenerate(input, gateway);
+
+    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(response.statusCode).toBe(503);
+  });
+
+  it.each([
+    ["пустые последствия", { consequences: "" }],
+    ["пробельные последствия", { consequences: "   " }],
+    ["пустые желаемые действия", { desiredActions: "" }],
+    ["пробельные желаемые действия", { desiredActions: "   " }],
+  ])("отклоняет %s", async (_caseName, context) => {
+    const response = await injectGenerate({
+      description: "На лестничной площадке не горит свет",
+      ...context,
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
   it("rejects a location longer than the maximum", async () => {
     const response = await injectGenerate({
       description: "На лестничной площадке не горит свет",
@@ -164,6 +202,18 @@ describe("POST /api/generate", () => {
       code: "validation_error",
       message: "Проверьте формат и содержание запроса",
     });
+  });
+
+  it.each([
+    ["последствия", "consequences", generateRequestLimits.consequences.max],
+    ["желаемые действия", "desiredActions", generateRequestLimits.desiredActions.max],
+  ] as const)("отклоняет слишком длинные %s", async (_caseName, field, max) => {
+    const response = await injectGenerate({
+      description: "На лестничной площадке не горит свет",
+      [field]: "а".repeat(max + 1),
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 
   it("does not expose user input in an infrastructure error", async () => {
