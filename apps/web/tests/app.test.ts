@@ -16,7 +16,12 @@ async function initializeApp(
 ): Promise<void> {
   document.body.innerHTML = `
     <form id="request-form">
-      <textarea id="description" minlength="10" maxlength="2000"></textarea>
+      <textarea
+        id="description"
+        minlength="10"
+        maxlength="2000"
+        aria-describedby="description-hint description-count"
+      ></textarea>
       <input
         id="location"
         maxlength="${locationMaxLength}"
@@ -40,6 +45,7 @@ async function initializeApp(
       <h2 id="result-title">Готовая заявка</h2>
       <p id="result-placeholder">Здесь появится результат после успешной генерации.</p>
     </div>
+    <span id="description-hint">Опишите одну проблему обычными словами</span>
     <span id="description-count">0 / 2000</span>
     <span id="location-count">0 / ${locationMaxLength}</span>
     <span id="consequences-count">0 / ${contextMaxLength}</span>
@@ -117,6 +123,14 @@ function expectFormValues(
   expect(getLocation().value).toBe(location);
   expect(getConsequences().value).toBe(consequences);
   expect(getDesiredActions().value).toBe(desiredActions);
+}
+
+function expectDescriptionDescribedBy(...expectedIds: string[]): void {
+  const describedBy = getDescription().getAttribute("aria-describedby");
+  const ids = describedBy?.split(/\s+/) ?? [];
+
+  expect(ids).toEqual(expectedIds);
+  expect(new Set(ids).size).toBe(ids.length);
 }
 
 async function expectError(message: string): Promise<void> {
@@ -254,6 +268,30 @@ describe("обработка ответа генерации в приложен
     await expectError("Описание должно содержать не менее 10 символов");
     expect(fetchMock).not.toHaveBeenCalled();
     expectFormValues("Коротко", initialLocation, initialConsequences, initialDesiredActions);
+    expect(getDescription().getAttribute("aria-invalid")).toBe("true");
+    expectDescriptionDescribedBy("description-hint", "description-count", "error-area");
+  });
+
+  it("снимает состояние ошибки описания после изменения значения", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("network error"));
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues("Коротко");
+
+    submitForm();
+
+    await expectError("Описание должно содержать не менее 10 символов");
+    getDescription().value = initialDescription;
+    getDescription().dispatchEvent(new Event("input"));
+
+    expect(getDescription().getAttribute("aria-invalid")).toBeNull();
+    expectDescriptionDescribedBy("description-hint", "description-count");
+
+    submitForm();
+
+    await expectError("Не удалось связаться с сервисом. Попробуйте позже");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getDescription().getAttribute("aria-invalid")).toBeNull();
+    expectDescriptionDescribedBy("description-hint", "description-count");
   });
 
   it("не удаляет предыдущий успешный результат при локально невалидной отправке", async () => {
@@ -291,6 +329,8 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Не удалось связаться с сервисом. Попробуйте позже");
     expect(getErrorArea().textContent).not.toContain("некорректный ответ");
+    expect(getDescription().getAttribute("aria-invalid")).toBeNull();
+    expectDescriptionDescribedBy("description-hint", "description-count");
     expectFormValues(
       initialDescription,
       initialLocation,
@@ -321,6 +361,8 @@ describe("обработка ответа генерации в приложен
     await expectError("Проверьте формат и содержание запроса");
     expect(getErrorArea().textContent).not.toContain("validation_error");
     expect(getErrorArea().textContent).not.toContain("test-request-id");
+    expect(getDescription().getAttribute("aria-invalid")).toBeNull();
+    expectDescriptionDescribedBy("description-hint", "description-count");
     expectFormValues(
       initialDescription,
       initialLocation,
