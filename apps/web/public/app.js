@@ -15,6 +15,7 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
   const resultArea = document.querySelector("#result-area");
   const resultTitle = document.querySelector("#result-title");
   const resultPlaceholder = document.querySelector("#result-placeholder");
+  const descriptionDescribedBy = description.getAttribute("aria-describedby");
 
   const apiErrorCodes = new Set([
     "generation_provider_unavailable",
@@ -141,13 +142,36 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
     );
   }
 
-  function renderError(message) {
+  function setDescriptionValidationError() {
+    description.setAttribute("aria-invalid", "true");
+    description.setAttribute(
+      "aria-describedby",
+      `${descriptionDescribedBy ?? ""} error-area`.trim(),
+    );
+  }
+
+  function clearDescriptionValidationError() {
+    description.removeAttribute("aria-invalid");
+    if (descriptionDescribedBy === null) {
+      description.removeAttribute("aria-describedby");
+      return;
+    }
+
+    description.setAttribute("aria-describedby", descriptionDescribedBy);
+  }
+
+  function renderError(message, hasDescriptionValidationError = false) {
+    clearDescriptionValidationError();
+    if (hasDescriptionValidationError) {
+      setDescriptionValidationError();
+    }
     errorArea.textContent = message;
     errorArea.hidden = false;
     errorArea.focus();
   }
 
   function clearError() {
+    clearDescriptionValidationError();
     errorArea.textContent = "";
     errorArea.hidden = true;
   }
@@ -230,7 +254,10 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
     const input = readForm();
     const validationMessage = validateForm(input);
     if (validationMessage !== undefined) {
-      renderError(validationMessage);
+      const hasDescriptionValidationError =
+        input.description.length < description.minLength ||
+        input.description.length > description.maxLength;
+      renderError(validationMessage, hasDescriptionValidationError);
       return;
     }
 
@@ -271,7 +298,10 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
     }
   }
 
-  description.addEventListener("input", () => updateCharacterCount(description, descriptionCount));
+  description.addEventListener("input", () => {
+    clearDescriptionValidationError();
+    updateCharacterCount(description, descriptionCount);
+  });
   location.addEventListener("input", () => updateCharacterCount(location, locationCount));
   consequences.addEventListener("input", () =>
     updateCharacterCount(consequences, consequencesCount),
