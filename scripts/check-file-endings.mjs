@@ -7,6 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const skippedDirectories = new Set([
   ".git",
+  ".playwright-mcp",
   "coverage",
   "dist",
   "node_modules",
