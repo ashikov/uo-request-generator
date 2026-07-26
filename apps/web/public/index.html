@@ -16,85 +16,114 @@
       <section class="request-card" aria-labelledby="page-title">
         <header class="page-header">
           <h1 id="page-title">Заявка в УО</h1>
-          <p>Опишите как есть — получите готовую заявку</p>
+          <p>Опишите одну проблему обычными словами — получите готовый текст заявки</p>
         </header>
 
-        <form id="request-form" class="request-form" novalidate>
-          <div class="field-group">
-            <label for="description">Описание проблемы</label>
-            <textarea
-              id="description"
-              name="description"
-              minlength="10"
-              maxlength="2000"
-              rows="7"
-              required
-              aria-describedby="description-hint description-count"
-            ></textarea>
-            <div class="field-meta">
-              <span id="description-hint">Опишите одну проблему обычными словами</span>
-              <span id="description-count" aria-live="polite">0 / 2000</span>
-            </div>
+        <div class="page-content">
+          <div class="form-column">
+            <form id="request-form" class="request-form" novalidate>
+              <div class="field-group field-group--primary">
+                <label for="description">
+                  <span>Описание проблемы</span>
+                  <span class="field-requirement">Обязательное поле</span>
+                </label>
+                <textarea
+                  id="description"
+                  name="description"
+                  minlength="10"
+                  maxlength="2000"
+                  rows="7"
+                  required
+                  aria-describedby="description-hint description-count"
+                ></textarea>
+                <div class="field-meta">
+                  <span id="description-hint">Опишите одну проблему обычными словами</span>
+                  <span id="description-count" aria-live="polite">0 / 2000</span>
+                </div>
+              </div>
+
+              <section class="optional-fields" aria-labelledby="optional-fields-title">
+                <header class="optional-fields-header">
+                  <div>
+                    <h2 id="optional-fields-title">Дополнительные сведения</h2>
+                    <p>Заполните только то, что уже известно</p>
+                  </div>
+                  <span class="optional-marker">Необязательно</span>
+                </header>
+
+                <div class="field-group">
+                  <label for="location">Где это произошло</label>
+                  <input
+                    id="location"
+                    name="location"
+                    type="text"
+                    maxlength="120"
+                    aria-describedby="location-hint location-count"
+                  />
+                  <div class="field-meta">
+                    <span id="location-hint">Необязательно, например: подъезд или этаж</span>
+                    <span id="location-count" aria-live="polite">0 / 120</span>
+                  </div>
+                </div>
+
+                <div class="field-group">
+                  <label for="consequences">Известные последствия</label>
+                  <textarea
+                    id="consequences"
+                    name="consequences"
+                    maxlength="500"
+                    rows="3"
+                    aria-describedby="consequences-hint consequences-count"
+                  ></textarea>
+                  <div class="field-meta">
+                    <span id="consequences-hint"
+                      >Необязательно. Укажите только уже известные последствия проблемы</span
+                    >
+                    <span id="consequences-count" aria-live="polite">0 / 500</span>
+                  </div>
+                </div>
+
+                <div class="field-group">
+                  <label for="desired-actions">Желаемые действия</label>
+                  <textarea
+                    id="desired-actions"
+                    name="desiredActions"
+                    maxlength="500"
+                    rows="3"
+                    aria-describedby="desired-actions-hint desired-actions-count"
+                  ></textarea>
+                  <div class="field-meta">
+                    <span id="desired-actions-hint"
+                      >Необязательно. Укажите, что должна сделать УО, если это известно</span
+                    >
+                    <span id="desired-actions-count" aria-live="polite">0 / 500</span>
+                  </div>
+                </div>
+              </section>
+
+              <button id="submit-button" type="submit">Составить заявку</button>
+            </form>
+
+            <div
+              id="error-area"
+              class="message-area"
+              aria-live="assertive"
+              tabindex="-1"
+              hidden
+            ></div>
           </div>
 
-          <div class="field-group">
-            <label for="location">Где это произошло</label>
-            <input
-              id="location"
-              name="location"
-              type="text"
-              maxlength="120"
-              aria-describedby="location-hint location-count"
-            />
-            <div class="field-meta">
-              <span id="location-hint">Необязательно, например: подъезд или этаж</span>
-              <span id="location-count" aria-live="polite">0 / 120</span>
-            </div>
+          <div class="result-column">
+            <section id="result-area" class="result-area" aria-labelledby="result-title">
+              <h2 id="result-title">Готовая заявка</h2>
+              <p id="result-placeholder">Здесь появится результат после успешной генерации.</p>
+            </section>
+
+            <p class="service-note">
+              Проверьте готовую заявку перед отправкой. Текст сформирован автоматически и может требовать уточнения.
+            </p>
           </div>
-
-          <div class="field-group">
-            <label for="consequences">Известные последствия</label>
-            <textarea
-              id="consequences"
-              name="consequences"
-              maxlength="500"
-              rows="3"
-              aria-describedby="consequences-hint consequences-count"
-            ></textarea>
-            <div class="field-meta">
-              <span id="consequences-hint">Необязательно. Укажите только уже известные последствия проблемы</span>
-              <span id="consequences-count" aria-live="polite">0 / 500</span>
-            </div>
-          </div>
-
-          <div class="field-group">
-            <label for="desired-actions">Желаемые действия</label>
-            <textarea
-              id="desired-actions"
-              name="desiredActions"
-              maxlength="500"
-              rows="3"
-              aria-describedby="desired-actions-hint desired-actions-count"
-            ></textarea>
-            <div class="field-meta">
-              <span id="desired-actions-hint">Необязательно. Укажите, что должна сделать УО, если это известно</span>
-              <span id="desired-actions-count" aria-live="polite">0 / 500</span>
-            </div>
-          </div>
-
-          <button id="submit-button" type="submit">Составить заявку</button>
-        </form>
-
-        <div id="error-area" class="message-area" aria-live="assertive" tabindex="-1" hidden></div>
-
-        <section id="result-area" class="result-area" aria-labelledby="result-title">
-          <h2 id="result-title">Готовая заявка</h2>
-          <p id="result-placeholder">Здесь появится результат после успешной генерации.</p>
-        </section>
-
-        <p class="service-note">
-          Проверьте готовую заявку перед отправкой. Текст сформирован автоматически и может требовать уточнения.
-        </p>
+        </div>
       </section>
     </main>
   </body>

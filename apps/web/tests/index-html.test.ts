@@ -32,4 +32,13 @@ describe("публичная страница", () => {
     expect(html).toContain('id="desired-actions-hint"');
     expect(html).toContain('id="desired-actions-count" aria-live="polite"');
   });
+
+  it("отделяет обязательное описание от группы необязательных сведений", async () => {
+    const html = await readFile(join(publicDirectory, "index.html"), "utf8");
+
+    expect(html).toMatch(/<label for="description">[\s\S]*Обязательное поле[\s\S]*<\/label>/);
+    expect(html).toMatch(/<section[^>]*aria-labelledby="optional-fields-title"/);
+    expect(html).toContain('id="optional-fields-title"');
+    expect(html).toContain("Дополнительные сведения");
+  });
 });
