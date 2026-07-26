@@ -171,6 +171,12 @@ textarea {
   border-color: var(--color-accent);
 }
 
+.field-group--primary textarea[aria-invalid="true"],
+.field-group--primary textarea[aria-invalid="true"]:hover {
+  border-color: var(--color-error-border);
+  box-shadow: 0 0 0 1px var(--color-error-border);
+}
+
 .field-group input:hover,
 .field-group textarea:hover {
   border-color: var(--color-accent);
