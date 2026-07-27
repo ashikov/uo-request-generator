@@ -5,6 +5,15 @@ import { createApp } from "../src/app";
 
 type ApiErrorCode = "generation_provider_unavailable" | "internal_error" | "validation_error";
 
+const generationRateLimitConfig = {
+  ipRequestLimit: 100,
+  ipWindowMs: 60_000,
+  clientDailyLimit: 100,
+  cookieSecret: "test-cookie-signing-secret-32-characters",
+  trustProxy: false,
+  stateCapacity: 1_000,
+} as const;
+
 const apps: ReturnType<typeof createApp>[] = [];
 
 afterEach(async () => {
@@ -42,7 +51,7 @@ async function injectGenerate(
   payload: Record<string, unknown>,
   gateway: LlmGateway = new DisabledLlmGateway(),
 ) {
-  const app = createApp({ llmGateway: gateway });
+  const app = createApp({ llmGateway: gateway, generationRateLimitConfig });
   apps.push(app);
 
   return await app.inject({

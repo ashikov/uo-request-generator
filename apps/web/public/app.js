@@ -20,6 +20,7 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
   const apiErrorCodes = new Set([
     "generation_provider_unavailable",
     "internal_error",
+    "rate_limit_exceeded",
     "validation_error",
   ]);
   const generationResultLimits = {

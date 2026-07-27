@@ -2,13 +2,19 @@ import { randomUUID } from "node:crypto";
 import { generateRequestInputSchema, type LlmGateway } from "@uo-request-generator/core";
 import { GenerationProviderUnavailableError } from "@uo-request-generator/llm";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { prepareGenerationClientId } from "../generation-client-id.js";
+import type { GenerationRateLimiter } from "../generation-rate-limiter.js";
 
-type ApiErrorCode = "generation_provider_unavailable" | "internal_error" | "validation_error";
+type ApiErrorCode =
+  | "generation_provider_unavailable"
+  | "internal_error"
+  | "rate_limit_exceeded"
+  | "validation_error";
 
 type ApiError = {
   code: ApiErrorCode;
   message: string;
-  statusCode: 400 | 500 | 503;
+  statusCode: 400 | 429 | 500 | 503;
 };
 
 const validationApiError: ApiError = {
@@ -21,6 +27,12 @@ const providerUnavailableApiError: ApiError = {
   code: "generation_provider_unavailable",
   message: "Генерация пока не подключена",
   statusCode: 503,
+};
+
+const rateLimitApiError: ApiError = {
+  code: "rate_limit_exceeded",
+  message: "Слишком много запросов. Попробуйте позже",
+  statusCode: 429,
 };
 
 const internalApiError: ApiError = {
@@ -39,7 +51,16 @@ function sendApiError(reply: FastifyReply, apiError: ApiError): FastifyReply {
   });
 }
 
-export function registerGenerateRoute(app: FastifyInstance, llmGateway: LlmGateway): void {
+type RegisterGenerateRouteOptions = {
+  llmGateway: LlmGateway;
+  generationRateLimiter: GenerationRateLimiter;
+  generateClientId: () => string;
+};
+
+export function registerGenerateRoute(
+  app: FastifyInstance,
+  options: RegisterGenerateRouteOptions,
+): void {
   app.post(
     "/api/generate",
     {
@@ -59,14 +80,31 @@ export function registerGenerateRoute(app: FastifyInstance, llmGateway: LlmGatew
         return sendApiError(reply, validationApiError);
       }
 
+      const preparedClientId = prepareGenerationClientId(request, reply, options.generateClientId);
+      const rateLimitDecision = options.generationRateLimiter.acquire({
+        ip: request.ip,
+        clientId: preparedClientId.clientId,
+        hasValidClientCookie: preparedClientId.hasValidClientCookie,
+      });
+      if (!rateLimitDecision.allowed) {
+        if (rateLimitDecision.retryAfterSeconds !== undefined) {
+          reply.header("Retry-After", String(rateLimitDecision.retryAfterSeconds));
+        }
+
+        return sendApiError(reply, rateLimitApiError);
+      }
+
       try {
-        return await llmGateway.generateRequest(inputValidation.data);
+        preparedClientId.setCookieAfterAdmission();
+        return await options.llmGateway.generateRequest(inputValidation.data);
       } catch (error) {
         if (error instanceof GenerationProviderUnavailableError) {
           return sendApiError(reply, providerUnavailableApiError);
         }
 
         throw error;
+      } finally {
+        rateLimitDecision.release();
       }
     },
   );
