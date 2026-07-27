@@ -371,6 +371,37 @@ describe("обработка ответа генерации в приложен
     );
   });
 
+  it("принимает rate_limit_exceeded и показывает безопасное серверное сообщение", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        json: () =>
+          Promise.resolve({
+            error: {
+              code: "rate_limit_exceeded",
+              message: "Слишком много запросов. Попробуйте позже",
+              requestId: "test-rate-limit-request-id",
+            },
+          }),
+      }),
+    );
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
+
+    submitForm();
+
+    await expectError("Слишком много запросов. Попробуйте позже");
+    expect(getErrorArea().textContent).not.toContain("rate_limit_exceeded");
+    expect(getErrorArea().textContent).not.toContain("test-rate-limit-request-id");
+    expectFormValues(
+      initialDescription,
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
+  });
+
   it("заменяет некорректную ошибку API безопасным общим сообщением", async () => {
     const internalMessage = "Внутренняя диагностическая строка";
     vi.stubGlobal(
