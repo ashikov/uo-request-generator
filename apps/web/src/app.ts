@@ -1,23 +1,29 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import type { LlmGateway } from "@uo-request-generator/core";
-import { DisabledLlmGateway } from "@uo-request-generator/llm";
 import fastifyCookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
+import type { LlmGateway } from "@uo-request-generator/core";
+import { DisabledLlmGateway } from "@uo-request-generator/llm";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   createGenerationRateLimitConfig,
   type GenerationRateLimitConfig,
 } from "./generation-rate-limit-config.js";
 import { GenerationRateLimiter } from "./generation-rate-limiter.js";
+import { registerCaptchaConfigRoute } from "./routes/captcha-config.js";
 import { registerGenerateRoute } from "./routes/generate.js";
 import { registerHealthRoute } from "./routes/health.js";
+import type { SmartCaptchaConfig } from "./smartcaptcha-config.js";
+import { SmartCaptchaVerifier } from "./smartcaptcha-verifier.js";
 
 export type CreateAppOptions = {
   llmGateway?: LlmGateway;
   generationRateLimitConfig?: GenerationRateLimitConfig;
   generationRateLimiterNow?: () => number;
+  generationRateLimiter?: GenerationRateLimiter;
   generateGenerationClientId?: () => string;
+  smartCaptchaConfig?: SmartCaptchaConfig;
+  smartCaptchaVerifier?: Pick<SmartCaptchaVerifier, "verify">;
 };
 
 const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
@@ -32,24 +38,37 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         allowEphemeralCookieSecret: llmGateway instanceof DisabledLlmGateway,
       },
     );
+  const smartCaptchaConfig =
+    options.smartCaptchaConfig ??
+    (llmGateway instanceof DisabledLlmGateway ? { mode: "disabled" } : undefined);
+  if (smartCaptchaConfig === undefined) {
+    throw new Error("SmartCaptcha configuration is required");
+  }
   const app = Fastify({
     logger: false,
     trustProxy: generationRateLimitConfig.trustProxy,
   });
-  const generationRateLimiter = new GenerationRateLimiter(
-    generationRateLimitConfig,
-    options.generationRateLimiterNow,
-  );
+  const generationRateLimiter =
+    options.generationRateLimiter ??
+    new GenerationRateLimiter(generationRateLimitConfig, options.generationRateLimiterNow);
+  const smartCaptchaVerifier =
+    options.smartCaptchaVerifier ??
+    (smartCaptchaConfig.mode === "required"
+      ? new SmartCaptchaVerifier({ serverKey: smartCaptchaConfig.serverKey })
+      : undefined);
 
   app.register(fastifyCookie, {
     secret: generationRateLimitConfig.cookieSecret,
   });
 
   registerHealthRoute(app);
+  registerCaptchaConfigRoute(app, smartCaptchaConfig);
   registerGenerateRoute(app, {
     llmGateway,
     generationRateLimiter,
     generateClientId: options.generateGenerationClientId ?? randomUUID,
+    smartCaptchaConfig,
+    ...(smartCaptchaVerifier === undefined ? {} : { smartCaptchaVerifier }),
   });
 
   app.register(fastifyStatic, {

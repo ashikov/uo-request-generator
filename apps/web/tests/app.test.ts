@@ -1,11 +1,46 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const initialDescription = "На тестовой площадке не работает освещение";
 const initialLocation = "Учебная зона";
 const initialConsequences = "В вечернее время проход затруднён";
 const initialDesiredActions = "Проверить и восстановить освещение";
+
+type CaptchaRenderOptions = {
+  sitekey: string;
+  invisible: boolean;
+  callback: (token: string) => void;
+};
+
+function createCaptchaApi() {
+  const eventCallbacks = new Map<string, () => void>();
+  return {
+    render: vi.fn((_container: HTMLElement, _options: CaptchaRenderOptions) => 23),
+    execute: vi.fn(),
+    reset: vi.fn(),
+    subscribe: vi.fn((_widgetId: number, event: string, callback: () => void) => {
+      eventCallbacks.set(event, callback);
+      return () => eventCallbacks.delete(event);
+    }),
+    eventCallbacks,
+  };
+}
+
+function smartCaptchaCallbackNameFromScript(script: HTMLScriptElement): string {
+  const callbackName = new URL(script.src).searchParams.get("onload");
+  if (callbackName === null) {
+    throw new Error("Expected SmartCaptcha onload callback in script URL");
+  }
+  return callbackName;
+}
+
+function invokeWindowCallback(callbackName: string): void {
+  const callback = Reflect.get(window, callbackName);
+  if (typeof callback === "function") {
+    callback();
+  }
+}
 
 async function initializeApp(
   locationValue = "",
@@ -13,6 +48,11 @@ async function initializeApp(
   consequencesValue = "",
   desiredActionsValue = "",
   contextMaxLength = 500,
+  captchaOptions: {
+    config?: unknown;
+    api?: ReturnType<typeof createCaptchaApi>;
+    initialize?: boolean;
+  } = {},
 ): Promise<void> {
   document.body.innerHTML = `
     <form id="request-form">
@@ -38,6 +78,7 @@ async function initializeApp(
         maxlength="${contextMaxLength}"
         aria-describedby="desired-actions-hint desired-actions-count"
       >${desiredActionsValue}</textarea>
+      <div id="captcha-container"></div>
       <button id="submit-button" type="submit">Составить заявку</button>
     </form>
     <div id="error-area" hidden tabindex="-1"></div>
@@ -52,7 +93,22 @@ async function initializeApp(
     <span id="desired-actions-count">0 / ${contextMaxLength}</span>
   `;
 
-  await import("../public/app.js");
+  Reflect.deleteProperty(window, "smartCaptcha");
+  if (captchaOptions.api !== undefined) {
+    Object.assign(window, { smartCaptcha: captchaOptions.api });
+  }
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(captchaOptions.config ?? { required: false }),
+    }),
+  );
+
+  const appModule = await import("../public/app.js");
+  if (captchaOptions.initialize !== false) {
+    await appModule.initializeCaptcha();
+  }
 }
 
 function getDescription(): HTMLTextAreaElement {
@@ -142,6 +198,11 @@ async function expectError(message: string): Promise<void> {
     expect(getForm().getAttribute("aria-busy")).toBe("false");
   });
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("обработка ответа генерации в приложении", () => {
   beforeEach(async () => {
@@ -524,6 +585,7 @@ describe("обработка ответа генерации в приложен
     setFormValues();
 
     submitForm();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const placeholderAfterFirstSubmit = document.getElementById("result-placeholder");
     submitForm();
 
@@ -587,6 +649,348 @@ describe("обработка ответа генерации в приложен
 
     await vi.waitFor(() => {
       expect(document.querySelector("#result-area h3")?.textContent).toBe("Новая заявка");
+    });
+  });
+
+  it("не загружает и не запускает CAPTCHA в отключённом режиме", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues();
+
+    submitForm();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(document.querySelector('script[src*="smartcaptcha"]')).toBeNull();
+    expect("smartCaptcha" in window).toBe(false);
+  });
+
+  it("не запускает CAPTCHA для невалидной формы", async () => {
+    vi.resetModules();
+    const captchaApi = createCaptchaApi();
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true, clientKey: "test-public-client-key" },
+      api: captchaApi,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues("Коротко");
+
+    submitForm();
+
+    await expectError("Описание должно содержать не менее 10 символов");
+    expect(captchaApi.execute).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("выполняет CAPTCHA и отправляет callback-токен ровно один раз", async () => {
+    vi.resetModules();
+    const captchaApi = createCaptchaApi();
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true, clientKey: "test-public-client-key" },
+      api: captchaApi,
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
+    const callback = captchaApi.render.mock.calls[0]?.[1].callback;
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledOnce());
+    submitForm();
+
+    expect(captchaApi.render).toHaveBeenCalledWith(
+      document.getElementById("captcha-container"),
+      expect.objectContaining({
+        sitekey: "test-public-client-key",
+        invisible: true,
+      }),
+    );
+    expect(captchaApi.execute).toHaveBeenCalledOnce();
+    expect(captchaApi.execute).toHaveBeenCalledWith(23);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getSubmitButton().disabled).toBe(true);
+    expect(getForm().getAttribute("aria-busy")).toBe("true");
+
+    callback?.("test-captcha-token");
+    callback?.("duplicate-token");
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      description: initialDescription,
+      location: initialLocation,
+      consequences: initialConsequences,
+      desiredActions: initialDesiredActions,
+      captchaToken: "test-captcha-token",
+    });
+    await vi.waitFor(() => {
+      expect(captchaApi.reset).toHaveBeenCalledWith(23);
+      expect(getSubmitButton().disabled).toBe(false);
+      expect(getForm().getAttribute("aria-busy")).toBe("false");
+    });
+  });
+
+  it("выходит из loading при challenge-hidden", async () => {
+    vi.resetModules();
+    const captchaApi = createCaptchaApi();
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true, clientKey: "test-public-client-key" },
+      api: captchaApi,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues();
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledOnce());
+    captchaApi.eventCallbacks.get("challenge-hidden")?.();
+
+    await expectError("Проверка временно недоступна. Попробуйте позже");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("выходит из loading по timeout и позволяет начать следующую попытку", async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    const captchaApi = createCaptchaApi();
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true, clientKey: "test-public-client-key" },
+      api: captchaApi,
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues();
+    const callback = captchaApi.render.mock.calls[0]?.[1].callback;
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(120_000);
+    await expectError("Проверка временно недоступна. Попробуйте позже");
+    callback?.("late-token");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledTimes(2));
+    callback?.("token-after-timeout");
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({
+      captchaToken: "token-after-timeout",
+    });
+    vi.useRealTimers();
+  });
+
+  it("повторяет временно недоступную конфигурацию при следующем submit", async () => {
+    vi.resetModules();
+    const captchaApi = createCaptchaApi();
+    let configRequests = 0;
+    const fetchMock = vi.fn().mockImplementation((input: string | URL | Request) => {
+      if (String(input) === "/api/captcha/config") {
+        configRequests++;
+        if (configRequests === 1) {
+          return Promise.reject(new Error("temporary configuration failure"));
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ required: true, clientKey: "test-public-client-key" }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+      });
+    });
+    await initializeApp("", 120, "", "", 500, {
+      api: captchaApi,
+      initialize: false,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues();
+
+    submitForm();
+    await expectError("Проверка временно недоступна. Попробуйте позже");
+    expect(captchaApi.execute).not.toHaveBeenCalled();
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledOnce());
+    captchaApi.render.mock.calls[0]?.[1].callback("token-after-config-retry");
+
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([input]) => String(input) === "/api/generate"),
+      ).toHaveLength(1),
+    );
+    expect(configRequests).toBe(2);
+    expect(captchaApi.render).toHaveBeenCalledOnce();
+  });
+
+  it("повторяет загрузку SmartCaptcha script при следующем submit", async () => {
+    vi.resetModules();
+    const captchaApi = createCaptchaApi();
+    const fetchMock = vi.fn().mockImplementation((input: string | URL | Request) => {
+      if (String(input) === "/api/captcha/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ required: true, clientKey: "test-public-client-key" }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+      });
+    });
+    let scriptAttempt = 0;
+    const append = vi.spyOn(document.head, "append").mockImplementation((...nodes) => {
+      scriptAttempt++;
+      const script = nodes[0] as HTMLScriptElement;
+      if (scriptAttempt === 1) {
+        queueMicrotask(() => script.onerror?.(new Event("error")));
+        return;
+      }
+
+      Object.assign(window, { smartCaptcha: captchaApi });
+      const callbackName = smartCaptchaCallbackNameFromScript(script);
+      queueMicrotask(() => invokeWindowCallback(callbackName));
+    });
+    await initializeApp("", 120, "", "", 500, { initialize: false });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues();
+
+    submitForm();
+    await expectError("Проверка временно недоступна. Попробуйте позже");
+    expect(captchaApi.execute).not.toHaveBeenCalled();
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledOnce());
+    captchaApi.render.mock.calls[0]?.[1].callback("token-after-script-retry");
+
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([input]) => String(input) === "/api/generate"),
+      ).toHaveLength(1),
+    );
+    expect(append).toHaveBeenCalledTimes(2);
+    expect(captchaApi.render).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [
+      "captcha_failed",
+      {
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            error: {
+              code: "captcha_failed",
+              message: "Не удалось выполнить проверку. Попробуйте ещё раз",
+              requestId: "test-captcha-failed-request-id",
+            },
+          }),
+      },
+      "Не удалось выполнить проверку. Попробуйте ещё раз",
+    ],
+    [
+      "captcha_unavailable",
+      {
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            error: {
+              code: "captcha_unavailable",
+              message: "Проверка временно недоступна. Попробуйте позже",
+              requestId: "test-captcha-unavailable-request-id",
+            },
+          }),
+      },
+      "Проверка временно недоступна. Попробуйте позже",
+    ],
+    [
+      "сетевая ошибка",
+      new Error("network unavailable"),
+      "Не удалось связаться с сервисом. Попробуйте позже",
+    ],
+  ])("сбрасывает CAPTCHA после исхода: %s", async (_caseName, outcome, message) => {
+    vi.resetModules();
+    const captchaApi = createCaptchaApi();
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true, clientKey: "test-public-client-key" },
+      api: captchaApi,
+    });
+    const fetchMock =
+      outcome instanceof Error
+        ? vi.fn().mockRejectedValue(outcome)
+        : vi.fn().mockResolvedValue(outcome);
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues();
+    const callback = captchaApi.render.mock.calls[0]?.[1].callback;
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledOnce());
+    callback?.("test-captcha-token");
+
+    await expectError(message);
+    expect(captchaApi.reset).toHaveBeenCalledWith(23);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("требует новый токен для следующей попытки", async () => {
+    vi.resetModules();
+    const captchaApi = createCaptchaApi();
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true, clientKey: "test-public-client-key" },
+      api: captchaApi,
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues();
+    const callback = captchaApi.render.mock.calls[0]?.[1].callback;
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledOnce());
+    callback?.("first-token");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(getSubmitButton().disabled).toBe(false));
+
+    submitForm();
+    await vi.waitFor(() => expect(captchaApi.execute).toHaveBeenCalledTimes(2));
+    expect(captchaApi.execute).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    callback?.("second-token");
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toMatchObject({
+      captchaToken: "second-token",
+    });
+  });
+
+  it("не отправляет запрос при некорректной публичной конфигурации", async () => {
+    vi.resetModules();
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues();
+
+    submitForm();
+
+    await expectError("Проверка временно недоступна. Попробуйте позже");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith("/api/captcha/config", {
+      headers: { accept: "application/json" },
     });
   });
 });

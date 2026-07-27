@@ -1,1 +1,1 @@
-export {};
+export function initializeCaptcha(): Promise<void>;
