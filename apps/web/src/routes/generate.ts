@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { generateRequestInputSchema, type LlmGateway } from "@uo-request-generator/core";
+import type { LlmGateway } from "@uo-request-generator/core";
 import { GenerationProviderUnavailableError } from "@uo-request-generator/llm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { prepareGenerationClientId } from "../generation-client-id.js";
+import { generateHttpRequestSchema } from "../generation-http-contract.js";
 import type { GenerationRateLimiter } from "../generation-rate-limiter.js";
+import type { SmartCaptchaConfig } from "../smartcaptcha-config.js";
+import type { SmartCaptchaVerifier } from "../smartcaptcha-verifier.js";
 
 type ApiErrorCode =
+  | "captcha_failed"
+  | "captcha_unavailable"
   | "generation_provider_unavailable"
   | "internal_error"
   | "rate_limit_exceeded"
@@ -35,6 +40,18 @@ const rateLimitApiError: ApiError = {
   statusCode: 429,
 };
 
+const captchaFailedApiError: ApiError = {
+  code: "captcha_failed",
+  message: "Не удалось выполнить проверку. Попробуйте ещё раз",
+  statusCode: 400,
+};
+
+const captchaUnavailableApiError: ApiError = {
+  code: "captcha_unavailable",
+  message: "Проверка временно недоступна. Попробуйте позже",
+  statusCode: 503,
+};
+
 const internalApiError: ApiError = {
   code: "internal_error",
   message: "Не удалось составить заявку",
@@ -55,6 +72,8 @@ type RegisterGenerateRouteOptions = {
   llmGateway: LlmGateway;
   generationRateLimiter: GenerationRateLimiter;
   generateClientId: () => string;
+  smartCaptchaConfig: SmartCaptchaConfig;
+  smartCaptchaVerifier?: Pick<SmartCaptchaVerifier, "verify">;
 };
 
 export function registerGenerateRoute(
@@ -74,12 +93,13 @@ export function registerGenerateRoute(
       },
     },
     async (request, reply) => {
-      const inputValidation = generateRequestInputSchema.safeParse(request.body);
+      const inputValidation = generateHttpRequestSchema.safeParse(request.body);
 
       if (!inputValidation.success) {
         return sendApiError(reply, validationApiError);
       }
 
+      const { captchaToken, ...generationInput } = inputValidation.data;
       const preparedClientId = prepareGenerationClientId(request, reply, options.generateClientId);
       const rateLimitDecision = options.generationRateLimiter.acquire({
         ip: request.ip,
@@ -96,7 +116,29 @@ export function registerGenerateRoute(
 
       try {
         preparedClientId.setCookieAfterAdmission();
-        return await options.llmGateway.generateRequest(inputValidation.data);
+        if (options.smartCaptchaConfig.mode === "required") {
+          if (captchaToken === undefined) {
+            return sendApiError(reply, captchaFailedApiError);
+          }
+
+          const verification =
+            options.smartCaptchaVerifier === undefined
+              ? { status: "unavailable" as const }
+              : await options.smartCaptchaVerifier.verify({
+                  token: captchaToken,
+                  ip: request.ip,
+                });
+
+          if (verification.status === "failed") {
+            return sendApiError(reply, captchaFailedApiError);
+          }
+
+          if (verification.status === "unavailable") {
+            return sendApiError(reply, captchaUnavailableApiError);
+          }
+        }
+
+        return await options.llmGateway.generateRequest(generationInput);
       } catch (error) {
         if (error instanceof GenerationProviderUnavailableError) {
           return sendApiError(reply, providerUnavailableApiError);

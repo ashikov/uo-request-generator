@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
-import { describe, expect, it, vi, beforeAll, beforeEach } from "vitest";
-import { formatCopyText, copyToClipboard } from "../public/copy-utils.js";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { copyToClipboard, formatCopyText } from "../public/copy-utils.js";
 
 describe("formatCopyText", () => {
   it("объединяет заголовок и тело через пустую строку", () => {
@@ -74,6 +74,7 @@ function setupFormDOM() {
       <input id="location" maxlength="200" aria-describedby="location-count" />
       <textarea id="consequences" maxlength="500" aria-describedby="consequences-count"></textarea>
       <textarea id="desired-actions" maxlength="500" aria-describedby="desired-actions-count"></textarea>
+      <div id="captcha-container"></div>
       <button id="submit-button" type="submit">Составить заявку</button>
     </form>
     <div id="error-area" hidden></div>
@@ -89,9 +90,17 @@ function setupFormDOM() {
 }
 
 describe("copy button in app", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     setupFormDOM();
-    return import("../public/app.js");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ required: false }),
+      }),
+    );
+    const appModule = await import("../public/app.js");
+    await appModule.initializeCaptcha();
   });
 
   beforeEach(() => {

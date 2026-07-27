@@ -3,8 +3,8 @@ import { GenerationProviderUnavailableError } from "@uo-request-generator/llm";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
-import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config.js";
 import { generationClientCookieName } from "../src/generation-client-id.js";
+import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config.js";
 
 const validInput = {
   description: "На тестовой площадке не работает освещение",
@@ -52,6 +52,7 @@ function registerApp(options: Parameters<typeof createApp>[0] = {}): ReturnType<
   const app = createApp({
     llmGateway: successfulGateway(),
     generationRateLimitConfig: rateLimitConfig(),
+    smartCaptchaConfig: { mode: "disabled" },
     ...options,
   });
   apps.push(app);

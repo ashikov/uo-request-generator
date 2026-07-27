@@ -1,4 +1,11 @@
-import { formatCopyText, copyToClipboard } from "./copy-utils.js";
+import { copyToClipboard, formatCopyText } from "./copy-utils.js";
+import { createSmartCaptchaInitializer } from "./smartcaptcha.js";
+
+const smartCaptchaInitializer = createSmartCaptchaInitializer();
+
+export function initializeCaptcha() {
+  return smartCaptchaInitializer.getController().then(() => undefined);
+}
 
 (() => {
   const form = document.querySelector("#request-form");
@@ -18,6 +25,8 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
   const descriptionDescribedBy = description.getAttribute("aria-describedby");
 
   const apiErrorCodes = new Set([
+    "captcha_failed",
+    "captcha_unavailable",
     "generation_provider_unavailable",
     "internal_error",
     "rate_limit_exceeded",
@@ -267,33 +276,59 @@ import { formatCopyText, copyToClipboard } from "./copy-utils.js";
     setSubmitting(true);
 
     try {
-      let response;
       try {
-        response = await submitRequest(input);
+        const captchaController = await smartCaptchaInitializer.getController();
+        if (captchaController.status === "unavailable") {
+          renderError("Проверка временно недоступна. Попробуйте позже");
+          return;
+        }
+
+        let requestInput = input;
+        try {
+          if (captchaController.status === "ready") {
+            const captchaToken = await captchaController.requestToken();
+            requestInput = { ...input, captchaToken };
+          }
+
+          let response;
+          try {
+            response = await submitRequest(requestInput);
+          } catch {
+            renderError("Не удалось связаться с сервисом. Попробуйте позже");
+            return;
+          }
+
+          let payload;
+          try {
+            payload = await response.json();
+          } catch {
+            renderError("Сервис вернул некорректный ответ. Попробуйте позже");
+            return;
+          }
+
+          if (!response.ok) {
+            renderError(readErrorMessage(payload) ?? "Не удалось составить заявку");
+            return;
+          }
+
+          if (!isGenerationResult(payload)) {
+            renderError("Сервис вернул некорректный результат");
+            return;
+          }
+
+          renderResult(payload);
+        } catch {
+          renderError("Проверка временно недоступна. Попробуйте позже");
+          return;
+        } finally {
+          if (captchaController.status === "ready") {
+            captchaController.reset();
+          }
+        }
       } catch {
-        renderError("Не удалось связаться с сервисом. Попробуйте позже");
+        renderError("Проверка временно недоступна. Попробуйте позже");
         return;
       }
-
-      let payload;
-      try {
-        payload = await response.json();
-      } catch {
-        renderError("Сервис вернул некорректный ответ. Попробуйте позже");
-        return;
-      }
-
-      if (!response.ok) {
-        renderError(readErrorMessage(payload) ?? "Не удалось составить заявку");
-        return;
-      }
-
-      if (!isGenerationResult(payload)) {
-        renderError("Сервис вернул некорректный результат");
-        return;
-      }
-
-      renderResult(payload);
     } finally {
       setSubmitting(false);
     }
