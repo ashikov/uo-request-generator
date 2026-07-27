@@ -11,9 +11,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@fastify/cookie": "11.1.2",
+    "@fastify/static": "10.1.0",
     "@uo-request-generator/core": "workspace:*",
     "@uo-request-generator/llm": "workspace:*",
-    "@fastify/static": "10.1.0",
     "fastify": "5.10.0",
     "zod": "4.4.3"
   },
