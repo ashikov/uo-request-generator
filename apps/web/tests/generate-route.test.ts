@@ -51,7 +51,11 @@ async function injectGenerate(
   payload: Record<string, unknown>,
   gateway: LlmGateway = new DisabledLlmGateway(),
 ) {
-  const app = createApp({ llmGateway: gateway, generationRateLimitConfig });
+  const app = createApp({
+    llmGateway: gateway,
+    generationRateLimitConfig,
+    smartCaptchaConfig: { mode: "disabled" },
+  });
   apps.push(app);
 
   return await app.inject({
