@@ -3,6 +3,7 @@ import { createApp } from "./app.js";
 import { createGenerationRateLimitConfig } from "./generation-rate-limit-config.js";
 import { createGenerationSafeguardConfig } from "./generation-safeguard-config.js";
 import { createLlmGateway } from "./llm-config.js";
+import { createShutdown } from "./shutdown.js";
 import { createSmartCaptchaConfig } from "./smartcaptcha-config.js";
 
 const DEFAULT_PORT = 3000;
@@ -33,22 +34,19 @@ async function main(): Promise<void> {
     smartCaptchaConfig,
     ...(generationSafeguardConfig === undefined ? {} : { generationSafeguardConfig }),
   });
-  let isClosing = false;
-
-  async function close(): Promise<void> {
-    if (isClosing) {
-      return;
-    }
-
-    isClosing = true;
-    await app.close();
-  }
+  const shutdown = createShutdown({
+    close: () => app.close(),
+    setExitCode: (code) => {
+      process.exitCode = code;
+    },
+    forceExit: (code) => process.exit(code),
+  });
 
   process.once("SIGINT", () => {
-    void close();
+    void shutdown();
   });
   process.once("SIGTERM", () => {
-    void close();
+    void shutdown();
   });
 
   try {
@@ -58,7 +56,7 @@ async function main(): Promise<void> {
     });
   } catch {
     process.exitCode = 1;
-    await close();
+    await shutdown();
   }
 }
 
