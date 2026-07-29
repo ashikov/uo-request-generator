@@ -10,6 +10,11 @@ import {
   type GenerationRateLimitConfig,
 } from "./generation-rate-limit-config.js";
 import { GenerationRateLimiter } from "./generation-rate-limiter.js";
+import {
+  createGenerationSafeguardConfig,
+  type GenerationSafeguardConfig,
+} from "./generation-safeguard-config.js";
+import { GenerationSafeguard } from "./generation-safeguard.js";
 import { registerCaptchaConfigRoute } from "./routes/captcha-config.js";
 import { registerGenerateRoute } from "./routes/generate.js";
 import { registerHealthRoute } from "./routes/health.js";
@@ -22,6 +27,9 @@ export type CreateAppOptions = {
   generationRateLimiterNow?: () => number;
   generationRateLimiter?: GenerationRateLimiter;
   generateGenerationClientId?: () => string;
+  generationSafeguardConfig?: GenerationSafeguardConfig;
+  generationSafeguardNow?: () => number;
+  generationSafeguard?: GenerationSafeguard;
   smartCaptchaConfig?: SmartCaptchaConfig;
   smartCaptchaVerifier?: Pick<SmartCaptchaVerifier, "verify">;
 };
@@ -44,6 +52,14 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   if (smartCaptchaConfig === undefined) {
     throw new Error("SmartCaptcha configuration is required");
   }
+  const generationSafeguardConfig =
+    options.generationSafeguard === undefined
+      ? (options.generationSafeguardConfig ??
+        createGenerationSafeguardConfig(
+          {},
+          { allowImplicitDisabledGateway: llmGateway instanceof DisabledLlmGateway },
+        ))
+      : undefined;
   const app = Fastify({
     logger: false,
     trustProxy: generationRateLimitConfig.trustProxy,
@@ -51,6 +67,9 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const generationRateLimiter =
     options.generationRateLimiter ??
     new GenerationRateLimiter(generationRateLimitConfig, options.generationRateLimiterNow);
+  const generationSafeguard =
+    options.generationSafeguard ??
+    new GenerationSafeguard(generationSafeguardConfig, options.generationSafeguardNow);
   const smartCaptchaVerifier =
     options.smartCaptchaVerifier ??
     (smartCaptchaConfig.mode === "required"
@@ -66,6 +85,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   registerGenerateRoute(app, {
     llmGateway,
     generationRateLimiter,
+    generationSafeguard,
     generateClientId: options.generateGenerationClientId ?? randomUUID,
     smartCaptchaConfig,
     ...(smartCaptchaVerifier === undefined ? {} : { smartCaptchaVerifier }),
