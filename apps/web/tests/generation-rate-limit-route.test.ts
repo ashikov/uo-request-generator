@@ -15,6 +15,11 @@ const generatedRequest = {
   warnings: [],
 };
 const cookieSecret = "test-cookie-signing-secret-32-characters";
+const generationSafeguardConfig = {
+  enabled: true,
+  dailyLimit: 1_000,
+  concurrencyLimit: 100,
+} as const;
 const clientIds = {
   first: "11111111-1111-4111-8111-111111111111",
   second: "22222222-2222-4222-8222-222222222222",
@@ -52,6 +57,7 @@ function registerApp(options: Parameters<typeof createApp>[0] = {}): ReturnType<
   const app = createApp({
     llmGateway: successfulGateway(),
     generationRateLimitConfig: rateLimitConfig(),
+    generationSafeguardConfig,
     smartCaptchaConfig: { mode: "disabled" },
     ...options,
   });

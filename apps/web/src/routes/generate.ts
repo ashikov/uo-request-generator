@@ -5,12 +5,14 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { prepareGenerationClientId } from "../generation-client-id.js";
 import { generateHttpRequestSchema } from "../generation-http-contract.js";
 import type { GenerationRateLimiter } from "../generation-rate-limiter.js";
+import type { GenerationSafeguard } from "../generation-safeguard.js";
 import type { SmartCaptchaConfig } from "../smartcaptcha-config.js";
 import type { SmartCaptchaVerifier } from "../smartcaptcha-verifier.js";
 
 type ApiErrorCode =
   | "captcha_failed"
   | "captcha_unavailable"
+  | "generation_unavailable"
   | "generation_provider_unavailable"
   | "internal_error"
   | "rate_limit_exceeded"
@@ -31,6 +33,12 @@ const validationApiError: ApiError = {
 const providerUnavailableApiError: ApiError = {
   code: "generation_provider_unavailable",
   message: "Генерация пока не подключена",
+  statusCode: 503,
+};
+
+const generationUnavailableApiError: ApiError = {
+  code: "generation_unavailable",
+  message: "Генерация временно недоступна. Попробуйте позже",
   statusCode: 503,
 };
 
@@ -71,6 +79,7 @@ function sendApiError(reply: FastifyReply, apiError: ApiError): FastifyReply {
 type RegisterGenerateRouteOptions = {
   llmGateway: LlmGateway;
   generationRateLimiter: GenerationRateLimiter;
+  generationSafeguard: GenerationSafeguard;
   generateClientId: () => string;
   smartCaptchaConfig: SmartCaptchaConfig;
   smartCaptchaVerifier?: Pick<SmartCaptchaVerifier, "verify">;
@@ -138,7 +147,16 @@ export function registerGenerateRoute(
           }
         }
 
-        return await options.llmGateway.generateRequest(generationInput);
+        const safeguardDecision = options.generationSafeguard.acquire();
+        if (!safeguardDecision.allowed) {
+          return sendApiError(reply, generationUnavailableApiError);
+        }
+
+        try {
+          return await options.llmGateway.generateRequest(generationInput);
+        } finally {
+          safeguardDecision.release();
+        }
       } catch (error) {
         if (error instanceof GenerationProviderUnavailableError) {
           return sendApiError(reply, providerUnavailableApiError);

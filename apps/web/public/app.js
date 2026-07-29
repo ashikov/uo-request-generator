@@ -27,6 +27,7 @@ export function initializeCaptcha() {
   const apiErrorCodes = new Set([
     "captcha_failed",
     "captcha_unavailable",
+    "generation_unavailable",
     "generation_provider_unavailable",
     "internal_error",
     "rate_limit_exceeded",

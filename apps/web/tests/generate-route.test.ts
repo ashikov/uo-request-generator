@@ -14,6 +14,12 @@ const generationRateLimitConfig = {
   stateCapacity: 1_000,
 } as const;
 
+const generationSafeguardConfig = {
+  enabled: true,
+  dailyLimit: 100,
+  concurrencyLimit: 100,
+} as const;
+
 const apps: ReturnType<typeof createApp>[] = [];
 
 afterEach(async () => {
@@ -54,6 +60,7 @@ async function injectGenerate(
   const app = createApp({
     llmGateway: gateway,
     generationRateLimitConfig,
+    generationSafeguardConfig,
     smartCaptchaConfig: { mode: "disabled" },
   });
   apps.push(app);
