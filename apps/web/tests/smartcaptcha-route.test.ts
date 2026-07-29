@@ -25,6 +25,11 @@ const generationRateLimitConfig = {
   trustProxy: false,
   stateCapacity: 1_000,
 } as const;
+const generationSafeguardConfig = {
+  enabled: true,
+  dailyLimit: 1_000,
+  concurrencyLimit: 100,
+} as const;
 
 const apps: ReturnType<typeof createApp>[] = [];
 
@@ -58,6 +63,7 @@ function registerRequiredApp(options: {
 }) {
   const app = createApp({
     generationRateLimitConfig,
+    generationSafeguardConfig,
     smartCaptchaConfig: {
       mode: "required",
       clientKey: "test-public-client-key",
@@ -362,6 +368,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
     const gateway = successfulGateway();
     const app = createApp({
       generationRateLimitConfig,
+      generationSafeguardConfig,
       smartCaptchaConfig: {
         mode: "required",
         clientKey: "test-public-client-key",
@@ -388,6 +395,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
     const gateway = successfulGateway();
     const app = createApp({
       generationRateLimitConfig,
+      generationSafeguardConfig,
       smartCaptchaConfig: { mode: "disabled" },
       smartCaptchaVerifier: verifier,
       llmGateway: gateway,
