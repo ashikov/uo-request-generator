@@ -41,7 +41,7 @@ function rateLimitConfig(
     ipWindowMs: 60_000,
     clientDailyLimit: 20,
     cookieSecret,
-    trustProxy: false,
+    trustedProxies: [],
     stateCapacity: 1_000,
     ...overrides,
   };
@@ -205,8 +205,12 @@ describe("лимиты POST /api/generate", () => {
     expect((await injectGenerate(app, { remoteAddress: "192.0.2.11" })).statusCode).toBe(200);
   });
 
-  it("не доверяет поддельному X-Forwarded-For по умолчанию", async () => {
-    const app = registerApp();
+  it("не доверяет поддельному X-Forwarded-For от источника вне allowlist", async () => {
+    const app = registerApp({
+      generationRateLimitConfig: rateLimitConfig({
+        trustedProxies: ["198.51.100.10"],
+      }),
+    });
 
     for (const forwardedFor of ["192.0.2.10", "192.0.2.11", "192.0.2.12", "192.0.2.13"]) {
       const response = await injectGenerate(app, {
@@ -221,9 +225,11 @@ describe("лимиты POST /api/generate", () => {
     }
   });
 
-  it("использует штатное Fastify-поведение при явном trustProxy", async () => {
+  it("использует штатное Fastify-поведение для proxy из allowlist", async () => {
     const app = registerApp({
-      generationRateLimitConfig: rateLimitConfig({ trustProxy: true }),
+      generationRateLimitConfig: rateLimitConfig({
+        trustedProxies: ["192.0.2.0/24"],
+      }),
     });
 
     for (const forwardedFor of ["192.0.2.10", "192.0.2.11", "192.0.2.12", "192.0.2.13"]) {
@@ -329,7 +335,11 @@ describe("подписанная техническая cookie", () => {
       generateGenerationClientId: () => clientIds.first,
     });
 
-    const response = await injectGenerate(app);
+    const response = await injectGenerate(app, {
+      forwardedFor: "198.51.100.20",
+      forwardedProto: "https",
+      remoteAddress: "192.0.2.20",
+    });
     const cookieHeader = cookieHeaderFrom(response);
     const serializedCookie = String(response.headers["set-cookie"]);
     const signedValue = decodeURIComponent(cookieHeader.split("=")[1] ?? "");
@@ -387,14 +397,31 @@ describe("подписанная техническая cookie", () => {
     expect(response.body).not.toContain(cookieSecret);
   });
 
-  it("устанавливает Secure только для HTTPS-запроса", async () => {
+  it("не устанавливает Secure по поддельному протоколу от источника вне allowlist", async () => {
     const app = registerApp({
-      generationRateLimitConfig: rateLimitConfig({ trustProxy: true }),
+      generationRateLimitConfig: rateLimitConfig({
+        trustedProxies: ["192.0.2.10"],
+      }),
     });
 
     const response = await injectGenerate(app, {
       forwardedProto: "https",
-      forwardedFor: "192.0.2.10",
+      remoteAddress: "198.51.100.10",
+    });
+
+    expect(String(response.headers["set-cookie"])).not.toContain("Secure");
+  });
+
+  it("устанавливает Secure по HTTPS-протоколу от proxy из allowlist", async () => {
+    const app = registerApp({
+      generationRateLimitConfig: rateLimitConfig({
+        trustedProxies: ["192.0.2.10"],
+      }),
+    });
+
+    const response = await injectGenerate(app, {
+      forwardedProto: "https",
+      remoteAddress: "192.0.2.10",
     });
 
     expect(String(response.headers["set-cookie"])).toContain("Secure");

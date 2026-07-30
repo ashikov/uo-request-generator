@@ -38,32 +38,71 @@ describe("createGenerationRateLimitConfig", () => {
   });
 
   it.each([
-    "1",
-    "yes",
-    "TRUE",
-    "false ",
-  ])("не принимает неоднозначное значение trust proxy %s", (trustProxy) => {
+    ["отсутствующее значение", undefined, []],
+    ["один IPv4", "192.0.2.10", ["192.0.2.10"]],
+    ["IPv4 CIDR", "198.51.100.0/24", ["198.51.100.0/24"]],
+    ["IPv4 CIDR с минимальным prefix", "192.0.2.10/1", ["192.0.2.10/1"]],
+    ["IPv4 CIDR с максимальным prefix", "192.0.2.10/32", ["192.0.2.10/32"]],
+    ["один IPv6", "2001:db8::10", ["2001:db8::10"]],
+    ["IPv6 CIDR", "2001:db8:1::/64", ["2001:db8:1::/64"]],
+    ["IPv6 CIDR с минимальным prefix", "2001:db8::10/1", ["2001:db8::10/1"]],
+    ["IPv6 CIDR с максимальным prefix", "2001:db8::10/128", ["2001:db8::10/128"]],
+    ["смешанный список IPv4 и IPv6", "192.0.2.10,2001:db8::10", ["192.0.2.10", "2001:db8::10"]],
+    [
+      "несколько адресов и сетей",
+      "192.0.2.10,198.51.100.0/24,2001:db8:1::/64",
+      ["192.0.2.10", "198.51.100.0/24", "2001:db8:1::/64"],
+    ],
+    ["пробелы вокруг элементов", " 192.0.2.10 , 2001:db8::10 ", ["192.0.2.10", "2001:db8::10"]],
+  ])("принимает %s", (_caseName, trustedProxies, expected) => {
+    expect(
+      createGenerationRateLimitConfig({
+        GENERATION_CLIENT_COOKIE_SECRET: validSecret,
+        ...(trustedProxies === undefined ? {} : { GENERATION_TRUSTED_PROXIES: trustedProxies }),
+      }).trustedProxies,
+    ).toEqual(expected);
+  });
+
+  it.each([
+    ["пустую строку", ""],
+    ["пробельную строку", "   "],
+    ["пустой элемент", "192.0.2.10, ,198.51.100.10"],
+    ["ведущую запятую", ",192.0.2.10"],
+    ["завершающую запятую", "192.0.2.10,"],
+    ["двойную запятую", "192.0.2.10,,198.51.100.10"],
+    ["boolean true", "true"],
+    ["boolean false", "false"],
+    ["wildcard", "*"],
+    ["hostname", "proxy.example"],
+    ["число hop", "1"],
+    ["некорректный IPv4", "999.0.2.10"],
+    ["некорректный IPv6", "2001:db8:::10"],
+    ["IPv4 сеть с нулевым prefix", "0.0.0.0/0"],
+    ["IPv6 сеть с нулевым prefix", "::/0"],
+    ["IPv4 адрес с нулевым prefix", "192.0.2.10/0"],
+    ["IPv6 адрес с нулевым prefix", "2001:db8::10/0"],
+    ["IPv4 prefix вне диапазона", "192.0.2.0/33"],
+    ["IPv6 prefix вне диапазона", "2001:db8::/129"],
+    ["отрицательный prefix", "192.0.2.0/-1"],
+    ["дробный prefix", "192.0.2.0/24.5"],
+    ["частично разобранный prefix", "192.0.2.0/24suffix"],
+    ["неоднозначный prefix", "192.0.2.0/024"],
+  ])("отклоняет %s", (_caseName, trustedProxies) => {
     expect(() =>
       createGenerationRateLimitConfig({
         GENERATION_CLIENT_COOKIE_SECRET: validSecret,
-        GENERATION_TRUST_PROXY: trustProxy,
+        GENERATION_TRUSTED_PROXIES: trustedProxies,
       }),
     ).toThrow("Invalid generation rate limit configuration");
   });
 
-  it("принимает только явные boolean-значения trust proxy", () => {
-    expect(
+  it.each(["true", "false"])("отклоняет legacy-переменную trust proxy=%s", (legacyValue) => {
+    expect(() =>
       createGenerationRateLimitConfig({
         GENERATION_CLIENT_COOKIE_SECRET: validSecret,
-        GENERATION_TRUST_PROXY: "true",
-      }).trustProxy,
-    ).toBe(true);
-    expect(
-      createGenerationRateLimitConfig({
-        GENERATION_CLIENT_COOKIE_SECRET: validSecret,
-        GENERATION_TRUST_PROXY: "false",
-      }).trustProxy,
-    ).toBe(false);
+        GENERATION_TRUST_PROXY: legacyValue,
+      }),
+    ).toThrow("Invalid generation rate limit configuration");
   });
 
   it.each([
@@ -100,7 +139,7 @@ describe("createGenerationRateLimitConfig", () => {
         GENERATION_IP_WINDOW_MS: "90000",
         GENERATION_CLIENT_DAILY_LIMIT: "30",
         GENERATION_CLIENT_COOKIE_SECRET: validSecret,
-        GENERATION_TRUST_PROXY: "true",
+        GENERATION_TRUSTED_PROXIES: "192.0.2.10, 2001:db8:1::/64",
         GENERATION_RATE_LIMIT_STATE_CAPACITY: "500",
       }),
     ).toEqual({
@@ -108,7 +147,7 @@ describe("createGenerationRateLimitConfig", () => {
       ipWindowMs: 90_000,
       clientDailyLimit: 30,
       cookieSecret: validSecret,
-      trustProxy: true,
+      trustedProxies: ["192.0.2.10", "2001:db8:1::/64"],
       stateCapacity: 500,
     });
   });

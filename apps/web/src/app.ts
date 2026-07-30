@@ -62,7 +62,10 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       : undefined;
   const app = Fastify({
     logger: false,
-    trustProxy: generationRateLimitConfig.trustProxy,
+    trustProxy:
+      generationRateLimitConfig.trustedProxies.length === 0
+        ? false
+        : [...generationRateLimitConfig.trustedProxies],
   });
   const generationRateLimiter =
     options.generationRateLimiter ??
