@@ -15,7 +15,7 @@ const rateLimitConfig = {
   ipWindowMs: 60_000,
   clientDailyLimit: 100,
   cookieSecret: "test-cookie-signing-secret-32-characters",
-  trustProxy: true,
+  trustedProxies: [],
   stateCapacity: 1_000,
 } as const;
 
@@ -43,12 +43,13 @@ function createTestApp(options: {
   return app;
 }
 
-function request(app: ReturnType<typeof createApp>, ip = "198.51.100.1") {
+function request(app: ReturnType<typeof createApp>, remoteAddress = "198.51.100.1") {
   return app.inject({
     method: "POST",
     url: "/api/generate",
-    headers: { "content-type": "application/json", "x-forwarded-for": ip },
+    headers: { "content-type": "application/json" },
     payload: validInput,
+    remoteAddress,
   });
 }
 

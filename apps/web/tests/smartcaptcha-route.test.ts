@@ -1,6 +1,7 @@
 import type { LlmGateway } from "@uo-request-generator/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
+import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config";
 import { GenerationRateLimiter } from "../src/generation-rate-limiter";
 import type { SmartCaptchaVerificationResult } from "../src/smartcaptcha-verifier";
 
@@ -22,9 +23,9 @@ const generationRateLimitConfig = {
   ipWindowMs: 60_000,
   clientDailyLimit: 100,
   cookieSecret,
-  trustProxy: false,
+  trustedProxies: [],
   stateCapacity: 1_000,
-} as const;
+} satisfies GenerationRateLimitConfig;
 const generationSafeguardConfig = {
   enabled: true,
   dailyLimit: 1_000,
@@ -60,9 +61,10 @@ function registerRequiredApp(options: {
   llmGateway?: LlmGateway;
   smartCaptchaVerifier?: ReturnType<typeof verifierWithResults>;
   generationRateLimiter?: GenerationRateLimiter;
+  generationRateLimitConfig?: GenerationRateLimitConfig;
 }) {
   const app = createApp({
-    generationRateLimitConfig,
+    generationRateLimitConfig: options.generationRateLimitConfig ?? generationRateLimitConfig,
     generationSafeguardConfig,
     smartCaptchaConfig: {
       mode: "required",
@@ -87,6 +89,7 @@ async function injectGenerate(
     payload?: Record<string, unknown>;
     cookie?: string;
     forwardedFor?: string;
+    remoteAddress?: string;
   } = {},
 ) {
   return await app.inject({
@@ -101,7 +104,7 @@ async function injectGenerate(
       ...validInput,
       captchaToken,
     },
-    remoteAddress,
+    remoteAddress: options.remoteAddress ?? remoteAddress,
   });
 }
 
@@ -334,6 +337,51 @@ describe("SmartCaptcha в POST /api/generate", () => {
     expect(gateway.generateRequest).not.toHaveBeenCalledWith(
       expect.objectContaining({ captchaToken }),
     );
+  });
+
+  it("не передаёт verifier поддельный IP от источника вне allowlist", async () => {
+    const verifier = verifierWithResults({ status: "verified" });
+    const app = registerRequiredApp({
+      smartCaptchaVerifier: verifier,
+      generationRateLimitConfig: {
+        ...generationRateLimitConfig,
+        trustedProxies: ["198.51.100.10"],
+      },
+    });
+
+    const response = await injectGenerate(app, {
+      forwardedFor: "192.0.2.99",
+      remoteAddress,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(verifier.verify).toHaveBeenCalledWith({
+      token: captchaToken,
+      ip: remoteAddress,
+    });
+  });
+
+  it("передаёт verifier IP, штатно определённый через proxy из allowlist", async () => {
+    const verifier = verifierWithResults({ status: "verified" });
+    const forwardedFor = "198.51.100.99";
+    const app = registerRequiredApp({
+      smartCaptchaVerifier: verifier,
+      generationRateLimitConfig: {
+        ...generationRateLimitConfig,
+        trustedProxies: [remoteAddress],
+      },
+    });
+
+    const response = await injectGenerate(app, {
+      forwardedFor,
+      remoteAddress,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(verifier.verify).toHaveBeenCalledWith({
+      token: captchaToken,
+      ip: forwardedFor,
+    });
   });
 
   it.each([

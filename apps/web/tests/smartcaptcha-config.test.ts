@@ -112,7 +112,7 @@ describe("конфигурация SmartCaptcha", () => {
           ipWindowMs: 60_000,
           clientDailyLimit: 20,
           cookieSecret: "test-cookie-signing-secret-32-characters",
-          trustProxy: false,
+          trustedProxies: [],
           stateCapacity: 1_000,
         },
       }),

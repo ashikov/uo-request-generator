@@ -73,7 +73,7 @@ describe("createGenerationSafeguardConfig", () => {
           ipWindowMs: 1,
           clientDailyLimit: 1,
           cookieSecret: "test-cookie-signing-secret-32-characters",
-          trustProxy: false,
+          trustedProxies: [],
           stateCapacity: 10,
         },
         smartCaptchaConfig: { mode: "disabled" },
