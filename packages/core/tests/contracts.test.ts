@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   generateRequestInputSchema,
   generateRequestLimits,
   generateRequestResultSchema,
+  type GenerateRequestOutcome,
+  type GenerateRequestResult,
 } from "../src";
 
 describe("generateRequestInputSchema", () => {
@@ -107,5 +109,30 @@ describe("generateRequestResultSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("GenerateRequestOutcome", () => {
+  it("экспортирует явный исход генерации без изменения успешного результата", () => {
+    const generatedResult: GenerateRequestResult = {
+      title: "Не работает освещение на этаже",
+      body: "На лестничной площадке не горит свет.\n\nПрошу:\n1. Восстановить освещение",
+      warnings: [],
+    };
+    const generatedOutcome = {
+      status: "generated",
+      result: generatedResult,
+    } satisfies GenerateRequestOutcome;
+    const multipleIssuesOutcome = {
+      status: "multiple_issues",
+    } satisfies GenerateRequestOutcome;
+
+    expectTypeOf(generatedOutcome.result).toEqualTypeOf<GenerateRequestResult>();
+    expect(generatedOutcome).toEqual({
+      status: "generated",
+      result: generatedResult,
+    });
+    expect(multipleIssuesOutcome).toEqual({ status: "multiple_issues" });
+    expect(Object.keys(generatedResult)).toEqual(["title", "body", "warnings"]);
   });
 });

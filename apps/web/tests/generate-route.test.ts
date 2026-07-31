@@ -3,7 +3,11 @@ import { DisabledLlmGateway } from "@uo-request-generator/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 
-type ApiErrorCode = "generation_provider_unavailable" | "internal_error" | "validation_error";
+type ApiErrorCode =
+  | "generation_provider_unavailable"
+  | "internal_error"
+  | "multiple_issues"
+  | "validation_error";
 
 const generationRateLimitConfig = {
   ipRequestLimit: 100,
@@ -84,7 +88,7 @@ describe("POST /api/generate", () => {
     };
     const generateRequest = vi
       .fn<LlmGateway["generateRequest"]>()
-      .mockResolvedValue(generatedRequest);
+      .mockResolvedValue({ status: "generated", result: generatedRequest });
     const gateway: LlmGateway = { generateRequest };
     const input = {
       description: "На лестничной площадке не горит свет",
@@ -97,6 +101,26 @@ describe("POST /api/generate", () => {
     expect(response.json()).toEqual(generatedRequest);
     expect(generateRequest).toHaveBeenCalledOnce();
     expect(generateRequest).toHaveBeenCalledWith(input);
+  });
+
+  it("возвращает контролируемый HTTP 400 для multiple_issues", async () => {
+    const generateRequest = vi
+      .fn<LlmGateway["generateRequest"]>()
+      .mockResolvedValue({ status: "multiple_issues" });
+    const gateway: LlmGateway = { generateRequest };
+    const input = {
+      description: "На детской площадке сломаны качели, а в соседнем дворе лежит старый диван.",
+    };
+
+    const response = await injectGenerate(input, gateway);
+
+    expect(response.statusCode).toBe(400);
+    expectApiError(response.json(), {
+      code: "multiple_issues",
+      message: "Опишите одну проблему. Для каждой отдельной проблемы составьте отдельную заявку.",
+    });
+    expect(response.body).not.toContain(input.description);
+    expect(generateRequest).toHaveBeenCalledOnce();
   });
 
   it("passes valid input to the disabled gateway and returns its public error", async () => {

@@ -156,9 +156,12 @@ describe("createGenerationRateLimitConfig", () => {
     const gateway: LlmGateway = {
       async generateRequest() {
         return {
-          title: "Тестовая заявка",
-          body: "Обезличенный тестовый текст",
-          warnings: [],
+          status: "generated" as const,
+          result: {
+            title: "Тестовая заявка",
+            body: "Обезличенный тестовый текст",
+            warnings: [],
+          },
         };
       },
     };

@@ -10,6 +10,8 @@ const validInput = {
   description: "На лестничной площадке не горит свет",
   captchaToken: "test-token",
 };
+const generatedRequest = { title: "Тест", body: "Обезличенный текст", warnings: [] };
+const generatedOutcome = { status: "generated" as const, result: generatedRequest };
 const rateLimitConfig = {
   ipRequestLimit: 100,
   ipWindowMs: 60_000,
@@ -86,7 +88,7 @@ describe("предохранитель POST /api/generate", () => {
     const gateway: LlmGateway = {
       async generateRequest() {
         events.push("gateway");
-        return { title: "Тест", body: "Обезличенный текст", warnings: [] };
+        return generatedOutcome;
       },
     };
     const verifier = {
@@ -173,11 +175,7 @@ describe("предохранитель POST /api/generate", () => {
   ])("освобождает слот после %s gateway", async (_caseName, error, statusCode) => {
     const generateRequest = vi.fn<LlmGateway["generateRequest"]>();
     if (error === undefined) {
-      generateRequest.mockResolvedValue({
-        title: "Тест",
-        body: "Обезличенный текст",
-        warnings: [],
-      });
+      generateRequest.mockResolvedValue(generatedOutcome);
     } else {
       generateRequest.mockRejectedValue(error);
     }
@@ -191,11 +189,24 @@ describe("предохранитель POST /api/generate", () => {
     expect(generateRequest).toHaveBeenCalledTimes(2);
   });
 
+  it("освобождает глобальный слот после multiple_issues", async () => {
+    const generateRequest = vi
+      .fn<LlmGateway["generateRequest"]>()
+      .mockResolvedValue({ status: "multiple_issues" });
+    const app = createTestApp({
+      gateway: { generateRequest },
+      safeguard: new GenerationSafeguard({ enabled: true, dailyLimit: 2, concurrencyLimit: 1 }),
+    });
+
+    expect((await request(app)).statusCode).toBe(400);
+    expect((await request(app, "198.51.100.2")).statusCode).toBe(400);
+    expect(generateRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("удерживает глобальный слот до завершения gateway и допускает следующий запрос после release", async () => {
-    const generatedRequest = { title: "Тест", body: "Обезличенный текст", warnings: [] };
-    let resolveFirstGatewayCall: (result: typeof generatedRequest) => void = () => {};
+    let resolveFirstGatewayCall: (result: typeof generatedOutcome) => void = () => {};
     let signalGatewayEntry: () => void = () => {};
-    const firstGatewayCall = new Promise<typeof generatedRequest>((resolve) => {
+    const firstGatewayCall = new Promise<typeof generatedOutcome>((resolve) => {
       resolveFirstGatewayCall = resolve;
     });
     const gatewayEntry = new Promise<void>((resolve) => {
@@ -207,7 +218,7 @@ describe("предохранитель POST /api/generate", () => {
         signalGatewayEntry();
         return await firstGatewayCall;
       })
-      .mockResolvedValue(generatedRequest);
+      .mockResolvedValue(generatedOutcome);
     const app = createTestApp({
       gateway: { generateRequest },
       safeguard: new GenerationSafeguard({ enabled: true, dailyLimit: 3, concurrencyLimit: 1 }),
@@ -220,13 +231,13 @@ describe("предохранитель POST /api/generate", () => {
       expectUnavailable(await request(app, "198.51.100.2"));
       expect(generateRequest).toHaveBeenCalledOnce();
 
-      resolveFirstGatewayCall(generatedRequest);
+      resolveFirstGatewayCall(generatedOutcome);
       expect((await firstRequest).statusCode).toBe(200);
 
       expect((await request(app, "198.51.100.3")).statusCode).toBe(200);
       expect(generateRequest).toHaveBeenCalledTimes(2);
     } finally {
-      resolveFirstGatewayCall(generatedRequest);
+      resolveFirstGatewayCall(generatedOutcome);
       await firstRequest;
     }
   });

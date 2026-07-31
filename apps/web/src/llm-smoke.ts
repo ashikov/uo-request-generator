@@ -16,7 +16,13 @@ export async function runLlmSmokeCheck(gateway: LlmGateway, writeLine: WriteLine
   }
 
   try {
-    await gateway.generateRequest(SMOKE_INPUT);
+    const outcome = await gateway.generateRequest(SMOKE_INPUT);
+
+    if (outcome.status === "multiple_issues") {
+      writeLine("LLM smoke-check: результат не прошёл проверку");
+      return 1;
+    }
+
     writeLine("LLM smoke-check выполнен успешно");
     return 0;
   } catch (error) {

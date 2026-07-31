@@ -61,7 +61,10 @@ describe("createGenerationSafeguardConfig", () => {
   it("не создаёт приложение с реальным gateway без защиты", () => {
     const gateway: LlmGateway = {
       async generateRequest() {
-        return { title: "Тест", body: "Обезличенный текст", warnings: [] };
+        return {
+          status: "generated" as const,
+          result: { title: "Тест", body: "Обезличенный текст", warnings: [] },
+        };
       },
     };
 
