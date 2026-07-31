@@ -33,30 +33,46 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("каждый сценарий имеет непустой mustPreserveFacts", () => {
+  it("каждый сценарий имеет поддерживаемый expectedOutcome", () => {
     for (const scenario of scenarios) {
+      expect(["generated", "multiple_issues"]).toContain(scenario.expectedOutcome);
+    }
+  });
+
+  it("generated-сценарии содержат инварианты готового текста", () => {
+    const generatedScenarios = scenarios.filter(
+      (scenario) => scenario.expectedOutcome === "generated",
+    );
+
+    expect(generatedScenarios.length).toBeGreaterThan(0);
+    for (const scenario of generatedScenarios) {
       expect(scenario.mustPreserveFacts.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("каждый сценарий имеет непустой mustNotInvent", () => {
-    for (const scenario of scenarios) {
       expect(scenario.mustNotInvent.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("каждый сценарий имеет явное булево expectWarning", () => {
-    for (const scenario of scenarios) {
       expect(typeof scenario.expectWarning).toBe("boolean");
     }
   });
 
-  it("все сценарии категории multiple_unrelated_issues имеют expectWarning true", () => {
-    const multiIssues = scenarios.filter((s) => s.category === "multiple_unrelated_issues");
+  it("multiple_issues-сценарии не содержат инварианты готового текста", () => {
+    const rejectedScenarios = scenarios.filter(
+      (scenario) => scenario.expectedOutcome === "multiple_issues",
+    );
+
+    expect(rejectedScenarios.length).toBeGreaterThan(0);
+    for (const scenario of rejectedScenarios) {
+      expect("mustPreserveFacts" in scenario).toBe(false);
+      expect("mustNotInvent" in scenario).toBe(false);
+      expect("expectWarning" in scenario).toBe(false);
+    }
+  });
+
+  it("multiple_unrelated_issues ожидает multiple_issues", () => {
+    const multiIssues = scenarios.filter(
+      (scenario) => scenario.category === "multiple_unrelated_issues",
+    );
 
     expect(multiIssues.length).toBeGreaterThan(0);
     for (const scenario of multiIssues) {
-      expect(scenario.expectWarning).toBe(true);
+      expect(scenario.expectedOutcome).toBe("multiple_issues");
     }
   });
 });

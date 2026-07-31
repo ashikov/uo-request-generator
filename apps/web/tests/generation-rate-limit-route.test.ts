@@ -14,6 +14,7 @@ const generatedRequest = {
   body: "На тестовой площадке не работает освещение.\nПрошу: проверить освещение.",
   warnings: [],
 };
+const generatedOutcome = { status: "generated" as const, result: generatedRequest };
 const cookieSecret = "test-cookie-signing-secret-32-characters";
 const generationSafeguardConfig = {
   enabled: true,
@@ -49,7 +50,7 @@ function rateLimitConfig(
 
 function successfulGateway(): LlmGateway {
   return {
-    generateRequest: vi.fn().mockResolvedValue(generatedRequest),
+    generateRequest: vi.fn().mockResolvedValue(generatedOutcome),
   };
 }
 
@@ -430,17 +431,17 @@ describe("подписанная техническая cookie", () => {
 
 describe("параллельные генерации клиента", () => {
   it("сериализует два первых запроса без cookie с одного IP", async () => {
-    let resolveGateway: (value: typeof generatedRequest) => void = () => {
+    let resolveGateway: (value: typeof generatedOutcome) => void = () => {
       throw new Error("Gateway promise is not initialized");
     };
-    const pendingGateway = new Promise<typeof generatedRequest>((resolve) => {
+    const pendingGateway = new Promise<typeof generatedOutcome>((resolve) => {
       resolveGateway = resolve;
     });
     const gateway: LlmGateway = {
       generateRequest: vi
         .fn()
         .mockReturnValueOnce(pendingGateway)
-        .mockResolvedValue(generatedRequest),
+        .mockResolvedValue(generatedOutcome),
     };
     const generateClientId = vi
       .fn()
@@ -462,7 +463,7 @@ describe("параллельные генерации клиента", () => {
     expect(gateway.generateRequest).toHaveBeenCalledOnce();
     expect(generateClientId).toHaveBeenCalledTimes(2);
 
-    resolveGateway(generatedRequest);
+    resolveGateway(generatedOutcome);
     const firstResponse = await firstResponsePromise;
     const nextResponse = await injectGenerate(app, {
       cookie: cookieHeaderFrom(firstResponse),
@@ -477,18 +478,18 @@ describe("параллельные генерации клиента", () => {
     "отсутствующей",
     "повреждённой",
   ] as const)("не позволяет обойти active-слот с %s cookie", async (cookieKind) => {
-    let resolveGateway: (value: typeof generatedRequest) => void = () => {
+    let resolveGateway: (value: typeof generatedOutcome) => void = () => {
       throw new Error("Gateway promise is not initialized");
     };
-    const pendingGateway = new Promise<typeof generatedRequest>((resolve) => {
+    const pendingGateway = new Promise<typeof generatedOutcome>((resolve) => {
       resolveGateway = resolve;
     });
     const gateway: LlmGateway = {
       generateRequest: vi
         .fn()
-        .mockResolvedValueOnce(generatedRequest)
+        .mockResolvedValueOnce(generatedOutcome)
         .mockReturnValueOnce(pendingGateway)
-        .mockResolvedValue(generatedRequest),
+        .mockResolvedValue(generatedOutcome),
     };
     const generateClientId = vi
       .fn()
@@ -522,7 +523,7 @@ describe("параллельные генерации клиента", () => {
     expect(rejectedResponse.headers["set-cookie"]).toBeUndefined();
     expect(gateway.generateRequest).toHaveBeenCalledTimes(2);
 
-    resolveGateway(generatedRequest);
+    resolveGateway(generatedOutcome);
     expect((await activeResponsePromise).statusCode).toBe(200);
     const replacementResponse = await injectGenerate(app, {
       ...replacementRequestOptions,
@@ -535,10 +536,10 @@ describe("параллельные генерации клиента", () => {
   });
 
   it("отклоняет параллельный запрос той же cookie без Retry-After", async () => {
-    let resolveGateway: (value: typeof generatedRequest) => void = () => {
+    let resolveGateway: (value: typeof generatedOutcome) => void = () => {
       throw new Error("Gateway promise is not initialized");
     };
-    const pendingGateway = new Promise<typeof generatedRequest>((resolve) => {
+    const pendingGateway = new Promise<typeof generatedOutcome>((resolve) => {
       resolveGateway = resolve;
     });
     const gateway: LlmGateway = {
@@ -554,15 +555,15 @@ describe("параллельные генерации клиента", () => {
 
     expectRateLimitError(secondResponse);
     expect(secondResponse.headers["retry-after"]).toBeUndefined();
-    resolveGateway(generatedRequest);
+    resolveGateway(generatedOutcome);
     expect((await firstResponsePromise).statusCode).toBe(200);
   });
 
   it("допускает параллельные запросы разных клиентов", async () => {
-    let resolveGateway: (value: typeof generatedRequest) => void = () => {
+    let resolveGateway: (value: typeof generatedOutcome) => void = () => {
       throw new Error("Gateway promise is not initialized");
     };
-    const pendingGateway = new Promise<typeof generatedRequest>((resolve) => {
+    const pendingGateway = new Promise<typeof generatedOutcome>((resolve) => {
       resolveGateway = resolve;
     });
     const gateway: LlmGateway = {
@@ -580,7 +581,7 @@ describe("параллельные генерации клиента", () => {
       remoteAddress: "192.0.2.22",
     });
     await vi.waitFor(() => expect(gateway.generateRequest).toHaveBeenCalledTimes(2));
-    resolveGateway(generatedRequest);
+    resolveGateway(generatedOutcome);
 
     expect((await firstResponsePromise).statusCode).toBe(200);
     expect((await secondResponsePromise).statusCode).toBe(200);
@@ -595,12 +596,25 @@ describe("параллельные генерации клиента", () => {
     expect((await injectGenerate(app, { cookie })).statusCode).toBe(200);
   });
 
+  it("освобождает active-слот после multiple_issues", async () => {
+    const gateway: LlmGateway = {
+      generateRequest: vi.fn().mockResolvedValue({ status: "multiple_issues" }),
+    };
+    const app = registerApp({ llmGateway: gateway });
+    await app.ready();
+    const cookie = signedCookieHeader(app, clientIds.first);
+
+    expect((await injectGenerate(app, { cookie })).statusCode).toBe(400);
+    expect((await injectGenerate(app, { cookie })).statusCode).toBe(400);
+    expect(gateway.generateRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("освобождает слот после контролируемой ошибки gateway", async () => {
     const gateway: LlmGateway = {
       generateRequest: vi
         .fn()
         .mockRejectedValueOnce(new GenerationProviderUnavailableError())
-        .mockResolvedValueOnce(generatedRequest),
+        .mockResolvedValueOnce(generatedOutcome),
     };
     const app = registerApp({ llmGateway: gateway });
     await app.ready();
@@ -616,7 +630,7 @@ describe("параллельные генерации клиента", () => {
       generateRequest: vi
         .fn()
         .mockRejectedValueOnce(new Error("test gateway failure"))
-        .mockResolvedValueOnce(generatedRequest),
+        .mockResolvedValueOnce(generatedOutcome),
     };
     const app = registerApp({ llmGateway: gateway });
     await app.ready();

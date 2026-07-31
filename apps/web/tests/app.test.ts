@@ -432,6 +432,85 @@ describe("обработка ответа генерации в приложен
     );
   });
 
+  it("обрабатывает multiple_issues без потери формы и допускает исправленную отправку", async () => {
+    const multipleIssuesMessage =
+      "Опишите одну проблему. Для каждой отдельной проблемы составьте отдельную заявку.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            title: "Предыдущая заявка",
+            body: "Предыдущий текст заявки",
+            warnings: [],
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            error: {
+              code: "multiple_issues",
+              message: multipleIssuesMessage,
+              requestId: "test-multiple-issues-request-id",
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            title: "Исправленная заявка",
+            body: "Текст об одной связанной проблеме",
+            warnings: [],
+          }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
+    submitForm();
+    await vi.waitFor(() => {
+      expect(document.querySelector("#result-area h3")?.textContent).toBe("Предыдущая заявка");
+    });
+
+    setFormValues(
+      "На площадке сломаны качели, а в соседнем дворе лежит старый диван",
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
+    submitForm();
+
+    await expectError(multipleIssuesMessage);
+    expectFormValues(
+      "На площадке сломаны качели, а в соседнем дворе лежит старый диван",
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
+    expect(document.querySelector("#result-area h3")).toBeNull();
+    expect(document.querySelector("#result-area p")?.id).toBe("result-placeholder");
+    expect(document.querySelector(".copy-button")).toBeNull();
+    expect(getErrorArea().textContent).not.toContain("multiple_issues");
+    expect(getErrorArea().textContent).not.toContain("test-multiple-issues-request-id");
+
+    setFormValues(
+      "На детской площадке сломаны качели и торчат острые болты",
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
+    submitForm();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector("#result-area h3")?.textContent).toBe("Исправленная заявка");
+      expect(document.querySelector(".copy-button")).not.toBeNull();
+      expect(getSubmitButton().disabled).toBe(false);
+      expect(getForm().getAttribute("aria-busy")).toBe("false");
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("принимает rate_limit_exceeded и показывает безопасное серверное сообщение", async () => {
     vi.stubGlobal(
       "fetch",

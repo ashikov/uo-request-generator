@@ -1,6 +1,6 @@
 import type {
   GenerateRequestInput,
-  GenerateRequestResult,
+  GenerateRequestOutcome,
   LlmGateway,
 } from "@uo-request-generator/core";
 
@@ -14,7 +14,7 @@ export class GenerationProviderUnavailableError extends Error {
 }
 
 export class DisabledLlmGateway implements LlmGateway {
-  generateRequest(_input: GenerateRequestInput): Promise<GenerateRequestResult> {
+  generateRequest(_input: GenerateRequestInput): Promise<GenerateRequestOutcome> {
     return Promise.reject(new GenerationProviderUnavailableError());
   }
 }

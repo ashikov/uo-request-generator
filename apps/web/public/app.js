@@ -30,6 +30,7 @@ export function initializeCaptcha() {
     "generation_unavailable",
     "generation_provider_unavailable",
     "internal_error",
+    "multiple_issues",
     "rate_limit_exceeded",
     "validation_error",
   ]);

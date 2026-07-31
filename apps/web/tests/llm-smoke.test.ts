@@ -6,9 +6,12 @@ import { runLlmSmokeCheck } from "../src/llm-smoke.js";
 describe("runLlmSmokeCheck", () => {
   it("выполняет один запрос с фиксированным обезличенным вводом", async () => {
     const generateRequest = vi.fn().mockResolvedValue({
-      title: "Не работает освещение",
-      body: "В общем коридоре не работает освещение. Прошу: восстановить освещение.",
-      warnings: [],
+      status: "generated",
+      result: {
+        title: "Не работает освещение",
+        body: "В общем коридоре не работает освещение. Прошу: восстановить освещение.",
+        warnings: [],
+      },
     });
     const gateway: LlmGateway = { generateRequest };
     const writeLine = vi.fn();
@@ -21,6 +24,21 @@ describe("runLlmSmokeCheck", () => {
     });
     expect(writeLine).toHaveBeenCalledWith("LLM smoke-check выполнен успешно");
     expect(exitCode).toBe(0);
+  });
+
+  it("не считает отклонение нескольких проблем успешным smoke-check", async () => {
+    const generateRequest = vi.fn().mockResolvedValue({
+      status: "multiple_issues",
+    });
+    const gateway: LlmGateway = { generateRequest };
+    const writeLine = vi.fn();
+
+    const exitCode = await runLlmSmokeCheck(gateway, writeLine);
+
+    expect(generateRequest).toHaveBeenCalledOnce();
+    expect(writeLine).toHaveBeenCalledWith("LLM smoke-check: результат не прошёл проверку");
+    expect(writeLine).not.toHaveBeenCalledWith("LLM smoke-check выполнен успешно");
+    expect(exitCode).toBe(1);
   });
 
   it("не выполняет запрос при отключённой конфигурации", async () => {

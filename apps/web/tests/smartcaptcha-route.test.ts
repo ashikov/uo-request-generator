@@ -14,6 +14,7 @@ const generatedRequest = {
   body: "Прошу проверить освещение на тестовой площадке.",
   warnings: [],
 };
+const generatedOutcome = { status: "generated" as const, result: generatedRequest };
 const validInput = {
   description: "На тестовой площадке не работает освещение",
   location: "Учебная зона",
@@ -41,7 +42,7 @@ afterEach(async () => {
 
 function successfulGateway(): LlmGateway {
   return {
-    generateRequest: vi.fn().mockResolvedValue(generatedRequest),
+    generateRequest: vi.fn().mockResolvedValue(generatedOutcome),
   };
 }
 

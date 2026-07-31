@@ -24,13 +24,17 @@ export const REQUEST_DRAFT_RESPONSE_FORMAT_NAME = "request_draft";
 export const REQUEST_DRAFT_JSON_SCHEMA = {
   type: "object",
   properties: {
-    title: {
+    outcome: {
       type: "string",
+      enum: ["generated", "multiple_issues"],
+    },
+    title: {
+      type: ["string", "null"],
       minLength: 1,
       maxLength: requestDraftLimits.titleMax,
     },
     problem: {
-      type: "string",
+      type: ["string", "null"],
       minLength: 1,
       maxLength: requestDraftLimits.problemMax,
     },
@@ -41,7 +45,7 @@ export const REQUEST_DRAFT_JSON_SCHEMA = {
     },
     requests: {
       type: "array",
-      minItems: 1,
+      minItems: 0,
       maxItems: requestDraftLimits.requestsMax,
       items: {
         type: "string",
@@ -59,7 +63,7 @@ export const REQUEST_DRAFT_JSON_SCHEMA = {
       },
     },
   },
-  required: ["title", "problem", "impact", "requests", "warnings"],
+  required: ["outcome", "title", "problem", "impact", "requests", "warnings"],
   additionalProperties: false,
 } as const;
 
@@ -95,8 +99,9 @@ function buildRequestBody(draft: RequestDraftBodyParts): string {
   return bodyBlocks.join("\n\n");
 }
 
-export const requestDraftSchema = z
+const generatedRequestDraftSchema = z
   .object({
+    outcome: z.literal("generated"),
     title: requestDraftString(requestDraftLimits.titleMax),
     problem: requestDraftString(requestDraftLimits.problemMax),
     impact: z.union([requestDraftString(requestDraftLimits.impactMax), z.null()]),
@@ -115,24 +120,50 @@ export const requestDraftSchema = z
     }
   });
 
+const multipleIssuesRequestDraftSchema = z
+  .object({
+    outcome: z.literal("multiple_issues"),
+    title: z.null(),
+    problem: z.null(),
+    impact: z.null(),
+    requests: z.array(z.never()).length(0),
+    warnings: z.array(z.never()).length(0),
+  })
+  .strict();
+
+export const requestDraftSchema = z.discriminatedUnion("outcome", [
+  generatedRequestDraftSchema,
+  multipleIssuesRequestDraftSchema,
+]);
+
 export type RequestDraft = z.infer<typeof requestDraftSchema>;
+export type GeneratedRequestDraft = z.infer<typeof generatedRequestDraftSchema>;
 
 export const REQUEST_DRAFT_SYSTEM_PROMPT = [
-  "Ты — помощник жителя многоквартирного дома. По описанию одной проблемы подготовь структурированный черновик заявки для управляющей организации (УО).",
+  "Ты — помощник жителя многоквартирного дома. Определи, описывает ли ввод одну связанную проблему или несколько самостоятельных несвязанных проблем.",
   "",
   "Верни только один валидный JSON-объект без Markdown-блоков, пояснений и текста до или после JSON.",
   "Не используй старые маркеры «ЗАГОЛОВОК:» и «ПРЕДУПРЕЖДЕНИЯ:».",
+  "Не объясняй и не обосновывай классификацию.",
   "",
   "Обязательная структура JSON:",
-  `- title: непустая строка до ${requestDraftLimits.titleMax} символов`,
-  `- problem: непустая строка до ${requestDraftLimits.problemMax} символов`,
+  '- outcome: "generated" или "multiple_issues"',
+  `- title: непустая строка до ${requestDraftLimits.titleMax} символов или null`,
+  `- problem: непустая строка до ${requestDraftLimits.problemMax} символов или null`,
   `- impact: непустая строка до ${requestDraftLimits.impactMax} символов или null`,
-  `- requests: массив от 1 до ${requestDraftLimits.requestsMax} непустых строк, каждая до ${requestDraftLimits.requestMax} символов`,
+  `- requests: массив до ${requestDraftLimits.requestsMax} непустых строк, каждая до ${requestDraftLimits.requestMax} символов`,
   `- warnings: массив до ${requestDraftLimits.warningsMax} непустых строк, каждая до ${requestDraftLimits.warningMax} символов`,
-  `- Сформированный из problem, impact, раздела «Прошу:» и нумерованных требований body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
   "- Все строковые поля должны быть однострочными и не содержать переводов строк",
   "",
-  "Правила содержания:",
+  "Правила классификации:",
+  "- Одна связанная проблема может включать несколько признаков, последствий, мест проявления и желаемых действий, если они относятся к одному объекту или одной причинно связанной ситуации",
+  "- Несколько самостоятельных проблем являются несвязанными, если каждую можно независимо описать и устранить отдельной заявкой",
+  "- Не выбирай одну из несвязанных проблем и не объединяй их в одну заявку",
+  "",
+  'Правила outcome: "generated":',
+  '- Используй outcome: "generated" только для одной связанной проблемы',
+  `- title и problem должны быть непустыми строками, impact — непустой строкой или null, requests — массивом от 1 до ${requestDraftLimits.requestsMax} строк`,
+  `- Сформированный из problem, impact, раздела «Прошу:» и нумерованных требований body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
   "- Сохраняй переданные объект, место, наблюдаемые признаки, длительность, повторяемость и известные последствия",
   "- Учитывай известные последствия и желаемые действия только если они явно переданы пользователем",
   "- Формулируй компактный, но достаточный текст без потери полезных подробностей и удаляй повторы",
@@ -147,12 +178,34 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "- Не создавай впечатление, что приложение самостоятельно отправляет заявку в УО",
   "- Если предупреждений нет, укажи warnings: []",
   "",
-  "Пример точного формата JSON:",
+  'Правила outcome: "multiple_issues":',
+  '- Используй outcome: "multiple_issues" только для нескольких самостоятельных несвязанных проблем',
+  "- Укажи title: null, problem: null, impact: null, requests: [] и warnings: []",
+  "- Не формируй заголовок, описание, последствия, требования или предупреждения",
+  "",
+  "Короткие примеры:",
+  '- «Протечка крыши, намокший потолок и отслаивающаяся штукатурка» — одна связанная проблема, outcome: "generated"',
+  '- «Сломанные качели и торчащие из них острые болты» — одна связанная проблема, outcome: "generated"',
+  '- «Трещина на трубе, капающая вода и просьба проверить соединения» — одна связанная проблема, outcome: "generated"',
+  '- «Сломанные качели на детской площадке и старый диван возле мусорных баков в соседнем дворе» — несколько несвязанных проблем, outcome: "multiple_issues"',
+  "",
+  "Пример JSON для generated:",
   "{",
+  '  "outcome": "generated",',
   '  "title": "Не работает освещение в общем коридоре",',
   '  "problem": "В общем коридоре не работает освещение уже несколько дней.",',
   '  "impact": null,',
   '  "requests": ["Проверить освещение", "Устранить неисправность"],',
+  '  "warnings": []',
+  "}",
+  "",
+  "Пример JSON для multiple_issues:",
+  "{",
+  '  "outcome": "multiple_issues",',
+  '  "title": null,',
+  '  "problem": null,',
+  '  "impact": null,',
+  '  "requests": [],',
   '  "warnings": []',
   "}",
 ].join("\n");
@@ -179,7 +232,7 @@ export function parseRequestDraft(responseText: string): RequestDraft {
   return draftResult.data;
 }
 
-export function formatRequestDraft(draft: RequestDraft): GenerateRequestResult {
+export function formatRequestDraft(draft: GeneratedRequestDraft): GenerateRequestResult {
   const result = generateRequestResultSchema.safeParse({
     title: draft.title,
     body: buildRequestBody(draft),
