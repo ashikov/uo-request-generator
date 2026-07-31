@@ -1,6 +1,6 @@
 import type {
   GenerateRequestInput,
-  GenerateRequestResult,
+  GenerateRequestOutcome,
   LlmGateway,
 } from "@uo-request-generator/core";
 import { z } from "zod";
@@ -36,6 +36,14 @@ type OpenAiChatCompletionRequest = {
   model: string;
   messages: OpenAiChatMessage[];
   temperature: number;
+  response_format: {
+    type: "json_schema";
+    json_schema: {
+      name: typeof REQUEST_DRAFT_RESPONSE_FORMAT_NAME;
+      strict: true;
+      schema: typeof REQUEST_DRAFT_JSON_SCHEMA;
+    };
+  };
 };
 
 type OpenAiResponsesRequest = {
@@ -137,6 +145,14 @@ function createRequestBody(
       { role: "user", content: userMessage },
     ],
     temperature: TEMPERATURE,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
+        strict: true,
+        schema: REQUEST_DRAFT_JSON_SCHEMA,
+      },
+    },
   };
 }
 
@@ -269,7 +285,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     this.maxOutputTokens = config.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
   }
 
-  async generateRequest(input: GenerateRequestInput): Promise<GenerateRequestResult> {
+  async generateRequest(input: GenerateRequestInput): Promise<GenerateRequestOutcome> {
     const userMessage = createUserMessage(input);
 
     const requestBody = createRequestBody(
@@ -318,6 +334,15 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       throw new Error("LLM API вернул пустой ответ");
     }
 
-    return formatRequestDraft(parseRequestDraft(content));
+    const draft = parseRequestDraft(content);
+
+    if (draft.outcome === "multiple_issues") {
+      return { status: "multiple_issues" };
+    }
+
+    return {
+      status: "generated",
+      result: formatRequestDraft(draft),
+    };
   }
 }

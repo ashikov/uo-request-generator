@@ -15,6 +15,7 @@ type ApiErrorCode =
   | "generation_unavailable"
   | "generation_provider_unavailable"
   | "internal_error"
+  | "multiple_issues"
   | "rate_limit_exceeded"
   | "validation_error";
 
@@ -64,6 +65,12 @@ const internalApiError: ApiError = {
   code: "internal_error",
   message: "Не удалось составить заявку",
   statusCode: 500,
+};
+
+const multipleIssuesApiError: ApiError = {
+  code: "multiple_issues",
+  message: "Опишите одну проблему. Для каждой отдельной проблемы составьте отдельную заявку.",
+  statusCode: 400,
 };
 
 function sendApiError(reply: FastifyReply, apiError: ApiError): FastifyReply {
@@ -153,7 +160,13 @@ export function registerGenerateRoute(
         }
 
         try {
-          return await options.llmGateway.generateRequest(generationInput);
+          const outcome = await options.llmGateway.generateRequest(generationInput);
+
+          if (outcome.status === "multiple_issues") {
+            return sendApiError(reply, multipleIssuesApiError);
+          }
+
+          return outcome.result;
         } finally {
           safeguardDecision.release();
         }

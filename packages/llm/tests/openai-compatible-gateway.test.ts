@@ -13,6 +13,7 @@ const GATEWAY_CONFIG: OpenAiCompatibleGatewayConfig = {
 };
 
 const VALID_DRAFT = {
+  outcome: "generated",
   title: "Не работает освещение на этаже",
   problem: "На лестничной площадке не горит свет.",
   impact: null,
@@ -22,15 +23,27 @@ const VALID_DRAFT = {
 const VALID_LLM_TEXT = JSON.stringify(VALID_DRAFT);
 
 const VALID_LLM_RESPONSE = {
-  title: "Не работает освещение на этаже",
-  body: [
-    "На лестничной площадке не горит свет.",
-    "",
-    "Прошу:",
-    "1. Проверить и восстановить освещение",
-  ].join("\n"),
-  warnings: [],
+  status: "generated",
+  result: {
+    title: "Не работает освещение на этаже",
+    body: [
+      "На лестничной площадке не горит свет.",
+      "",
+      "Прошу:",
+      "1. Проверить и восстановить освещение",
+    ].join("\n"),
+    warnings: [],
+  },
 };
+
+const MULTIPLE_ISSUES_LLM_TEXT = JSON.stringify({
+  outcome: "multiple_issues",
+  title: null,
+  problem: null,
+  impact: null,
+  requests: [],
+  warnings: [],
+});
 
 function createMockFetch(llmText: string, status = 200) {
   const body = { choices: [{ message: { content: llmText } }] };
@@ -105,6 +118,17 @@ describe("OpenAiCompatibleGateway", () => {
         },
       ],
       temperature: 0.3,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "request_draft",
+          strict: true,
+          schema: expect.objectContaining({
+            required: ["outcome", "title", "problem", "impact", "requests", "warnings"],
+            additionalProperties: false,
+          }),
+        },
+      },
     });
     expect(callBody.messages[0]?.content).toContain("Верни только один валидный JSON-объект");
     expect(callBody.messages[0]?.content).toContain('"impact": null');
@@ -152,6 +176,7 @@ describe("OpenAiCompatibleGateway", () => {
 
   it("парсит ответ с предупреждениями", async () => {
     const text = JSON.stringify({
+      outcome: "generated",
       title: "Течь на кухне",
       problem: "На кухне течёт кран.",
       impact: null,
@@ -165,9 +190,22 @@ describe("OpenAiCompatibleGateway", () => {
 
     const result = await gateway.generateRequest(VALID_INPUT);
 
-    expect(result.title).toBe("Течь на кухне");
-    expect(result.body).toContain("Отремонтировать");
-    expect(result.warnings).toHaveLength(2);
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.title).toBe("Течь на кухне");
+    expect(result.result.body).toContain("Отремонтировать");
+    expect(result.result.warnings).toHaveLength(2);
+  });
+
+  it("возвращает явный исход multiple_issues без форматирования заявки", async () => {
+    const mockFetch = createMockFetch(MULTIPLE_ISSUES_LLM_TEXT);
+
+    await expect(createGateway().generateRequest(VALID_INPUT)).resolves.toEqual({
+      status: "multiple_issues",
+    });
+    expect(mockFetch).toHaveBeenCalledOnce();
   });
 
   it("отклоняет синтаксически корректный JSON, не соответствующий схеме черновика", async () => {
@@ -378,8 +416,20 @@ describe("OpenAiCompatibleGateway", () => {
             schema: {
               type: "object",
               properties: {
-                title: { type: "string", minLength: 1, maxLength: requestDraftLimits.titleMax },
-                problem: { type: "string", minLength: 1, maxLength: requestDraftLimits.problemMax },
+                outcome: {
+                  type: "string",
+                  enum: ["generated", "multiple_issues"],
+                },
+                title: {
+                  type: ["string", "null"],
+                  minLength: 1,
+                  maxLength: requestDraftLimits.titleMax,
+                },
+                problem: {
+                  type: ["string", "null"],
+                  minLength: 1,
+                  maxLength: requestDraftLimits.problemMax,
+                },
                 impact: {
                   type: ["string", "null"],
                   minLength: 1,
@@ -387,7 +437,7 @@ describe("OpenAiCompatibleGateway", () => {
                 },
                 requests: {
                   type: "array",
-                  minItems: 1,
+                  minItems: 0,
                   maxItems: requestDraftLimits.requestsMax,
                   items: {
                     type: "string",
@@ -405,7 +455,7 @@ describe("OpenAiCompatibleGateway", () => {
                   },
                 },
               },
-              required: ["title", "problem", "impact", "requests", "warnings"],
+              required: ["outcome", "title", "problem", "impact", "requests", "warnings"],
               additionalProperties: false,
             },
           },
@@ -419,6 +469,16 @@ describe("OpenAiCompatibleGateway", () => {
       const gateway = createGateway(responsesConfig);
 
       await expect(gateway.generateRequest(VALID_INPUT)).resolves.toEqual(VALID_LLM_RESPONSE);
+    });
+
+    it("возвращает multiple_issues из Responses API тем же общим путём", async () => {
+      const mockFetch = createResponsesMockFetch({ output_text: MULTIPLE_ISSUES_LLM_TEXT });
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).resolves.toEqual({
+        status: "multiple_issues",
+      });
+      expect(mockFetch).toHaveBeenCalledOnce();
     });
 
     it("отклоняет incomplete-ответ с валидным верхнеуровневым текстом", async () => {

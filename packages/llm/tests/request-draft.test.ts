@@ -5,13 +5,15 @@ import {
   parseRequestDraft,
   requestDraftLimits,
   REQUEST_DRAFT_SYSTEM_PROMPT,
+  type GeneratedRequestDraft,
   type RequestDraft,
 } from "../src/request-draft.js";
 
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
 
-function createDraft(overrides: Partial<RequestDraft> = {}): RequestDraft {
+function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
+    outcome: "generated",
     title: "Не работает освещение",
     problem: "В общем коридоре не работает освещение уже несколько дней.",
     impact: "В тёмное время суток проход по коридору затруднён.",
@@ -32,7 +34,7 @@ function expectInvalidResponse(responseText: string): void {
   expect(() => parseRequestDraft(responseText)).toThrow(INVALID_RESPONSE_MESSAGE);
 }
 
-function createDraftAtBodyLength(bodyLength: number): RequestDraft {
+function createDraftAtBodyLength(bodyLength: number): GeneratedRequestDraft {
   const fixedDraft = createDraft({
     problem: "а".repeat(requestDraftLimits.problemMax),
     impact: "б",
@@ -47,11 +49,23 @@ function createDraftAtBodyLength(bodyLength: number): RequestDraft {
   });
 }
 
+function expectGeneratedDraft(draft: RequestDraft): asserts draft is GeneratedRequestDraft {
+  expect(draft.outcome).toBe("generated");
+  if (draft.outcome !== "generated") {
+    throw new Error("Ожидался черновик готовой заявки");
+  }
+}
+
 describe("parseRequestDraft", () => {
-  it("указывает в prompt общий лимит сформированного body", () => {
+  it("описывает в prompt оба исхода и общий лимит сформированного body", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       `body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
     );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('outcome: "generated"');
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('outcome: "multiple_issues"');
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Протечка крыши");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Сломанные качели");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("старый диван");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Все строковые поля должны быть однострочными");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       "Учитывай известные последствия и желаемые действия только если они явно переданы пользователем",
@@ -87,6 +101,7 @@ describe("parseRequestDraft", () => {
   it("удаляет только незначащие пробелы по краям строк", () => {
     const parsed = parseRequestDraft(
       JSON.stringify({
+        outcome: "generated",
         title: "  Не работает освещение  ",
         problem: "  В общем коридоре не работает освещение.  ",
         impact: "  Проход по коридору затруднён.  ",
@@ -96,6 +111,7 @@ describe("parseRequestDraft", () => {
     );
 
     expect(parsed).toEqual({
+      outcome: "generated",
       title: "Не работает освещение",
       problem: "В общем коридоре не работает освещение.",
       impact: "Проход по коридору затруднён.",
@@ -149,6 +165,7 @@ ${JSON.stringify(createDraft())}
   });
 
   it.each([
+    "outcome",
     "title",
     "problem",
     "impact",
@@ -166,6 +183,52 @@ ${JSON.stringify(createDraft())}
       JSON.stringify({
         ...createDraft(),
         explanation: "Дополнительное пояснение",
+      }),
+    );
+  });
+
+  it("валидирует исход multiple_issues без данных готовой заявки", () => {
+    const response = {
+      outcome: "multiple_issues",
+      title: null,
+      problem: null,
+      impact: null,
+      requests: [],
+      warnings: [],
+    } satisfies RequestDraft;
+
+    expect(parseRequestDraft(JSON.stringify(response))).toEqual(response);
+  });
+
+  it.each([
+    ["title", { title: "Сломаны качели" }],
+    ["problem", { problem: "На площадке сломаны качели." }],
+    ["impact", { impact: "Торчат острые болты." }],
+    ["requests", { requests: ["Починить качели"] }],
+    ["warnings", { warnings: ["Во вводе несколько проблем"] }],
+  ])("отклоняет multiple_issues с непустым полем %s", (_caseName, field) => {
+    expectInvalidResponse(
+      JSON.stringify({
+        outcome: "multiple_issues",
+        title: null,
+        problem: null,
+        impact: null,
+        requests: [],
+        warnings: [],
+        ...field,
+      }),
+    );
+  });
+
+  it("отклоняет generated без обязательных данных заявки", () => {
+    expectInvalidResponse(
+      JSON.stringify({
+        outcome: "generated",
+        title: null,
+        problem: null,
+        impact: null,
+        requests: [],
+        warnings: [],
       }),
     );
   });
@@ -239,6 +302,7 @@ ${JSON.stringify(createDraft())}
     const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
 
     const parsedDraft = parseRequestDraft(JSON.stringify(draft));
+    expectGeneratedDraft(parsedDraft);
     const result = formatRequestDraft(parsedDraft);
 
     expect(result.body).toHaveLength(generateRequestLimits.result.bodyMax);
@@ -253,6 +317,7 @@ ${JSON.stringify(createDraft())}
         impact: `  ${draft.impact ?? ""}  `,
       }),
     );
+    expectGeneratedDraft(parsedDraft);
 
     expect(formatRequestDraft(parsedDraft).body).toHaveLength(generateRequestLimits.result.bodyMax);
   });
