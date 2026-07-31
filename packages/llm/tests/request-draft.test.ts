@@ -4,6 +4,7 @@ import {
   formatRequestDraft,
   parseRequestDraft,
   requestDraftLimits,
+  REQUEST_DRAFT_JSON_SCHEMA,
   REQUEST_DRAFT_SYSTEM_PROMPT,
   type GeneratedRequestDraft,
   type RequestDraft,
@@ -28,6 +29,10 @@ function createRawDraft(overrides: Record<string, unknown>): Record<string, unkn
     ...createDraft(),
     ...overrides,
   };
+}
+
+function serializeDraft(draft: unknown): string {
+  return JSON.stringify({ draft });
 }
 
 function expectInvalidResponse(responseText: string): void {
@@ -57,12 +62,48 @@ function expectGeneratedDraft(draft: RequestDraft): asserts draft is GeneratedRe
 }
 
 describe("parseRequestDraft", () => {
+  it("разделяет исходы во вложенных ветках провайдерской схемы", () => {
+    expect(REQUEST_DRAFT_JSON_SCHEMA).toEqual({
+      type: "object",
+      properties: {
+        draft: {
+          anyOf: [
+            expect.objectContaining({
+              type: "object",
+              properties: expect.objectContaining({
+                outcome: { type: "string", enum: ["generated"] },
+                title: expect.objectContaining({ type: "string" }),
+                requests: expect.objectContaining({ minItems: 1 }),
+              }),
+              additionalProperties: false,
+            }),
+            expect.objectContaining({
+              type: "object",
+              properties: expect.objectContaining({
+                outcome: { type: "string", enum: ["multiple_issues"] },
+                title: { type: "null" },
+                problem: { type: "null" },
+                impact: { type: "null" },
+                requests: expect.objectContaining({ maxItems: 0 }),
+                warnings: expect.objectContaining({ maxItems: 0 }),
+              }),
+              additionalProperties: false,
+            }),
+          ],
+        },
+      },
+      required: ["draft"],
+      additionalProperties: false,
+    });
+  });
+
   it("описывает в prompt оба исхода и общий лимит сформированного body", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       `body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
     );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('outcome: "generated"');
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('outcome: "multiple_issues"');
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('"draft": {');
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Протечка крыши");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Сломанные качели");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("старый диван");
@@ -77,7 +118,7 @@ describe("parseRequestDraft", () => {
       warnings: ["Не указана причина неисправности", "Неизвестен точный срок возникновения"],
     });
 
-    expect(parseRequestDraft(JSON.stringify(draft))).toEqual(draft);
+    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
   });
 
   it("валидирует черновик с impact null, одним требованием и пустыми warnings", () => {
@@ -87,7 +128,7 @@ describe("parseRequestDraft", () => {
       warnings: [],
     });
 
-    expect(parseRequestDraft(JSON.stringify(draft))).toEqual(draft);
+    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
   });
 
   it("валидирует черновик с тремя требованиями", () => {
@@ -95,12 +136,12 @@ describe("parseRequestDraft", () => {
       requests: ["Проверить освещение", "Устранить неисправность", "Восстановить освещение"],
     });
 
-    expect(parseRequestDraft(JSON.stringify(draft))).toEqual(draft);
+    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
   });
 
   it("удаляет только незначащие пробелы по краям строк", () => {
     const parsed = parseRequestDraft(
-      JSON.stringify({
+      serializeDraft({
         outcome: "generated",
         title: "  Не работает освещение  ",
         problem: "  В общем коридоре не работает освещение.  ",
@@ -127,7 +168,7 @@ describe("parseRequestDraft", () => {
     ["элемент requests", { requests: ["Проверить освещение\r"] }],
     ["элемент warnings", { warnings: ["Не указано место\n"] }],
   ])("отклоняет перевод строки в поле %s", (_caseName, overrides) => {
-    expectInvalidResponse(JSON.stringify(createDraft(overrides)));
+    expectInvalidResponse(serializeDraft(createDraft(overrides)));
   });
 
   it.each([
@@ -135,19 +176,19 @@ describe("parseRequestDraft", () => {
     ["смешанным регистром и пробелом перед двоеточием", "пРоШу : проверить освещение"],
     ["пробелами перед префиксом", "  Прошу: проверить освещение"],
   ])("отклоняет требование с префиксом «Прошу:» %s", (_caseName, request) => {
-    expectInvalidResponse(JSON.stringify(createDraft({ requests: [request] })));
+    expectInvalidResponse(serializeDraft(createDraft({ requests: [request] })));
   });
 
   it("принимает однострочное требование без форматирующего префикса", () => {
     const draft = createDraft({ requests: ["Проверить освещение"] });
 
-    expect(parseRequestDraft(JSON.stringify(draft))).toEqual(draft);
+    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
   });
 
   it("не отклоняет обычное употребление слова «прошу» без форматирующего префикса", () => {
     const draft = createDraft({ requests: ["Пожалуйста, прошу проверить освещение"] });
 
-    expect(parseRequestDraft(JSON.stringify(draft))).toEqual(draft);
+    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
   });
 
   it.each([
@@ -155,11 +196,11 @@ describe("parseRequestDraft", () => {
     [
       "JSON в Markdown code fence",
       `\`\`\`json
-${JSON.stringify(createDraft())}
+${serializeDraft(createDraft())}
 \`\`\``,
     ],
-    ["текст перед JSON", `Черновик:\n${JSON.stringify(createDraft())}`],
-    ["текст после JSON", `${JSON.stringify(createDraft())}\nГотово`],
+    ["текст перед JSON", `Черновик:\n${serializeDraft(createDraft())}`],
+    ["текст после JSON", `${serializeDraft(createDraft())}\nГотово`],
   ])("отклоняет %s", (_caseName, responseText) => {
     expectInvalidResponse(responseText);
   });
@@ -175,15 +216,25 @@ ${JSON.stringify(createDraft())}
     const draft: Record<string, unknown> = { ...createDraft() };
     delete draft[field];
 
-    expectInvalidResponse(JSON.stringify(draft));
+    expectInvalidResponse(serializeDraft(draft));
   });
 
   it("отклоняет лишнее поле", () => {
     expectInvalidResponse(
-      JSON.stringify({
+      serializeDraft({
         ...createDraft(),
         explanation: "Дополнительное пояснение",
       }),
+    );
+  });
+
+  it("отклоняет черновик без корневого поля draft", () => {
+    expectInvalidResponse(JSON.stringify(createDraft()));
+  });
+
+  it("отклоняет лишнее поле рядом с draft", () => {
+    expectInvalidResponse(
+      JSON.stringify({ draft: createDraft(), explanation: "Дополнительное пояснение" }),
     );
   });
 
@@ -197,7 +248,7 @@ ${JSON.stringify(createDraft())}
       warnings: [],
     } satisfies RequestDraft;
 
-    expect(parseRequestDraft(JSON.stringify(response))).toEqual(response);
+    expect(parseRequestDraft(serializeDraft(response))).toEqual(response);
   });
 
   it.each([
@@ -208,7 +259,7 @@ ${JSON.stringify(createDraft())}
     ["warnings", { warnings: ["Во вводе несколько проблем"] }],
   ])("отклоняет multiple_issues с непустым полем %s", (_caseName, field) => {
     expectInvalidResponse(
-      JSON.stringify({
+      serializeDraft({
         outcome: "multiple_issues",
         title: null,
         problem: null,
@@ -222,7 +273,7 @@ ${JSON.stringify(createDraft())}
 
   it("отклоняет generated без обязательных данных заявки", () => {
     expectInvalidResponse(
-      JSON.stringify({
+      serializeDraft({
         outcome: "generated",
         title: null,
         problem: null,
@@ -231,6 +282,10 @@ ${JSON.stringify(createDraft())}
         warnings: [],
       }),
     );
+  });
+
+  it("отклоняет неизвестный outcome", () => {
+    expectInvalidResponse(serializeDraft({ ...createDraft(), outcome: "unknown" }));
   });
 
   it.each([
@@ -244,7 +299,7 @@ ${JSON.stringify(createDraft())}
     ["элемент requests из пробелов", { requests: ["   "] }],
     ["элемент warnings", { warnings: [""] }],
   ])("отклоняет пустое значение %s", (_caseName, overrides) => {
-    expectInvalidResponse(JSON.stringify(createDraft(overrides)));
+    expectInvalidResponse(serializeDraft(createDraft(overrides)));
   });
 
   it.each([
@@ -254,16 +309,16 @@ ${JSON.stringify(createDraft())}
     ["элемент requests", { requests: ["а".repeat(requestDraftLimits.requestMax + 1)] }],
     ["элемент warnings", { warnings: ["а".repeat(requestDraftLimits.warningMax + 1)] }],
   ])("отклоняет слишком длинное значение %s", (_caseName, overrides) => {
-    expectInvalidResponse(JSON.stringify(createDraft(overrides)));
+    expectInvalidResponse(serializeDraft(createDraft(overrides)));
   });
 
   it("отклоняет пустой массив requests", () => {
-    expectInvalidResponse(JSON.stringify(createDraft({ requests: [] })));
+    expectInvalidResponse(serializeDraft(createDraft({ requests: [] })));
   });
 
   it("отклоняет четыре требования", () => {
     expectInvalidResponse(
-      JSON.stringify(
+      serializeDraft(
         createDraft({
           requests: ["Первое требование", "Второе требование", "Третье требование", "Четвёртое"],
         }),
@@ -273,7 +328,7 @@ ${JSON.stringify(createDraft())}
 
   it("отклоняет слишком много предупреждений", () => {
     expectInvalidResponse(
-      JSON.stringify(
+      serializeDraft(
         createDraft({
           warnings: Array.from(
             { length: generateRequestLimits.result.warningsMax + 1 },
@@ -295,13 +350,13 @@ ${JSON.stringify(createDraft())}
       warnings: [],
     });
 
-    expectInvalidResponse(JSON.stringify(draft));
+    expectInvalidResponse(serializeDraft(draft));
   });
 
   it("принимает черновик с body ровно на внешнем лимите", () => {
     const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
 
-    const parsedDraft = parseRequestDraft(JSON.stringify(draft));
+    const parsedDraft = parseRequestDraft(serializeDraft(draft));
     expectGeneratedDraft(parsedDraft);
     const result = formatRequestDraft(parsedDraft);
 
@@ -311,7 +366,7 @@ ${JSON.stringify(createDraft())}
   it("проверяет длину body после нормализации пробелов", () => {
     const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
     const parsedDraft = parseRequestDraft(
-      JSON.stringify({
+      serializeDraft({
         ...draft,
         problem: `  ${draft.problem}  `,
         impact: `  ${draft.impact ?? ""}  `,
@@ -325,11 +380,11 @@ ${JSON.stringify(createDraft())}
   it("отклоняет черновик с body длиннее внешнего лимита на один символ", () => {
     const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax + 1);
 
-    expectInvalidResponse(JSON.stringify(draft));
+    expectInvalidResponse(serializeDraft(draft));
   });
 
   it.each([
-    ["корневой массив", []],
+    ["массив вместо draft", []],
     ["числовой title", createRawDraft({ title: 42 })],
     ["null в problem", createRawDraft({ problem: null })],
     ["числовой impact", createRawDraft({ impact: 42 })],
@@ -338,7 +393,7 @@ ${JSON.stringify(createDraft())}
     ["null вместо warnings", createRawDraft({ warnings: null })],
     ["число в warnings", createRawDraft({ warnings: [42] })],
   ])("отклоняет неверный тип: %s", (_caseName, draft) => {
-    expectInvalidResponse(JSON.stringify(draft));
+    expectInvalidResponse(serializeDraft(draft));
   });
 });
 

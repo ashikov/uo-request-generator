@@ -3,12 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLlmGateway } from "../src/llm-config.js";
 
 const VALID_LLM_TEXT = JSON.stringify({
-  outcome: "generated",
-  title: "Не работает освещение",
-  problem: "На лестничной площадке не горит свет.",
-  impact: null,
-  requests: ["Проверить и восстановить освещение"],
-  warnings: [],
+  draft: {
+    outcome: "generated",
+    title: "Не работает освещение",
+    problem: "На лестничной площадке не горит свет.",
+    impact: null,
+    requests: ["Проверить и восстановить освещение"],
+    warnings: [],
+  },
 });
 
 function mockProviderResponse() {

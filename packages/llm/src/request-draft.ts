@@ -19,22 +19,20 @@ export const requestDraftLimits = {
 
 export const REQUEST_DRAFT_RESPONSE_FORMAT_NAME = "request_draft";
 
-// Провайдерская схема ограничивает только устойчиво поддерживаемую структуру ответа.
-// Локальная requestDraftSchema остаётся окончательной проверкой предметных и межполевых правил.
-export const REQUEST_DRAFT_JSON_SCHEMA = {
+const generatedRequestDraftJsonSchema = {
   type: "object",
   properties: {
     outcome: {
       type: "string",
-      enum: ["generated", "multiple_issues"],
+      enum: ["generated"],
     },
     title: {
-      type: ["string", "null"],
+      type: "string",
       minLength: 1,
       maxLength: requestDraftLimits.titleMax,
     },
     problem: {
-      type: ["string", "null"],
+      type: "string",
       minLength: 1,
       maxLength: requestDraftLimits.problemMax,
     },
@@ -45,7 +43,7 @@ export const REQUEST_DRAFT_JSON_SCHEMA = {
     },
     requests: {
       type: "array",
-      minItems: 0,
+      minItems: 1,
       maxItems: requestDraftLimits.requestsMax,
       items: {
         type: "string",
@@ -64,6 +62,54 @@ export const REQUEST_DRAFT_JSON_SCHEMA = {
     },
   },
   required: ["outcome", "title", "problem", "impact", "requests", "warnings"],
+  additionalProperties: false,
+} as const;
+
+const multipleIssuesRequestDraftJsonSchema = {
+  type: "object",
+  properties: {
+    outcome: {
+      type: "string",
+      enum: ["multiple_issues"],
+    },
+    title: {
+      type: "null",
+    },
+    problem: {
+      type: "null",
+    },
+    impact: {
+      type: "null",
+    },
+    requests: {
+      type: "array",
+      maxItems: 0,
+      items: {
+        type: "string",
+      },
+    },
+    warnings: {
+      type: "array",
+      maxItems: 0,
+      items: {
+        type: "string",
+      },
+    },
+  },
+  required: ["outcome", "title", "problem", "impact", "requests", "warnings"],
+  additionalProperties: false,
+} as const;
+
+// Корневой объект нужен для совместимого Structured Outputs. Вложенный anyOf
+// сохраняет строгие ветки, а локальная Zod-схема остаётся окончательной проверкой.
+export const REQUEST_DRAFT_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    draft: {
+      anyOf: [generatedRequestDraftJsonSchema, multipleIssuesRequestDraftJsonSchema],
+    },
+  },
+  required: ["draft"],
   additionalProperties: false,
 } as const;
 
@@ -136,6 +182,12 @@ export const requestDraftSchema = z.discriminatedUnion("outcome", [
   multipleIssuesRequestDraftSchema,
 ]);
 
+const requestDraftResponseSchema = z
+  .object({
+    draft: requestDraftSchema,
+  })
+  .strict();
+
 export type RequestDraft = z.infer<typeof requestDraftSchema>;
 export type GeneratedRequestDraft = z.infer<typeof generatedRequestDraftSchema>;
 
@@ -146,7 +198,7 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "Не используй старые маркеры «ЗАГОЛОВОК:» и «ПРЕДУПРЕЖДЕНИЯ:».",
   "Не объясняй и не обосновывай классификацию.",
   "",
-  "Обязательная структура JSON:",
+  "Корневой JSON-объект должен содержать единственное поле draft с черновиком:",
   '- outcome: "generated" или "multiple_issues"',
   `- title: непустая строка до ${requestDraftLimits.titleMax} символов или null`,
   `- problem: непустая строка до ${requestDraftLimits.problemMax} символов или null`,
@@ -191,22 +243,26 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "",
   "Пример JSON для generated:",
   "{",
-  '  "outcome": "generated",',
-  '  "title": "Не работает освещение в общем коридоре",',
-  '  "problem": "В общем коридоре не работает освещение уже несколько дней.",',
-  '  "impact": null,',
-  '  "requests": ["Проверить освещение", "Устранить неисправность"],',
-  '  "warnings": []',
+  '  "draft": {',
+  '    "outcome": "generated",',
+  '    "title": "Не работает освещение в общем коридоре",',
+  '    "problem": "В общем коридоре не работает освещение уже несколько дней.",',
+  '    "impact": null,',
+  '    "requests": ["Проверить освещение", "Устранить неисправность"],',
+  '    "warnings": []',
+  "  }",
   "}",
   "",
   "Пример JSON для multiple_issues:",
   "{",
-  '  "outcome": "multiple_issues",',
-  '  "title": null,',
-  '  "problem": null,',
-  '  "impact": null,',
-  '  "requests": [],',
-  '  "warnings": []',
+  '  "draft": {',
+  '    "outcome": "multiple_issues",',
+  '    "title": null,',
+  '    "problem": null,',
+  '    "impact": null,',
+  '    "requests": [],',
+  '    "warnings": []',
+  "  }",
   "}",
 ].join("\n");
 
@@ -223,13 +279,13 @@ export function parseRequestDraft(responseText: string): RequestDraft {
     throw invalidResponseError();
   }
 
-  const draftResult = requestDraftSchema.safeParse(parsedResponse);
+  const draftResult = requestDraftResponseSchema.safeParse(parsedResponse);
 
   if (!draftResult.success) {
     throw invalidResponseError();
   }
 
-  return draftResult.data;
+  return draftResult.data.draft;
 }
 
 export function formatRequestDraft(draft: GeneratedRequestDraft): GenerateRequestResult {
