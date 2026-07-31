@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAiCompatibleGateway, type OpenAiCompatibleGatewayConfig } from "../src";
-import { requestDraftLimits } from "../src/request-draft.js";
+import { REQUEST_DRAFT_JSON_SCHEMA } from "../src/request-draft.js";
 
 const MOCK_API_KEY = "test-key-123";
 const VALID_INPUT = { description: "На лестничной площадке не горит свет" };
@@ -20,7 +20,12 @@ const VALID_DRAFT = {
   requests: ["Проверить и восстановить освещение"],
   warnings: [],
 };
-const VALID_LLM_TEXT = JSON.stringify(VALID_DRAFT);
+
+function createLlmText(draft: unknown): string {
+  return JSON.stringify({ draft });
+}
+
+const VALID_LLM_TEXT = createLlmText(VALID_DRAFT);
 
 const VALID_LLM_RESPONSE = {
   status: "generated",
@@ -36,7 +41,7 @@ const VALID_LLM_RESPONSE = {
   },
 };
 
-const MULTIPLE_ISSUES_LLM_TEXT = JSON.stringify({
+const MULTIPLE_ISSUES_LLM_TEXT = createLlmText({
   outcome: "multiple_issues",
   title: null,
   problem: null,
@@ -123,10 +128,7 @@ describe("OpenAiCompatibleGateway", () => {
         json_schema: {
           name: "request_draft",
           strict: true,
-          schema: expect.objectContaining({
-            required: ["outcome", "title", "problem", "impact", "requests", "warnings"],
-            additionalProperties: false,
-          }),
+          schema: REQUEST_DRAFT_JSON_SCHEMA,
         },
       },
     });
@@ -175,7 +177,7 @@ describe("OpenAiCompatibleGateway", () => {
   });
 
   it("парсит ответ с предупреждениями", async () => {
-    const text = JSON.stringify({
+    const text = createLlmText({
       outcome: "generated",
       title: "Течь на кухне",
       problem: "На кухне течёт кран.",
@@ -205,6 +207,35 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(createGateway().generateRequest(VALID_INPUT)).resolves.toEqual({
       status: "multiple_issues",
     });
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("отклоняет противоречивый multiple_issues и не раскрывает содержимое ответа", async () => {
+    const internalDetail = "Техническая деталь синтетического ответа";
+    const mockFetch = createMockFetch(
+      createLlmText({
+        outcome: "multiple_issues",
+        title: internalDetail,
+        problem: null,
+        impact: null,
+        requests: [],
+        warnings: [],
+      }),
+    );
+
+    const generation = createGateway().generateRequest(VALID_INPUT);
+
+    await expect(generation).rejects.toThrow("LLM вернул некорректный формат заявки");
+    await expect(generation).rejects.not.toThrow(internalDetail);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("отклоняет неизвестный outcome без повторного запроса", async () => {
+    const mockFetch = createMockFetch(createLlmText({ ...VALID_DRAFT, outcome: "unknown" }));
+
+    await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
+      "LLM вернул некорректный формат заявки",
+    );
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
@@ -372,7 +403,7 @@ describe("OpenAiCompatibleGateway", () => {
     const prefix = "а".repeat(titleMax - 1);
     const title = prefix + emoji;
 
-    const text = JSON.stringify({
+    const text = createLlmText({
       ...VALID_DRAFT,
       title,
     });
@@ -413,51 +444,7 @@ describe("OpenAiCompatibleGateway", () => {
             type: "json_schema",
             name: "request_draft",
             strict: true,
-            schema: {
-              type: "object",
-              properties: {
-                outcome: {
-                  type: "string",
-                  enum: ["generated", "multiple_issues"],
-                },
-                title: {
-                  type: ["string", "null"],
-                  minLength: 1,
-                  maxLength: requestDraftLimits.titleMax,
-                },
-                problem: {
-                  type: ["string", "null"],
-                  minLength: 1,
-                  maxLength: requestDraftLimits.problemMax,
-                },
-                impact: {
-                  type: ["string", "null"],
-                  minLength: 1,
-                  maxLength: requestDraftLimits.impactMax,
-                },
-                requests: {
-                  type: "array",
-                  minItems: 0,
-                  maxItems: requestDraftLimits.requestsMax,
-                  items: {
-                    type: "string",
-                    minLength: 1,
-                    maxLength: requestDraftLimits.requestMax,
-                  },
-                },
-                warnings: {
-                  type: "array",
-                  maxItems: requestDraftLimits.warningsMax,
-                  items: {
-                    type: "string",
-                    minLength: 1,
-                    maxLength: requestDraftLimits.warningMax,
-                  },
-                },
-              },
-              required: ["outcome", "title", "problem", "impact", "requests", "warnings"],
-              additionalProperties: false,
-            },
+            schema: REQUEST_DRAFT_JSON_SCHEMA,
           },
         },
       });
@@ -622,7 +609,7 @@ describe("OpenAiCompatibleGateway", () => {
       createResponsesMockFetch({
         output_text: VALID_LLM_TEXT,
         ...createOpenAiResponsesBody(
-          JSON.stringify({ ...VALID_DRAFT, title: "Вложенный заголовок" }),
+          createLlmText({ ...VALID_DRAFT, title: "Вложенный заголовок" }),
         ),
       });
       const gateway = createGateway(responsesConfig);
