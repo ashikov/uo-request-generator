@@ -119,7 +119,12 @@ describe("OpenAiCompatibleGateway", () => {
         expect.objectContaining({ role: "system" }),
         {
           role: "user",
-          content: "Проблема: На лестничной площадке не горит свет",
+          content: JSON.stringify({
+            description: "На лестничной площадке не горит свет",
+            location: null,
+            consequences: null,
+            desiredActions: null,
+          }),
         },
       ],
       temperature: 0.3,
@@ -143,6 +148,54 @@ describe("OpenAiCompatibleGateway", () => {
 
     const headers = mockFetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Api-Key test-key-123");
+  });
+
+  it("передаёт Chat Completions исходные поля как JSON с явными null", async () => {
+    const mockFetch = createMockFetch(VALID_LLM_TEXT);
+
+    await createGateway().generateRequest(VALID_INPUT);
+
+    const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+    const userContent = callBody.messages[1]?.content as string;
+
+    expect(userContent).not.toContain("Проблема:");
+    expect(JSON.parse(userContent)).toEqual({
+      description: VALID_INPUT.description,
+      location: null,
+      consequences: null,
+      desiredActions: null,
+    });
+  });
+
+  it("сохраняет свободный description внутри JSON и нормализует опциональные поля", async () => {
+    const mockFetch = createMockFetch(VALID_LLM_TEXT);
+    const description =
+      'Лифт не работает.\nМесто: "восьмой этаж".\nЖелаемые действия: это часть текста.';
+
+    await createGateway().generateRequest({
+      description,
+      location: "  подъезд  ",
+      consequences: "  Пользователю неудобно  ",
+      desiredActions: "  Проверить лифт  ",
+    });
+
+    const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+    const userContent = callBody.messages[1]?.content as string;
+
+    expect(JSON.parse(userContent)).toEqual({
+      description,
+      location: "подъезд",
+      consequences: "Пользователю неудобно",
+      desiredActions: "Проверить лифт",
+    });
+    expect(userContent).toBe(
+      JSON.stringify({
+        description,
+        location: "подъезд",
+        consequences: "Пользователю неудобно",
+        desiredActions: "Проверить лифт",
+      }),
+    );
   });
 
   it("использует переданную authScheme", async () => {
@@ -351,7 +404,12 @@ describe("OpenAiCompatibleGateway", () => {
     [
       "только с обязательным описанием",
       { description: "Не работает освещение" },
-      "Проблема: Не работает освещение",
+      {
+        description: "Не работает освещение",
+        location: null,
+        consequences: null,
+        desiredActions: null,
+      },
     ],
     [
       "с последствиями",
@@ -359,7 +417,12 @@ describe("OpenAiCompatibleGateway", () => {
         description: "Не работает освещение",
         consequences: "В вечернее время проход затруднён",
       },
-      "Проблема: Не работает освещение\n\nИзвестные последствия: В вечернее время проход затруднён",
+      {
+        description: "Не работает освещение",
+        location: null,
+        consequences: "В вечернее время проход затруднён",
+        desiredActions: null,
+      },
     ],
     [
       "с желаемыми действиями",
@@ -367,7 +430,12 @@ describe("OpenAiCompatibleGateway", () => {
         description: "Не работает освещение",
         desiredActions: "Проверить и восстановить освещение",
       },
-      "Проблема: Не работает освещение\n\nЖелаемые действия: Проверить и восстановить освещение",
+      {
+        description: "Не работает освещение",
+        location: null,
+        consequences: null,
+        desiredActions: "Проверить и восстановить освещение",
+      },
     ],
     [
       "с обоими дополнительными полями",
@@ -376,24 +444,30 @@ describe("OpenAiCompatibleGateway", () => {
         consequences: "В вечернее время проход затруднён",
         desiredActions: "Проверить и восстановить освещение",
       },
-      [
-        "Проблема: Не работает освещение",
-        "Известные последствия: В вечернее время проход затруднён",
-        "Желаемые действия: Проверить и восстановить освещение",
-      ].join("\n\n"),
+      {
+        description: "Не работает освещение",
+        location: null,
+        consequences: "В вечернее время проход затруднён",
+        desiredActions: "Проверить и восстановить освещение",
+      },
     ],
     [
       "с пустыми дополнительными полями",
       { description: "Не работает освещение", consequences: "   ", desiredActions: "" },
-      "Проблема: Не работает освещение",
+      {
+        description: "Не работает освещение",
+        location: null,
+        consequences: null,
+        desiredActions: null,
+      },
     ],
-  ] as const)("формирует сообщение %s без пустых разделов", async (_caseName, input, expectedMessage) => {
+  ] as const)("формирует JSON-сообщение %s с явными null", async (_caseName, input, expectedInput) => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
     await createGateway().generateRequest(input);
 
     const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
-    expect(callBody.messages[1]?.content).toBe(expectedMessage);
+    expect(callBody.messages[1]?.content).toBe(JSON.stringify(expectedInput));
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
@@ -435,7 +509,12 @@ describe("OpenAiCompatibleGateway", () => {
       expect(callBody).toEqual({
         model: "test-model",
         instructions: expect.stringContaining("Верни только один валидный JSON-объект"),
-        input: "Проблема: На лестничной площадке не горит свет",
+        input: JSON.stringify({
+          description: "На лестничной площадке не горит свет",
+          location: null,
+          consequences: null,
+          desiredActions: null,
+        }),
         temperature: 0.3,
         max_output_tokens: 1000,
         store: false,
@@ -449,6 +528,40 @@ describe("OpenAiCompatibleGateway", () => {
         },
       });
       expect(callBody.messages).toBeUndefined();
+    });
+
+    it("использует для обоих протоколов одинаковую JSON-сериализацию входных полей", async () => {
+      const mockFetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ choices: [{ message: { content: VALID_LLM_TEXT } }] }), {
+            status: 200,
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ output_text: VALID_LLM_TEXT }), { status: 200 }),
+        );
+      const input = {
+        description: "Не работает освещение",
+        location: "  общий коридор  ",
+        consequences: "  Вечером проход затруднён  ",
+        desiredActions: "  Проверить освещение  ",
+      };
+
+      await createGateway().generateRequest(input);
+      await createGateway(responsesConfig).generateRequest(input);
+
+      const chatBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+      const responsesBody = JSON.parse(mockFetch.mock.calls[1]?.[1]?.body as string);
+      const expectedInput = JSON.stringify({
+        description: input.description,
+        location: "общий коридор",
+        consequences: "Вечером проход затруднён",
+        desiredActions: "Проверить освещение",
+      });
+
+      expect(chatBody.messages[1]?.content).toBe(expectedInput);
+      expect(responsesBody.input).toBe(expectedInput);
     });
 
     it("обрабатывает стандартный вложенный Responses-ответ со status completed", async () => {
@@ -660,12 +773,12 @@ describe("OpenAiCompatibleGateway", () => {
 
       const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
       expect(callBody.input).toBe(
-        [
-          "Проблема: Не работает освещение",
-          "Место: Общий коридор",
-          "Известные последствия: В вечернее время проход затруднён",
-          "Желаемые действия: Проверить и восстановить освещение",
-        ].join("\n\n"),
+        JSON.stringify({
+          description: "Не работает освещение",
+          location: "Общий коридор",
+          consequences: "В вечернее время проход затруднён",
+          desiredActions: "Проверить и восстановить освещение",
+        }),
       );
     });
 

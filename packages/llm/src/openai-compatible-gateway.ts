@@ -157,23 +157,16 @@ function createRequestBody(
 }
 
 function createUserMessage(input: GenerateRequestInput): string {
-  const messageParts = [`Проблема: ${input.description}`];
+  const location = input.location?.trim();
   const consequences = input.consequences?.trim();
   const desiredActions = input.desiredActions?.trim();
 
-  if (input.location) {
-    messageParts.push(`Место: ${input.location}`);
-  }
-
-  if (consequences) {
-    messageParts.push(`Известные последствия: ${consequences}`);
-  }
-
-  if (desiredActions) {
-    messageParts.push(`Желаемые действия: ${desiredActions}`);
-  }
-
-  return messageParts.join("\n\n");
+  return JSON.stringify({
+    description: input.description,
+    location: location || null,
+    consequences: consequences || null,
+    desiredActions: desiredActions || null,
+  });
 }
 
 function extractResponsesText(responseBody: unknown): string {

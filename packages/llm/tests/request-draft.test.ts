@@ -109,7 +109,115 @@ describe("parseRequestDraft", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("старый диван");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Все строковые поля должны быть однострочными");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Учитывай известные последствия и желаемые действия только если они явно переданы пользователем",
+      "Последствия и действия учитывай только если пользователь передал их явно",
+    );
+  });
+
+  it("задаёт отдельную смысловую роль каждому полю generated-черновика", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("problem — только неисправность");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("impact — только явно переданные последствия");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("requests — желаемые действия");
+  });
+
+  it("описывает JSON-вход с четырьмя исходными полями", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Сообщение пользователя содержит один JSON-объект",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "description, location, consequences и desiredActions",
+    );
+  });
+
+  it("считает description свободным описанием, а не готовым problem", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "description — свободный пользовательский текст, а не готовое значение problem",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("содержимое description классифицируй по смыслу");
+  });
+
+  it("выводит пересекающееся последствие один раз в impact", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Сведения из consequences, повторённые в description, выведи один раз в impact и исключи из problem",
+    );
+  });
+
+  it("не считает наблюдаемую причину и связанное последствие дубликатами", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не считай наблюдаемую причину и связанное с ней последствие дубликатами",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "сохрани причину в problem, а последствие в impact",
+    );
+  });
+
+  it("назначает каждый смысловой факт только одному полю черновика", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Каждый смысловой факт помещай ровно в одно из полей problem, impact или requests",
+    );
+  });
+
+  it("не переносит практические последствия и неудобства в problem", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("impact — только явно переданные последствия");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не переноси их в problem");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Если одна фраза содержит неисправность и последствие, раздели её на непересекающиеся факты для problem и impact",
+    );
+  });
+
+  it("не повторяет факт из impact в problem", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "problem, impact и requests не дублируют смысл друг друга буквально или перефразированно",
+    );
+  });
+
+  it("требует проверить смысловое дублирование перед возвратом JSON", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Перед возвратом JSON проверь");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "problem, impact и requests не дублируют смысл друг друга",
+    );
+  });
+
+  it("оставляет желаемые действия только в requests", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Сведения из desiredActions, повторённые в description, выведи один раз в requests и исключи из problem и impact",
+    );
+  });
+
+  it("запрещает выводить неподтверждённые категории людей", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не выводи новые факты, состояния или категории людей из косвенных признаков",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не превращай факт о конкретном человеке в возрастную, медицинскую или социальную категорию",
+    );
+  });
+
+  it("сохраняет конкретные сведения о человеке, месте и обстоятельствах", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Сохраняй в impact конкретного человека или пользователя, отношение к нему, место, обстоятельства и названное затруднение",
+    );
+  });
+
+  it("не заменяет конкретного человека или пользователя группой людей", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не заменяй конкретного человека или самого пользователя группой людей и не меняй единственное число на множественное",
+    );
+  });
+
+  it("ставит сохранение конкретных фактов выше компактности", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Сохранение конкретных фактов важнее краткости");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не обобщай и не заменяй факты");
+  });
+
+  it("не меняет конкретные факты при нормализации эмоционального ввода", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Нормализуя эмоции, не меняй субъект, число людей, место или названное затруднение",
+    );
+  });
+
+  it("запрещает добавлять коммуникационные требования без явного основания", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Без явного основания не добавляй требования сообщить сроки, предоставить письменный ответ или отчитаться о работах",
     );
   });
 
