@@ -1,4 +1,9 @@
 .git
+.github
+.npmrc
+*.key
+*.log
+*.pem
 .pnpm-cache
 .pnpm-state
 .pnpm-store
