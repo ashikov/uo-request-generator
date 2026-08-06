@@ -184,6 +184,87 @@ reverse proxy, до публичного включения необходимо
 - `docs` — продуктовые правила, архитектура и ADR
 - `scripts` — проверки, общие для репозитория
 
+## Production deployment
+
+После merge в `main` независимые CI jobs `quality`, `test` и `build` проверяют
+один commit. Если все проверки успешны, workflow публикует образ
+`ghcr.io/ashikov/uo-request-generator` с полным commit SHA в качестве
+immutable-тега и передаёт следующей job digest, возвращённый той же сборкой.
+Deployment использует digest, а не плавающий тег, поэтому целевой образ нельзя
+незаметно заменить без изменения ссылки.
+
+Итоговый GHCR package должен быть публичным. Его одноразовый bootstrap
+выполняется вручную:
+
+1. Создайте GitHub Environment `production`, разрешите deployment только из
+   `main` и не включайте обязательный approval для штатного deployment.
+2. Добавьте четыре Environment secrets без публикации их значений:
+   - `PRODUCTION_SSH_HOST`
+   - `PRODUCTION_SSH_USER`
+   - `PRODUCTION_SSH_KEY`
+   - `PRODUCTION_SSH_KNOWN_HOSTS`
+3. Добавьте Environment variable с выключенным автоматическим deployment:
+
+   ```text
+   PRODUCTION_AUTO_DEPLOY_ENABLED=false
+   ```
+
+4. Выполните успешный push в `main`, чтобы workflow впервые опубликовал GHCR
+   image.
+5. В настройках созданного GHCR package вручную измените visibility на public.
+6. Проверьте возможность анонимно скачать ранее опубликованный image по digest.
+7. Убедитесь, что production runtime из #83, ограниченная server-side gateway,
+   healthcheck и smoke-check готовы.
+8. Включите автоматический deployment:
+
+   ```text
+   PRODUCTION_AUTO_DEPLOY_ENABLED=true
+   ```
+
+9. Убедитесь, что следующий успешный push в `main` автоматически разворачивает
+   опубликованный образ.
+
+`PRODUCTION_AUTO_DEPLOY_ENABLED` является Environment variable, а не secret.
+Workflow не меняет visibility package. Production host скачивает публичный
+образ анонимно и не хранит GitHub PAT только ради этого pull.
+
+При push image публикуется независимо от значения gate. Если переменная
+отсутствует или не равна `true`, deployment получает решение `disabled`, не
+готовит SSH material и успешно завершается с понятным summary. Ручной deploy и
+rollback для явно указанного digest этот gate не блокирует.
+
+После получения concurrency lock автоматический deployment с включённым gate
+сверяет commit workflow с текущим HEAD `main` через GitHub API. Устаревший
+workflow получает решение `superseded` и не подключается к production host.
+Ошибка API или некорректный SHA блокируют deployment.
+
+Все четыре транспортных значения считаются secrets. Ключи LLM и CAPTCHA, cookie
+secret и остальная конфигурация приложения остаются только на production host и
+не передаются в GitHub Actions.
+
+Обычный deployment не выполняет `git pull`, не собирает исходники на production
+host и не требует там рабочей копии репозитория или Node.js. Ограниченная
+server-side gateway принимает только действие `deploy` или `rollback` и digest
+образа. Она проверяет разрешённый image, обновляет Compose, выполняет healthcheck
+и HTTP smoke-check без LLM, а при ошибке запускает rollback. Workflow не
+дублирует эту серверную логику и завершает job с кодом gateway.
+
+Для повторного deployment или ручного rollback откройте workflow `CI`, запустите
+его вручную из `main`, выберите действие и укажите digest ранее опубликованного
+образа в формате `sha256:<64 lowercase hex>`. Ручной запуск не собирает и не
+публикует новый Docker-образ.
+
+Автоматический summary называет `${{ github.sha }}` исходным commit SHA. При
+ручном запуске то же значение обозначено только как workflow ref SHA и не
+считается commit выбранного образа. Источником истины для ручного действия
+остаётся digest. Summary также показывает решение, действие и итоговый exit
+status. Пока server-side протокол не возвращает отдельный стабильный
+машинно-читаемый статус rollback, workflow не определяет его по тексту stdout и
+сообщает только об успехе или ошибке gateway.
+
+Текущий production-сценарий использует один контейнер. Короткое окно
+недоступности во время его замены для MVP считается допустимым.
+
 ## Локальный запуск
 
 Основная команда локального запуска требует Docker:
