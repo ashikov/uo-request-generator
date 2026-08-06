@@ -1,16 +1,37 @@
 name: CI
+
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      action:
+        description: Действие server-side deployment gateway
+        required: true
+        type: choice
+        options:
+          - deploy
+          - rollback
+      image_digest:
+        description: >-
+          Digest ранее опубликованного образа (sha256:<64 lowercase hex>)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
 jobs:
   quality:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26
           cache: pnpm
@@ -18,11 +39,14 @@ jobs:
       - run: pnpm check:quality
 
   test:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26
           cache: pnpm
@@ -30,13 +54,244 @@ jobs:
       - run: pnpm test
 
   build:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+
+  publish-image:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [quality, test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_digest: ${{ steps.build-and-push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build-and-push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ghcr.io/ashikov/uo-request-generator:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - name: Verify published image digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Published image digest has an invalid format"
+            exit 1
+          fi
+
+  deploy-production:
+    if: >-
+      ${{
+        always()
+        && github.ref == 'refs/heads/main'
+        && (
+          (github.event_name == 'push' && needs.publish-image.result == 'success')
+          || github.event_name == 'workflow_dispatch'
+        )
+      }}
+    needs: [publish-image]
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Validate deployment request
+        id: validate-deployment-request
+        env:
+          REQUESTED_ACTION: >-
+            ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'deploy' }}
+          REQUESTED_DIGEST: >-
+            ${{ github.event_name == 'workflow_dispatch' && inputs.image_digest || needs.publish-image.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          if [[ "$REQUESTED_ACTION" != "deploy" && "$REQUESTED_ACTION" != "rollback" ]]; then
+            echo "::error::Unsupported deployment action"
+            exit 1
+          fi
+          if [[ ! "$REQUESTED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Image digest has an invalid format"
+            exit 1
+          fi
+          {
+            printf 'action=%s\n' "$REQUESTED_ACTION"
+            printf 'image_digest=%s\n' "$REQUESTED_DIGEST"
+          } >> "$GITHUB_OUTPUT"
+      - name: Decide whether to deploy
+        id: decide-deployment
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          AUTO_DEPLOY_ENABLED: ${{ vars.PRODUCTION_AUTO_DEPLOY_ENABLED }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          decision="error"
+          response_file=""
+          finish() {
+            printf 'decision=%s\n' "$decision" >> "$GITHUB_OUTPUT"
+            if [[ -n "$response_file" ]]; then
+              rm -f "$response_file"
+            fi
+          }
+          trap finish EXIT
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            decision="deploy"
+            exit 0
+          fi
+
+          if [[ "$AUTO_DEPLOY_ENABLED" != "true" ]]; then
+            decision="disabled"
+            exit 0
+          fi
+
+          if [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Workflow commit SHA has an invalid format"
+            exit 1
+          fi
+
+          response_file=$(mktemp)
+          if ! curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$response_file" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/branches/main"
+          then
+            echo "::error::Unable to verify the current main commit"
+            exit 1
+          fi
+
+          if ! main_sha=$(jq -er '.commit.sha | select(type == "string")' "$response_file"); then
+            echo "::error::GitHub API returned no unambiguous main commit SHA"
+            exit 1
+          fi
+          if [[ ! "$main_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::GitHub API returned an invalid main commit SHA"
+            exit 1
+          fi
+
+          if [[ "$main_sha" != "$WORKFLOW_SHA" ]]; then
+            decision="superseded"
+            exit 0
+          fi
+
+          decision="deploy"
+      - name: Prepare SSH material
+        if: ${{ steps.decide-deployment.outputs.decision == 'deploy' }}
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/production_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/production_known_hosts"
+          chmod 0600 "$HOME/.ssh/production_deploy_key"
+          chmod 0600 "$HOME/.ssh/production_known_hosts"
+      - name: Invoke deployment gateway
+        if: ${{ steps.decide-deployment.outputs.decision == 'deploy' }}
+        id: invoke-deployment-gateway
+        env:
+          DEPLOY_ACTION: ${{ steps.validate-deployment-request.outputs.action }}
+          IMAGE_DIGEST: ${{ steps.validate-deployment-request.outputs.image_digest }}
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+        run: |
+          set -uo pipefail
+          ssh \
+            -T \
+            -i "$HOME/.ssh/production_deploy_key" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/production_known_hosts" \
+            -o ConnectTimeout=10 \
+            "${SSH_USER}@${SSH_HOST}" \
+            "${DEPLOY_ACTION} ${IMAGE_DIGEST}"
+          exit_status=$?
+          printf 'exit_status=%s\n' "$exit_status" >> "$GITHUB_OUTPUT"
+          exit "$exit_status"
+      - name: Remove SSH material
+        if: ${{ always() && steps.decide-deployment.outputs.decision == 'deploy' }}
+        run: |
+          rm -f \
+            "$HOME/.ssh/production_deploy_key" \
+            "$HOME/.ssh/production_known_hosts"
+      - name: Write deployment summary
+        if: ${{ always() }}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          DEPLOY_ACTION: ${{ steps.validate-deployment-request.outputs.action }}
+          IMAGE_DIGEST: ${{ steps.validate-deployment-request.outputs.image_digest }}
+          DEPLOYMENT_DECISION: ${{ steps.decide-deployment.outputs.decision }}
+          EXIT_STATUS: ${{ steps.invoke-deployment-gateway.outputs.exit_status }}
+          DEPLOY_OUTCOME: ${{ steps.invoke-deployment-gateway.outcome }}
+        run: |
+          set -euo pipefail
+          action="${DEPLOY_ACTION:-validation failed}"
+          image_digest="${IMAGE_DIGEST:-validation failed}"
+          decision="${DEPLOYMENT_DECISION:-error}"
+          exit_status="${EXIT_STATUS:-not available}"
+          result="error"
+          ref_label="Source commit SHA"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            ref_label="Workflow ref SHA"
+          fi
+          if [[ "$decision" == "disabled" || "$decision" == "superseded" ]]; then
+            exit_status="not run"
+            result="$decision"
+          elif [[ "$decision" == "deploy" && "$DEPLOY_OUTCOME" == "success" ]]; then
+            result="success"
+          fi
+
+          {
+            echo "## Production deployment"
+            echo
+            printf -- "- %s: \`%s\`\n" "$ref_label" "$WORKFLOW_SHA"
+            printf -- "- Image digest: \`%s\`\n" "$image_digest"
+            printf -- "- Action: \`%s\`\n" "$action"
+            printf -- "- Decision: \`%s\`\n" "$decision"
+            printf -- "- Exit status: \`%s\`\n" "$exit_status"
+            printf -- "- Result: \`%s\`\n" "$result"
+          } >> "$GITHUB_STEP_SUMMARY"
