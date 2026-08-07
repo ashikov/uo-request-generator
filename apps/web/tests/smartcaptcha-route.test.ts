@@ -34,6 +34,9 @@ const generationSafeguardConfig = {
 } as const;
 
 const apps: ReturnType<typeof createApp>[] = [];
+const requestIdMatcher = expect.stringMatching(
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+);
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -334,7 +337,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
       ip: remoteAddress,
     });
     expect(gateway.generateRequest).toHaveBeenCalledOnce();
-    expect(gateway.generateRequest).toHaveBeenCalledWith(validInput);
+    expect(gateway.generateRequest).toHaveBeenCalledWith(validInput, requestIdMatcher);
     expect(gateway.generateRequest).not.toHaveBeenCalledWith(
       expect.objectContaining({ captchaToken }),
     );
@@ -456,7 +459,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(generatedRequest);
     expect(verifier.verify).not.toHaveBeenCalled();
-    expect(gateway.generateRequest).toHaveBeenCalledWith(validInput);
+    expect(gateway.generateRequest).toHaveBeenCalledWith(validInput, requestIdMatcher);
   });
 
   it("отклоняет слишком длинный токен до limiter и внешних вызовов", async () => {

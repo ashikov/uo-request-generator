@@ -24,6 +24,9 @@ const generationSafeguardConfig = {
   concurrencyLimit: 100,
 } as const;
 
+const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const requestIdMatcher = expect.stringMatching(requestIdPattern);
+
 const apps: ReturnType<typeof createApp>[] = [];
 
 afterEach(async () => {
@@ -52,9 +55,7 @@ function expectApiError(payload: unknown, expected: { code: ApiErrorCode; messag
       requestId: apiError.requestId,
     },
   });
-  expect(apiError.requestId).toMatch(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-  );
+  expect(apiError.requestId).toMatch(requestIdPattern);
 }
 
 async function injectGenerate(
@@ -100,7 +101,7 @@ describe("POST /api/generate", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(generatedRequest);
     expect(generateRequest).toHaveBeenCalledOnce();
-    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(generateRequest).toHaveBeenCalledWith(input, requestIdMatcher);
   });
 
   it("возвращает контролируемый HTTP 400 для multiple_issues", async () => {
@@ -133,7 +134,7 @@ describe("POST /api/generate", () => {
     const response = await injectGenerate(input, gateway);
 
     expect(generateRequest).toHaveBeenCalledOnce();
-    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(generateRequest).toHaveBeenCalledWith(input, requestIdMatcher);
     expect(response.statusCode).toBe(503);
     expectApiError(response.json(), {
       code: "generation_provider_unavailable",
@@ -193,7 +194,7 @@ describe("POST /api/generate", () => {
 
     const response = await injectGenerate(input, gateway);
 
-    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(generateRequest).toHaveBeenCalledWith(input, requestIdMatcher);
     expect(response.statusCode).toBe(503);
   });
 
@@ -217,7 +218,7 @@ describe("POST /api/generate", () => {
 
     const response = await injectGenerate(input, gateway);
 
-    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(generateRequest).toHaveBeenCalledWith(input, requestIdMatcher);
     expect(response.statusCode).toBe(503);
   });
 
