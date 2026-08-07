@@ -187,11 +187,15 @@ reverse proxy, до публичного включения необходимо
 
 ## Production deployment
 
+Production Compose, первичная установка, диагностика и ручной rollback описаны
+в едином [production runtime runbook](docs/PRODUCTION_RUNTIME.md).
+
 После merge в `main` независимые CI jobs `quality`, `test` и `build` проверяют
 один commit. Если все проверки успешны, workflow публикует образ
-`ghcr.io/ashikov/uo-request-generator` с полным commit SHA в качестве
-immutable-тега и передаёт следующей job digest, возвращённый той же сборкой.
-Deployment использует digest, а не плавающий тег, поэтому целевой образ нельзя
+`ghcr.io/ashikov/uo-request-generator` с полным commit SHA в качестве tag по
+соглашению проекта и передаёт следующей job digest, возвращённый той же сборкой.
+Registry tag технически можно перепривязать. Deployment использует
+content-addressed digest как источник истины, поэтому целевой образ нельзя
 незаметно заменить без изменения ссылки.
 
 Итоговый GHCR package должен быть публичным. Его одноразовый bootstrap
@@ -214,7 +218,7 @@ Deployment использует digest, а не плавающий тег, по�
    image.
 5. В настройках созданного GHCR package вручную измените visibility на public.
 6. Проверьте возможность анонимно скачать ранее опубликованный image по digest.
-7. Убедитесь, что production runtime из #83, ограниченная server-side gateway,
+7. Убедитесь, что production runtime, ограниченная server-side gateway,
    healthcheck и smoke-check готовы.
 8. Включите автоматический deployment:
 
@@ -384,6 +388,7 @@ docker compose logs --tail=100 web
 - `pnpm build` — собрать production-версию
 - `pnpm start` — запустить собранное приложение
 - `pnpm smoke:llm` — вручную проверить все fixtures реальными LLM-запросами
+- `make test-production-runtime` — проверить production Compose в Docker
 - `pnpm lint` — проверить код с Biome
 - `pnpm lint:md` — проверить Markdown и окончания файлов
 - `pnpm format` — отформатировать поддерживаемые файлы
@@ -399,5 +404,6 @@ docker compose logs --tail=100 web
 - [Продуктовые принципы](docs/PROJECT_PRINCIPLES.md)
 - [Краткий PRD](docs/PRD.md)
 - [Архитектура](docs/ARCHITECTURE.md)
+- [Production runtime](docs/PRODUCTION_RUNTIME.md)
 - [Правила составления заявок](docs/REQUEST_RULES.md)
 - [Архитектурные решения](docs/adr/README.md)
