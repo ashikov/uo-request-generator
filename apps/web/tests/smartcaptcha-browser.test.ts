@@ -9,6 +9,7 @@ import {
 type CaptchaRenderOptions = {
   sitekey: string;
   invisible: boolean;
+  hideShield: boolean;
   callback: (token: string) => void;
 };
 
@@ -123,11 +124,13 @@ describe("browser SmartCaptcha controller", () => {
       expect.objectContaining({
         sitekey: "test-public-client-key",
         invisible: true,
+        hideShield: true,
         callback: expect.any(Function),
       }),
     );
     expect(Object.keys(api.render.mock.calls[0]?.[1] ?? {}).sort()).toEqual([
       "callback",
+      "hideShield",
       "invisible",
       "sitekey",
     ]);
@@ -334,6 +337,21 @@ describe("browser SmartCaptcha controller", () => {
 });
 
 describe("browser SmartCaptcha initialization", () => {
+  it("возвращает публичную конфигурацию", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+    );
+    const initializer = createSmartCaptchaInitializer();
+
+    await expect(initializer.getPublicConfig()).resolves.toEqual({
+      required: true,
+      clientKey: "test-public-client-key",
+    });
+  });
+
   it("изолирует retry от запоздалого callback первой загрузки", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
