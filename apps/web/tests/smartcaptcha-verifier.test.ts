@@ -51,10 +51,28 @@ describe("SmartCaptchaVerifier", () => {
     );
   });
 
-  it("классифицирует status=failed без ветвления по message", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ status: "failed", message: "arbitrary provider text" }));
+  it("принимает успешный ответ с дополнительными полями провайдера", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        status: "ok",
+        host: "service.example.test",
+        ip: "192.0.2.10",
+        message: "",
+      }),
+    );
+    const verifier = new SmartCaptchaVerifier({ serverKey, fetch: fetchMock });
+
+    await expect(verifier.verify({ token, ip })).resolves.toEqual({ status: "verified" });
+  });
+
+  it("классифицирует status=failed с дополнительным полем без ветвления по message", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        status: "failed",
+        message: "arbitrary provider text",
+        providerField: "unused",
+      }),
+    );
     const verifier = new SmartCaptchaVerifier({ serverKey, fetch: fetchMock });
 
     await expect(verifier.verify({ token, ip })).resolves.toEqual({ status: "failed" });
@@ -130,10 +148,17 @@ describe("SmartCaptchaVerifier", () => {
 
   it.each([
     ["некорректного JSON", new Response("{", { status: 200 })],
-    ["неожиданного статуса", jsonResponse({ status: "unknown", host: "service.example.test" })],
-    ["отсутствующего status", jsonResponse({ host: "service.example.test" })],
-    ["отсутствующего host при ok", jsonResponse({ status: "ok" })],
-    ["пустого host при ok", jsonResponse({ status: "ok", host: "" })],
+    [
+      "неожиданного статуса",
+      jsonResponse({ status: "unknown", message: "", host: "service.example.test" }),
+    ],
+    ["отсутствующего status", jsonResponse({ message: "", host: "service.example.test" })],
+    ["отсутствующего host при ok", jsonResponse({ status: "ok", message: "" })],
+    ["пустого host при ok", jsonResponse({ status: "ok", message: "", host: "" })],
+    [
+      "некорректных типов обязательных полей",
+      jsonResponse({ status: "ok", message: 1, host: true }),
+    ],
   ])("возвращает unavailable для %s", async (_caseName, response) => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response);
     const verifier = new SmartCaptchaVerifier({ serverKey, fetch: fetchMock });
