@@ -8,6 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skippedDirectories = new Set([
   ".git",
   ".playwright-mcp",
+  ".pi-subagents",
   "coverage",
   "dist",
   "node_modules",
@@ -37,6 +38,7 @@ const textFileNames = new Set([
   ".dockerignore",
   ".editorconfig",
   ".env.example",
+  ".env.production.example",
   ".gitignore",
   ".nvmrc",
   "Dockerfile",

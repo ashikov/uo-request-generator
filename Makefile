@@ -1,4 +1,5 @@
-.PHONY: dev compose build start smoke-llm lint lint-md format format-check typecheck test check
+.PHONY: dev compose build start smoke-llm test-production-runtime
+.PHONY: lint lint-md format format-check typecheck test check
 
 dev:
 	pnpm dev
@@ -14,6 +15,9 @@ start:
 
 smoke-llm:
 	pnpm smoke:llm
+
+test-production-runtime:
+	./scripts/test-production-runtime.sh
 
 lint:
 	pnpm lint

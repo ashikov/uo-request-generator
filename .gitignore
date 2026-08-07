@@ -4,9 +4,11 @@ coverage/
 test-results/
 playwright-report/
 .playwright-mcp/
+.pi-subagents/
 *.tsbuildinfo
 .env*
 !.env.example
+!.env.production.example
 .pnpm-store/
 .pnpm-cache/
 .pnpm-state/
