@@ -1,5 +1,7 @@
 .git
 .github
+.pi-subagents
+.playwright-mcp
 .npmrc
 *.key
 *.log
