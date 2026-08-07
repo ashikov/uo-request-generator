@@ -325,6 +325,35 @@ API не сохраняет и не логирует пользовательс�
 ответ модели или технические подробности. Неизвестная ошибка возвращается как
 `internal_error` без внутренних деталей.
 
+## Структурированное логирование
+
+Приложение логирует только технические события генерации и не сохраняет
+пользовательский текст, ответ LLM, промпт, API-ключи и токены. Каждое событие —
+одна JSON-строка в stdout, файлы логов внутри контейнера не создаются.
+
+Каждый запрос `POST /api/generate` получает уникальный `requestId` на границе
+маршрута. Значение передаётся через прикладной сценарий в `LlmGateway`
+(`generateRequest(input, requestId)`) и возвращается клиенту в безопасном
+заголовке `x-request-id`. Глобального изменяемого состояния нет: идентификатор
+создаётся и используется локально в рамках одного запроса.
+
+Для каждого запроса пишется `generation_started` и ровно одно итоговое событие
+с тем же `requestId`:
+
+- `generation_succeeded` — status `generated`, httpStatus 200
+- `generation_rejected` — status `validation_error`, `multiple_issues`,
+  `rate_limited`, `captcha_failed`, `captcha_unavailable`,
+  `generation_unavailable`
+- `generation_failed` — status `provider_unavailable`, `timeout`,
+  `network_error`, `invalid_response`, `internal_error`
+
+Поля события: `event`, `requestId`, `timestamp`, а для итоговых также `status`,
+`durationMs` и `httpStatus`. Классификация ошибок провайдера выполняется в
+пакете `llm`: `GenerationTimeoutError`, `GenerationNetworkError` и
+`GenerationInvalidResponseError` наследуют
+`GenerationProviderUnavailableError` и позволяют маршруту различать причины
+без раскрытия технических деталей пользователю.
+
 ## Завершение процесса
 
 Первый `SIGINT` или `SIGTERM` запускает `app.close()`. Все последующие вызовы
