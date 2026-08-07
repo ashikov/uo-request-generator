@@ -355,8 +355,25 @@ pnpm smoke:llm
 
 ## Логи
 
-Приложение пишет технические события в stdout и stderr контейнера и не создаёт
-файлы логов внутри контейнера.
+Приложение пишет структурированные технические события в stdout контейнера
+по одной JSON-строке на событие и не создаёт файлы логов внутри контейнера.
+
+Каждый запрос к `POST /api/generate` получает уникальный `requestId`. Приложение
+возвращает его клиенту в HTTP-заголовке `x-request-id` и использует во всех
+событиях этого запроса. Для каждого запроса пишется событие
+`generation_started` и ровно одно итоговое событие:
+
+- `generation_succeeded` — заявка сформирована (HTTP 200)
+- `generation_rejected` — запрос отклонён: `validation_error`,
+  `multiple_issues`, `rate_limited`, `captcha_failed`, `captcha_unavailable`,
+  `generation_unavailable`
+- `generation_failed` — генерация не удалась: `provider_unavailable`, `timeout`,
+  `network_error`, `invalid_response`, `internal_error`
+
+Все события содержат поля `event`, `requestId` и `timestamp`, а итоговые — также
+`status`, `durationMs` и `httpStatus`. События не содержат пользовательский
+ввод, готовый текст заявки, промпт, ответ провайдера, API-ключи, токены CAPTCHA
+и полный набор заголовков.
 
 Поставляемая конфигурация Docker Compose ограничивает хранение стандартных
 лог-файлов встроенной ротацией Docker: драйвер `json-file` хранит один текущий

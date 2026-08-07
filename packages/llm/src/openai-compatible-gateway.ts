@@ -4,7 +4,12 @@ import type {
   LlmGateway,
 } from "@uo-request-generator/core";
 import { z } from "zod";
-import { GenerationProviderUnavailableError } from "./disabled-llm-gateway.js";
+import {
+  GenerationInvalidResponseError,
+  GenerationNetworkError,
+  GenerationProviderUnavailableError,
+  GenerationTimeoutError,
+} from "./generation-error.js";
 import {
   formatRequestDraft,
   parseRequestDraft,
@@ -173,11 +178,11 @@ function extractResponsesText(responseBody: unknown): string {
   const responseResult = openAiResponsesResponseSchema.safeParse(responseBody);
 
   if (!responseResult.success) {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   if (responseResult.data.status !== undefined && responseResult.data.status !== "completed") {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   const aggregatedText = responseResult.data.output_text;
@@ -187,7 +192,7 @@ function extractResponsesText(responseBody: unknown): string {
   }
 
   if (responseResult.data.status === undefined && responseResult.data.output !== undefined) {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   const textParts: string[] = [];
@@ -196,7 +201,7 @@ function extractResponsesText(responseBody: unknown): string {
     const outputItemResult = openAiResponsesOutputItemSchema.safeParse(outputItem);
 
     if (!outputItemResult.success) {
-      throw new GenerationProviderUnavailableError();
+      throw new GenerationInvalidResponseError();
     }
 
     if (outputItemResult.data.type !== "message") {
@@ -206,14 +211,14 @@ function extractResponsesText(responseBody: unknown): string {
     const messageResult = openAiResponsesMessageSchema.safeParse(outputItem);
 
     if (!messageResult.success) {
-      throw new GenerationProviderUnavailableError();
+      throw new GenerationInvalidResponseError();
     }
 
     for (const contentItem of messageResult.data.content) {
       const contentItemResult = openAiResponsesContentItemSchema.safeParse(contentItem);
 
       if (!contentItemResult.success) {
-        throw new GenerationProviderUnavailableError();
+        throw new GenerationInvalidResponseError();
       }
 
       if (contentItemResult.data.type !== "output_text") {
@@ -223,7 +228,7 @@ function extractResponsesText(responseBody: unknown): string {
       const outputTextResult = openAiResponsesOutputTextSchema.safeParse(contentItem);
 
       if (!outputTextResult.success) {
-        throw new GenerationProviderUnavailableError();
+        throw new GenerationInvalidResponseError();
       }
 
       textParts.push(outputTextResult.data.text);
@@ -241,13 +246,13 @@ function extractResponseText(apiProtocol: LlmApiProtocol, responseBody: unknown)
   const apiResult = openAiChatCompletionResponseSchema.safeParse(responseBody);
 
   if (!apiResult.success) {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   const firstChoice = apiResult.data.choices[0];
 
   if (firstChoice === undefined) {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   return firstChoice.message.content;
@@ -278,7 +283,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     this.maxOutputTokens = config.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
   }
 
-  async generateRequest(input: GenerateRequestInput): Promise<GenerateRequestOutcome> {
+  async generateRequest(
+    input: GenerateRequestInput,
+    _requestId?: string,
+  ): Promise<GenerateRequestOutcome> {
     const userMessage = createUserMessage(input);
 
     const requestBody = createRequestBody(
@@ -304,9 +312,9 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new GenerationProviderUnavailableError();
+        throw new GenerationTimeoutError();
       }
-      throw new GenerationProviderUnavailableError();
+      throw new GenerationNetworkError();
     }
 
     if (!response.ok) {
@@ -318,13 +326,13 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     try {
       data = await response.json();
     } catch {
-      throw new GenerationProviderUnavailableError();
+      throw new GenerationInvalidResponseError();
     }
 
     const content = extractResponseText(this.apiProtocol, data);
 
     if (!content || content.trim().length === 0) {
-      throw new Error("LLM API вернул пустой ответ");
+      throw new GenerationInvalidResponseError();
     }
 
     const draft = parseRequestDraft(content);

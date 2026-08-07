@@ -1,0 +1,408 @@
+import type { LlmGateway } from "@uo-request-generator/core";
+import {
+  GenerationInvalidResponseError,
+  GenerationNetworkError,
+  GenerationProviderUnavailableError,
+  GenerationTimeoutError,
+} from "@uo-request-generator/llm";
+import type { FastifyInstance } from "fastify";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createApp } from "../src/app";
+import type { GenerationLogEvent } from "../src/generation-log";
+import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config";
+import type { GenerationSafeguardOptions } from "../src/generation-safeguard";
+
+const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const isoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+const generationRateLimitConfig = {
+  ipRequestLimit: 100,
+  ipWindowMs: 60_000,
+  clientDailyLimit: 100,
+  cookieSecret: "test-cookie-signing-secret-32-characters",
+  trustedProxies: [],
+  stateCapacity: 1_000,
+} as const;
+
+const generationSafeguardConfig = {
+  enabled: true,
+  dailyLimit: 100,
+  concurrencyLimit: 100,
+} as const;
+
+const generatedRequest = {
+  title: "Не работает освещение",
+  body: "На лестничной площадке не горит свет.\nПрошу: проверить и восстановить освещение.",
+  warnings: [],
+};
+const generatedOutcome = { status: "generated" as const, result: generatedRequest };
+
+const apps: ReturnType<typeof createApp>[] = [];
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await Promise.all(apps.splice(0).map((app) => app.close()));
+});
+
+type TerminalEventShape = {
+  event: "generation_succeeded" | "generation_rejected" | "generation_failed";
+  status: string;
+  httpStatus: number;
+};
+
+function expectEventPair(
+  events: GenerationLogEvent[],
+  requestId: string,
+  terminal: TerminalEventShape,
+): void {
+  const requestEvents = events.filter((event) => event.requestId === requestId);
+
+  expect(requestEvents).toHaveLength(2);
+  expect(requestEvents[0]).toEqual({
+    event: "generation_started",
+    requestId,
+    timestamp: expect.stringMatching(isoTimestampPattern),
+  });
+  expect(requestEvents[1]).toEqual({
+    ...terminal,
+    requestId,
+    timestamp: expect.stringMatching(isoTimestampPattern),
+    durationMs: expect.any(Number),
+  });
+}
+
+function createCapturingApp(
+  options: {
+    llmGateway?: LlmGateway;
+    generationRateLimitConfig?: GenerationRateLimitConfig;
+    smartCaptchaConfig?:
+      | { mode: "disabled" }
+      | { mode: "required"; clientKey: string; serverKey: string };
+    smartCaptchaVerifier?: {
+      verify: () => Promise<{ status: "verified" | "failed" | "unavailable" }>;
+    };
+    generationSafeguardConfig?: GenerationSafeguardOptions;
+  } = {},
+): { app: FastifyInstance; events: GenerationLogEvent[] } {
+  const events: GenerationLogEvent[] = [];
+  const app = createApp({
+    llmGateway: options.llmGateway ?? {
+      generateRequest: vi.fn().mockResolvedValue(generatedOutcome),
+    },
+    generationRateLimitConfig: options.generationRateLimitConfig ?? generationRateLimitConfig,
+    generationSafeguardConfig: options.generationSafeguardConfig ?? generationSafeguardConfig,
+    smartCaptchaConfig: options.smartCaptchaConfig ?? { mode: "disabled" },
+    ...(options.smartCaptchaVerifier === undefined
+      ? {}
+      : { smartCaptchaVerifier: options.smartCaptchaVerifier }),
+    writeGenerationEvent: (event) => {
+      events.push(event);
+    },
+  });
+  apps.push(app);
+  return { app, events };
+}
+
+async function injectGenerate(
+  app: FastifyInstance,
+  payload: Record<string, unknown>,
+): Promise<ReturnType<FastifyInstance["inject"]>> {
+  return await app.inject({
+    method: "POST",
+    url: "/api/generate",
+    headers: { "content-type": "application/json" },
+    payload,
+  });
+}
+
+function requestIdFromResponse(response: { headers: Record<string, unknown> }): string {
+  const requestId = response.headers["x-request-id"];
+  if (typeof requestId !== "string") {
+    throw new Error("Expected an x-request-id response header");
+  }
+  return requestId;
+}
+
+const validInput = { description: "На лестничной площадке не горит свет" };
+
+describe("структурированные события POST /api/generate", () => {
+  it("пишет начальное и итоговое событие с общим requestId при успехе", async () => {
+    const { app, events } = createCapturingApp();
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(generatedRequest);
+    const requestId = requestIdFromResponse(response);
+    expect(requestId).toMatch(requestIdPattern);
+    expectEventPair(events, requestId, {
+      event: "generation_succeeded",
+      status: "generated",
+      httpStatus: 200,
+    });
+  });
+
+  it("передаёт requestId в LlmGateway и возвращает его в заголовке", async () => {
+    const generateRequest = vi
+      .fn<LlmGateway["generateRequest"]>()
+      .mockResolvedValue(generatedOutcome);
+    const { app, events } = createCapturingApp({ llmGateway: { generateRequest } });
+
+    const response = await injectGenerate(app, validInput);
+
+    const requestId = requestIdFromResponse(response);
+    expect(generateRequest).toHaveBeenCalledWith(validInput, requestId);
+    expectEventPair(events, requestId, {
+      event: "generation_succeeded",
+      status: "generated",
+      httpStatus: 200,
+    });
+  });
+
+  it("пишет generation_rejected/validation_error для невалидного ввода", async () => {
+    const { app, events } = createCapturingApp();
+
+    const response = await injectGenerate(app, { description: "Коротко" });
+
+    expect(response.statusCode).toBe(400);
+    const requestId = requestIdFromResponse(response);
+    expectEventPair(events, requestId, {
+      event: "generation_rejected",
+      status: "validation_error",
+      httpStatus: 400,
+    });
+  });
+
+  it("пишет generation_rejected/validation_error для некорректного JSON", async () => {
+    const { app, events } = createCapturingApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/generate",
+      headers: { "content-type": "application/json" },
+      payload: '{"description":',
+    });
+
+    expect(response.statusCode).toBe(400);
+    const requestId = requestIdFromResponse(response);
+    expect(requestId).toMatch(requestIdPattern);
+    expectEventPair(events, requestId, {
+      event: "generation_rejected",
+      status: "validation_error",
+      httpStatus: 400,
+    });
+  });
+
+  it("пишет generation_rejected/rate_limited при превышении лимита", async () => {
+    const { app, events } = createCapturingApp({
+      generationRateLimitConfig: { ...generationRateLimitConfig, ipRequestLimit: 1 },
+    });
+
+    expect((await injectGenerate(app, validInput)).statusCode).toBe(200);
+    const rejectedResponse = await injectGenerate(app, validInput);
+
+    expect(rejectedResponse.statusCode).toBe(429);
+    const requestId = requestIdFromResponse(rejectedResponse);
+    expectEventPair(events, requestId, {
+      event: "generation_rejected",
+      status: "rate_limited",
+      httpStatus: 429,
+    });
+  });
+
+  it("пишет generation_rejected/multiple_issues", async () => {
+    const { app, events } = createCapturingApp({
+      llmGateway: { generateRequest: vi.fn().mockResolvedValue({ status: "multiple_issues" }) },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(400);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_rejected",
+      status: "multiple_issues",
+      httpStatus: 400,
+    });
+  });
+
+  it("пишет generation_rejected/captcha_failed без токена", async () => {
+    const { app, events } = createCapturingApp({
+      smartCaptchaConfig: {
+        mode: "required",
+        clientKey: "test-public-client-key",
+        serverKey: "test-private-server-key",
+      },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(400);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_rejected",
+      status: "captcha_failed",
+      httpStatus: 400,
+    });
+  });
+
+  it("пишет generation_rejected/captcha_unavailable при недоступной проверке", async () => {
+    const { app, events } = createCapturingApp({
+      smartCaptchaConfig: {
+        mode: "required",
+        clientKey: "test-public-client-key",
+        serverKey: "test-private-server-key",
+      },
+      smartCaptchaVerifier: {
+        verify: async () => ({ status: "unavailable" as const }),
+      },
+    });
+
+    const response = await injectGenerate(app, {
+      ...validInput,
+      captchaToken: "test-one-time-captcha-token",
+    });
+
+    expect(response.statusCode).toBe(503);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_rejected",
+      status: "captcha_unavailable",
+      httpStatus: 503,
+    });
+  });
+
+  it("пишет generation_rejected/generation_unavailable при недоступной генерации", async () => {
+    const { app, events } = createCapturingApp({
+      generationSafeguardConfig: { enabled: false, dailyLimit: 100, concurrencyLimit: 100 },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_rejected",
+      status: "generation_unavailable",
+      httpStatus: 503,
+    });
+  });
+
+  it("пишет generation_failed/provider_unavailable при недоступном провайдере", async () => {
+    const { app, events } = createCapturingApp({
+      llmGateway: {
+        generateRequest: vi.fn().mockRejectedValue(new GenerationProviderUnavailableError()),
+      },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_failed",
+      status: "provider_unavailable",
+      httpStatus: 503,
+    });
+  });
+
+  it("пишет generation_failed/timeout при таймауте провайдера", async () => {
+    const { app, events } = createCapturingApp({
+      llmGateway: { generateRequest: vi.fn().mockRejectedValue(new GenerationTimeoutError()) },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_failed",
+      status: "timeout",
+      httpStatus: 503,
+    });
+  });
+
+  it("пишет generation_failed/network_error при сетевой ошибке", async () => {
+    const { app, events } = createCapturingApp({
+      llmGateway: { generateRequest: vi.fn().mockRejectedValue(new GenerationNetworkError()) },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_failed",
+      status: "network_error",
+      httpStatus: 503,
+    });
+  });
+
+  it("пишет generation_failed/invalid_response при некорректном ответе провайдера", async () => {
+    const { app, events } = createCapturingApp({
+      llmGateway: {
+        generateRequest: vi.fn().mockRejectedValue(new GenerationInvalidResponseError()),
+      },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_failed",
+      status: "invalid_response",
+      httpStatus: 503,
+    });
+  });
+
+  it("пишет generation_failed/internal_error при неизвестной ошибке", async () => {
+    const { app, events } = createCapturingApp({
+      llmGateway: { generateRequest: vi.fn().mockRejectedValue(new Error("unexpected failure")) },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(500);
+    expectEventPair(events, requestIdFromResponse(response), {
+      event: "generation_failed",
+      status: "internal_error",
+      httpStatus: 500,
+    });
+  });
+
+  it("не включает пользовательский ввод, токены и ключи в события", async () => {
+    const privateDescription = "На площадке пахнет, личная деталь 8472";
+    const captchaToken = "test-one-time-captcha-token-8391";
+    const serverKey = "test-private-server-key-3957";
+    const { app, events } = createCapturingApp({
+      smartCaptchaConfig: {
+        mode: "required",
+        clientKey: "test-public-client-key",
+        serverKey,
+      },
+      smartCaptchaVerifier: {
+        verify: async () => ({ status: "verified" as const }),
+      },
+    });
+
+    const response = await injectGenerate(app, {
+      description: privateDescription,
+      captchaToken,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const serializedEvents = events.map((event) => JSON.stringify(event)).join("\n");
+    expect(serializedEvents).not.toContain(privateDescription);
+    expect(serializedEvents).not.toContain(captchaToken);
+    expect(serializedEvents).not.toContain(serverKey);
+  });
+
+  it("не раскрывает технические детали неизвестной ошибки в событиях", async () => {
+    const privateInput = "На площадке пахнет, личная деталь 8472";
+    const gatewayErrorMessage = "Unexpected gateway failure 9135";
+    const { app, events } = createCapturingApp({
+      llmGateway: {
+        generateRequest: vi.fn().mockRejectedValue(new Error(gatewayErrorMessage)),
+      },
+    });
+
+    const response = await injectGenerate(app, { description: privateInput });
+
+    expect(response.statusCode).toBe(500);
+    const serializedEvents = events.map((event) => JSON.stringify(event)).join("\n");
+    expect(serializedEvents).not.toContain(privateInput);
+    expect(serializedEvents).not.toContain(gatewayErrorMessage);
+  });
+});

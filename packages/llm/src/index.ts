@@ -1,7 +1,10 @@
+export { DisabledLlmGateway } from "./disabled-llm-gateway.js";
 export {
-  DisabledLlmGateway,
+  GenerationInvalidResponseError,
+  GenerationNetworkError,
   GenerationProviderUnavailableError,
-} from "./disabled-llm-gateway.js";
+  GenerationTimeoutError,
+} from "./generation-error.js";
 export {
   LLM_API_PROTOCOLS,
   OpenAiCompatibleGateway,

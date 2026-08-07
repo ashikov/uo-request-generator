@@ -10,5 +10,5 @@ export type GenerateRequestOutcome =
     };
 
 export interface LlmGateway {
-  generateRequest(input: GenerateRequestInput): Promise<GenerateRequestOutcome>;
+  generateRequest(input: GenerateRequestInput, requestId?: string): Promise<GenerateRequestOutcome>;
 }
