@@ -5,19 +5,15 @@ const DEFAULT_TIMEOUT_MS = 3_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 4_096;
 
 const smartCaptchaProviderResponseSchema = z.discriminatedUnion("status", [
-  z
-    .object({
-      status: z.literal("ok"),
-      message: z.string(),
-      host: z.string().trim().min(1),
-    })
-    .strict(),
-  z
-    .object({
-      status: z.literal("failed"),
-      message: z.string(),
-    })
-    .strict(),
+  z.object({
+    status: z.literal("ok"),
+    message: z.string(),
+    host: z.string().trim().min(1),
+  }),
+  z.object({
+    status: z.literal("failed"),
+    message: z.string(),
+  }),
 ]);
 
 export type SmartCaptchaVerificationResult =
