@@ -5,29 +5,43 @@ const SMARTCAPTCHA_ATTEMPT_TIMEOUT_MS = 120_000;
 const unavailableError = new Error("SmartCaptcha unavailable");
 let smartCaptchaScriptSequence = 0;
 
-export async function createSmartCaptchaController() {
-  const config = await loadPublicConfig();
-  if (config === undefined) {
-    return { status: "unavailable" };
-  }
-
-  if (!config.required) {
-    return { status: "disabled" };
-  }
-
-  try {
-    const smartCaptcha = await loadSmartCaptchaScript();
-    return createReadyController(smartCaptcha, config.clientKey);
-  } catch {
-    return { status: "unavailable" };
-  }
+export function createSmartCaptchaController() {
+  return createSmartCaptchaInitializer().getController();
 }
 
 export function createSmartCaptchaInitializer() {
+  let cachedConfig;
+  let inFlightConfig;
   let cachedController;
   let inFlightInitialization;
 
+  function getPublicConfig() {
+    if (cachedConfig !== undefined) {
+      return Promise.resolve(cachedConfig);
+    }
+
+    if (inFlightConfig !== undefined) {
+      return inFlightConfig;
+    }
+
+    const configuration = loadPublicConfig()
+      .then((config) => {
+        if (config !== undefined) {
+          cachedConfig = config;
+        }
+        return config;
+      })
+      .finally(() => {
+        if (inFlightConfig === configuration) {
+          inFlightConfig = undefined;
+        }
+      });
+    inFlightConfig = configuration;
+    return configuration;
+  }
+
   return {
+    getPublicConfig,
     getController() {
       if (cachedController !== undefined) {
         return Promise.resolve(cachedController);
@@ -37,7 +51,23 @@ export function createSmartCaptchaInitializer() {
         return inFlightInitialization;
       }
 
-      const initialization = createSmartCaptchaController()
+      const initialization = getPublicConfig()
+        .then(async (config) => {
+          if (config === undefined) {
+            return { status: "unavailable" };
+          }
+
+          if (!config.required) {
+            return { status: "disabled" };
+          }
+
+          try {
+            const smartCaptcha = await loadSmartCaptchaScript();
+            return createReadyController(smartCaptcha, config.clientKey);
+          } catch {
+            return { status: "unavailable" };
+          }
+        })
         .then((controller) => {
           if (controller.status !== "unavailable") {
             cachedController = controller;
@@ -162,6 +192,7 @@ function createReadyController(smartCaptcha, clientKey) {
   const widgetId = smartCaptcha.render(container, {
     sitekey: clientKey,
     invisible: true,
+    hideShield: true,
     callback(token) {
       const normalizedToken = typeof token === "string" ? token.trim() : "";
       if (normalizedToken === "") {

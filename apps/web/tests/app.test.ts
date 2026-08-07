@@ -10,6 +10,7 @@ const initialDesiredActions = "Проверить и восстановить о
 type CaptchaRenderOptions = {
   sitekey: string;
   invisible: boolean;
+  hideShield: boolean;
   callback: (token: string) => void;
 };
 
@@ -51,6 +52,7 @@ async function initializeApp(
   captchaOptions: {
     config?: unknown;
     api?: ReturnType<typeof createCaptchaApi>;
+    fetch?: typeof fetch;
     initialize?: boolean;
   } = {},
 ): Promise<void> {
@@ -79,6 +81,10 @@ async function initializeApp(
         aria-describedby="desired-actions-hint desired-actions-count"
       >${desiredActionsValue}</textarea>
       <div id="captcha-container"></div>
+      <p id="captcha-notice" hidden>
+        Этот сайт защищён Yandex SmartCaptcha.
+        <a href="https://yandex.ru/legal/smartcaptcha_notice/ru/">Уведомление об условиях обработки данных сервисом</a>
+      </p>
       <button id="submit-button" type="submit">Составить заявку</button>
     </form>
     <div id="error-area" hidden tabindex="-1"></div>
@@ -99,10 +105,11 @@ async function initializeApp(
   }
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(captchaOptions.config ?? { required: false }),
-    }),
+    captchaOptions.fetch ??
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(captchaOptions.config ?? { required: false }),
+      }),
   );
 
   const appModule = await import("../public/app.js");
@@ -133,6 +140,10 @@ function getErrorArea(): HTMLElement {
 
 function getSubmitButton(): HTMLButtonElement {
   return document.getElementById("submit-button") as HTMLButtonElement;
+}
+
+function getCaptchaNotice(): HTMLElement {
+  return document.getElementById("captcha-notice") as HTMLElement;
 }
 
 function getForm(): HTMLFormElement {
@@ -202,6 +213,45 @@ async function expectError(message: string): Promise<void> {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+describe("уведомление SmartCaptcha", () => {
+  it("показывает уведомление только при включённой CAPTCHA и не загружает внешний script", async () => {
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true, clientKey: "test-public-client-key" },
+      initialize: false,
+    });
+
+    await vi.waitFor(() => expect(getCaptchaNotice().hidden).toBe(false));
+    expect(document.querySelector('script[src*="smartcaptcha"]')).toBeNull();
+  });
+
+  it("не показывает уведомление при отключённой CAPTCHA", async () => {
+    await initializeApp("", 120, "", "", 500, { initialize: false });
+
+    await vi.waitFor(() => expect(getCaptchaNotice().hidden).toBe(true));
+  });
+
+  it("не показывает уведомление при недостоверной публичной конфигурации", async () => {
+    await initializeApp("", 120, "", "", 500, {
+      config: { required: true },
+      initialize: false,
+    });
+
+    await vi.waitFor(() => expect(getCaptchaNotice().hidden).toBe(true));
+  });
+
+  it("не показывает уведомление при недоступной публичной конфигурации", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new Error("temporary configuration failure"));
+    await initializeApp("", 120, "", "", 500, {
+      fetch: fetchMock,
+      initialize: false,
+    });
+
+    await vi.waitFor(() => expect(getCaptchaNotice().hidden).toBe(true));
+  });
 });
 
 describe("обработка ответа генерации в приложении", () => {
@@ -818,6 +868,7 @@ describe("обработка ответа генерации в приложен
       expect.objectContaining({
         sitekey: "test-public-client-key",
         invisible: true,
+        hideShield: true,
       }),
     );
     expect(captchaApi.execute).toHaveBeenCalledOnce();
@@ -904,7 +955,7 @@ describe("обработка ответа генерации в приложен
     const fetchMock = vi.fn().mockImplementation((input: string | URL | Request) => {
       if (String(input) === "/api/captcha/config") {
         configRequests++;
-        if (configRequests === 1) {
+        if (configRequests <= 2) {
           return Promise.reject(new Error("temporary configuration failure"));
         }
         return Promise.resolve({
@@ -920,9 +971,10 @@ describe("обработка ответа генерации в приложен
     });
     await initializeApp("", 120, "", "", 500, {
       api: captchaApi,
+      fetch: fetchMock as typeof fetch,
       initialize: false,
     });
-    vi.stubGlobal("fetch", fetchMock);
+    await vi.waitFor(() => expect(configRequests).toBe(1));
     setFormValues();
 
     submitForm();
@@ -938,7 +990,7 @@ describe("обработка ответа генерации в приложен
         fetchMock.mock.calls.filter(([input]) => String(input) === "/api/generate"),
       ).toHaveLength(1),
     );
-    expect(configRequests).toBe(2);
+    expect(configRequests).toBe(3);
     expect(captchaApi.render).toHaveBeenCalledOnce();
   });
 
@@ -971,8 +1023,10 @@ describe("обработка ответа генерации в приложен
       const callbackName = smartCaptchaCallbackNameFromScript(script);
       queueMicrotask(() => invokeWindowCallback(callbackName));
     });
-    await initializeApp("", 120, "", "", 500, { initialize: false });
-    vi.stubGlobal("fetch", fetchMock);
+    await initializeApp("", 120, "", "", 500, {
+      fetch: fetchMock as typeof fetch,
+      initialize: false,
+    });
     setFormValues();
 
     submitForm();

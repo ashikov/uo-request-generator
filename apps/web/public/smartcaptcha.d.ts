@@ -9,6 +9,9 @@ export type SmartCaptchaController =
 
 export function createSmartCaptchaController(): Promise<SmartCaptchaController>;
 
+export type SmartCaptchaPublicConfig = { required: false } | { required: true; clientKey: string };
+
 export function createSmartCaptchaInitializer(): {
+  getPublicConfig(): Promise<SmartCaptchaPublicConfig | undefined>;
   getController(): Promise<SmartCaptchaController>;
 };

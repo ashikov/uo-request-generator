@@ -33,6 +33,14 @@ describe("публичная страница", () => {
     expect(html).toContain('id="desired-actions-count" aria-live="polite"');
   });
 
+  it("содержит скрытое до проверки конфигурации уведомление SmartCaptcha", async () => {
+    const html = await readFile(join(publicDirectory, "index.html"), "utf8");
+
+    expect(html).toMatch(/id="captcha-notice"[^>]*hidden/);
+    expect(html).toContain("Этот сайт защищён Yandex SmartCaptcha.");
+    expect(html).toContain('href="https://yandex.ru/legal/smartcaptcha_notice/ru/"');
+  });
+
   it("отделяет обязательное описание от группы необязательных сведений", async () => {
     const html = await readFile(join(publicDirectory, "index.html"), "utf8");
 
