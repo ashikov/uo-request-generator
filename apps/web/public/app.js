@@ -18,6 +18,7 @@ export function initializeCaptcha() {
   const consequencesCount = document.querySelector("#consequences-count");
   const desiredActionsCount = document.querySelector("#desired-actions-count");
   const submitButton = document.querySelector("#submit-button");
+  const captchaNotice = document.querySelector("#captcha-notice");
   const errorArea = document.querySelector("#error-area");
   const resultArea = document.querySelector("#result-area");
   const resultTitle = document.querySelector("#result-title");
@@ -352,5 +353,10 @@ export function initializeCaptcha() {
   updateCharacterCount(consequences, consequencesCount);
   updateCharacterCount(desiredActions, desiredActionsCount);
   setSubmitting(false);
+  if (captchaNotice !== null) {
+    void smartCaptchaInitializer.getPublicConfig().then((config) => {
+      captchaNotice.toggleAttribute("hidden", config?.required !== true);
+    });
+  }
   form.addEventListener("submit", handleSubmit);
 })();

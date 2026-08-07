@@ -232,6 +232,31 @@ button:focus-visible {
   font-size: 0.875rem;
 }
 
+.captcha-area {
+  min-width: 0;
+}
+
+.captcha-notice {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.captcha-notice a {
+  color: var(--color-accent);
+  text-decoration-thickness: 0.125em;
+  text-underline-offset: 0.15em;
+}
+
+.captcha-notice a:hover {
+  color: var(--color-accent-hover);
+}
+
+.captcha-notice a:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
 button {
   min-height: var(--control-min-height);
   min-width: 11rem;
