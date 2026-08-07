@@ -1,3 +1,4 @@
+---
 config:
   default: true
   MD012: false
@@ -17,6 +18,7 @@ ignores:
   - "**/coverage/**"
   - "**/test-results/**"
   - "**/playwright-report/**"
+  - "**/.pi-subagents/**"
   - "**/.pnpm-store/**"
   - "**/.pnpm-cache/**"
   - "**/.pnpm-state/**"
