@@ -1,5 +1,6 @@
 import { generateRequestLimits } from "@uo-request-generator/core";
 import { describe, expect, it } from "vitest";
+import { GenerationInvalidResponseError } from "../src/generation-error.js";
 import {
   formatRequestDraft,
   parseRequestDraft,
@@ -9,8 +10,6 @@ import {
   type GeneratedRequestDraft,
   type RequestDraft,
 } from "../src/request-draft.js";
-
-const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -36,7 +35,7 @@ function serializeDraft(draft: unknown): string {
 }
 
 function expectInvalidResponse(responseText: string): void {
-  expect(() => parseRequestDraft(responseText)).toThrow(INVALID_RESPONSE_MESSAGE);
+  expect(() => parseRequestDraft(responseText)).toThrow(GenerationInvalidResponseError);
 }
 
 function createDraftAtBodyLength(bodyLength: number): GeneratedRequestDraft {
@@ -551,6 +550,6 @@ describe("formatRequestDraft", () => {
   it("повторно отклоняет итоговый body сверх внешнего лимита", () => {
     const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax + 1);
 
-    expect(() => formatRequestDraft(draft)).toThrow(INVALID_RESPONSE_MESSAGE);
+    expect(() => formatRequestDraft(draft)).toThrow(GenerationInvalidResponseError);
   });
 });

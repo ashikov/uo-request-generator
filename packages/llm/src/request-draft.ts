@@ -4,8 +4,7 @@ import {
   type GenerateRequestResult,
 } from "@uo-request-generator/core";
 import { z } from "zod";
-
-const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
+import { GenerationInvalidResponseError } from "./generation-error.js";
 
 export const requestDraftLimits = {
   titleMax: generateRequestLimits.result.titleMax,
@@ -283,8 +282,8 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "}",
 ].join("\n");
 
-function invalidResponseError(): Error {
-  return new Error(INVALID_RESPONSE_MESSAGE);
+function invalidResponseError(): GenerationInvalidResponseError {
+  return new GenerationInvalidResponseError();
 }
 
 export function parseRequestDraft(responseText: string): RequestDraft {
