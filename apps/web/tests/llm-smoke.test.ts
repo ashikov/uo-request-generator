@@ -1,10 +1,16 @@
 import type { GenerateRequestInput, GenerateRequestOutcome } from "@uo-request-generator/core";
-import { DisabledLlmGateway, GenerationProviderUnavailableError } from "@uo-request-generator/llm";
+import {
+  COMMON_LEGAL_BASIS_BLOCK,
+  DisabledLlmGateway,
+  GenerationProviderUnavailableError,
+} from "@uo-request-generator/llm";
 import { describe, expect, it, vi } from "vitest";
 import { scenarios, type TestScenario } from "../../../packages/core/tests/fixtures.js";
 import { runLlmSmokeCheck } from "./manual/llm-smoke.js";
 
-const GENERATED_BODY = "Описанная проблема требует проверки.\n\nПрошу:\n1. Проверить проблему";
+const GENERATED_REQUEST_BODY =
+  "Описанная проблема требует проверки.\n\nПрошу:\n1. Проверить проблему";
+const GENERATED_BODY = [GENERATED_REQUEST_BODY, COMMON_LEGAL_BASIS_BLOCK].join("\n\n");
 
 function generatedOutcome(warnings: string[] = []): GenerateRequestOutcome {
   return {
@@ -76,6 +82,40 @@ describe("runLlmSmokeCheck", () => {
     expect(writeLine).toHaveBeenCalledWith("Автоматических ошибок: 0");
     expect(writeLine).toHaveBeenCalledWith(
       "Автоматический успех не подтверждает смысловое качество результата.",
+    );
+  });
+
+  it.each([
+    ["без нормативного блока", GENERATED_REQUEST_BODY],
+    [
+      "с изменённым нормативным блоком",
+      [GENERATED_REQUEST_BODY, `${COMMON_LEGAL_BASIS_BLOCK} изменён`].join("\n\n"),
+    ],
+    [
+      "с нормативным блоком дважды",
+      [GENERATED_REQUEST_BODY, COMMON_LEGAL_BASIS_BLOCK, COMMON_LEGAL_BASIS_BLOCK].join("\n\n"),
+    ],
+    [
+      "с произвольным текстом после нормативного блока",
+      [GENERATED_BODY, "Дополнительный текст"].join("\n\n"),
+    ],
+  ])("отклоняет generated-результат %s", async (_caseName, body) => {
+    const outcome = generatedOutcome();
+    if (outcome.status !== "generated") {
+      throw new Error("Ожидался generated outcome");
+    }
+    outcome.result.body = body;
+    const writeLine = vi.fn();
+
+    const exitCode = await runLlmSmokeCheck(
+      { generateRequest: vi.fn().mockResolvedValue(outcome) },
+      writeLine,
+      [generatedScenario()],
+    );
+
+    expect(exitCode).toBe(1);
+    expect(writeLine).toHaveBeenCalledWith(
+      "Сценарий generated-scenario: нарушен формат раздела «Общие нормативные основания»",
     );
   });
 
@@ -158,7 +198,7 @@ describe("runLlmSmokeCheck", () => {
         status: "generated",
         result: {
           title: "Проверить проблему",
-          body: "Описанная проблема требует проверки.",
+          body: ["Описанная проблема требует проверки.", COMMON_LEGAL_BASIS_BLOCK].join("\n\n"),
           warnings: [],
         },
       },
