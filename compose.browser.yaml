@@ -1,0 +1,63 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    user: node
+    init: true
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      SMARTCAPTCHA_MODE: disabled
+    expose:
+      - "3000"
+    networks:
+      - browser
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/api/health')
+          .then(async (response) => {
+            if (!response.ok || (await response.json()).status !== 'ok')
+              process.exit(1);
+          })
+          .catch(() => process.exit(1));
+      interval: 1s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
+
+  browser-tests:
+    build:
+      context: .
+      dockerfile: tests/browser/Dockerfile
+    user: "${BROWSER_TEST_UID:-1000}:${BROWSER_TEST_GID:-1000}"
+    init: true
+    restart: "no"
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      HOME: /tmp/browser-home
+      PLAYWRIGHT_ARTIFACT_DIRECTORY: /artifacts
+      PLAYWRIGHT_BASE_URL: http://web:3000
+    volumes:
+      - ./.browser-test-artifacts:/artifacts
+    shm_size: 1gb
+    networks:
+      - browser
+
+networks:
+  browser:
+    internal: true

@@ -1,4 +1,4 @@
-.PHONY: dev compose build start smoke-llm test-production-runtime
+.PHONY: dev compose build start smoke-llm test-production-runtime test-browser
 .PHONY: lint lint-md format format-check typecheck test check
 
 dev:
@@ -18,6 +18,9 @@ smoke-llm:
 
 test-production-runtime:
 	./scripts/test-production-runtime.sh
+
+test-browser:
+	./scripts/test-browser.sh
 
 lint:
 	pnpm lint
