@@ -11,6 +11,15 @@ import {
 } from "../src/request-draft.js";
 
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
+const HOUSING_CODE_URL =
+  "https://www.consultant.ru/document/cons_doc_LAW_51057/71c7149b7b2a7693ca3f88b93580da0a5376e041/";
+const MANAGEMENT_RULES_URL =
+  "https://www.consultant.ru/document/cons_doc_LAW_146444/b045a68db61f55f3f407349ed4dfd788833df145/";
+const COMMON_LEGAL_BASIS_LINES = [
+  "Общие нормативные основания:",
+  `1. Части 1 и 2.3 статьи 161 Жилищного кодекса РФ — общие требования к управлению многоквартирным домом и ответственность управляющей организации: ${HOUSING_CODE_URL}`,
+  `2. Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, — приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений: ${MANAGEMENT_RULES_URL}`,
+] as const;
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -41,15 +50,15 @@ function expectInvalidResponse(responseText: string): void {
 
 function createDraftAtBodyLength(bodyLength: number): GeneratedRequestDraft {
   const fixedDraft = createDraft({
-    problem: "а".repeat(requestDraftLimits.problemMax),
+    problem: "а",
     impact: "б",
     requests: ["Проверить освещение"],
   });
   const fixedBodyLength = formatRequestDraft(fixedDraft).body.length;
 
   return createDraft({
-    problem: fixedDraft.problem,
-    impact: "б".repeat(bodyLength - fixedBodyLength + 1),
+    problem: "а".repeat(bodyLength - fixedBodyLength + 1),
+    impact: fixedDraft.impact,
     requests: fixedDraft.requests,
   });
 }
@@ -97,9 +106,14 @@ describe("parseRequestDraft", () => {
     });
   });
 
-  it("описывает в prompt оба исхода и общий лимит сформированного body", () => {
+  it("описывает в prompt оба исхода и доступный лимит генерируемой части body", () => {
+    const commonLegalBasisLength = COMMON_LEGAL_BASIS_LINES.join("\n").length;
+
+    expect(requestDraftLimits.generatedBodyMax + "\n\n".length + commonLegalBasisLength).toBe(
+      generateRequestLimits.result.bodyMax,
+    );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      `body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
+      `body должен содержать не более ${requestDraftLimits.generatedBodyMax} символов`,
     );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('outcome: "generated"');
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('outcome: "multiple_issues"');
@@ -117,6 +131,20 @@ describe("parseRequestDraft", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("problem — только неисправность");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("impact — только явно переданные последствия");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("requests — желаемые действия");
+  });
+
+  it("не передаёт нормативные основания и ссылки в prompt или Structured Output", () => {
+    const structuredOutput = JSON.stringify(REQUEST_DRAFT_JSON_SCHEMA);
+
+    for (const forbiddenFragment of [
+      "Жилищного кодекса",
+      "постановлением Правительства",
+      HOUSING_CODE_URL,
+      MANAGEMENT_RULES_URL,
+    ]) {
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(forbiddenFragment);
+      expect(structuredOutput).not.toContain(forbiddenFragment);
+    }
   });
 
   it("описывает JSON-вход с четырьмя исходными полями", () => {
@@ -525,9 +553,23 @@ describe("formatRequestDraft", () => {
         "1. Проверить освещение",
         "2. Устранить неисправность",
         "3. Восстановить освещение",
+        "",
+        ...COMMON_LEGAL_BASIS_LINES,
       ].join("\n"),
       warnings: ["Не указана причина неисправности"],
     });
+  });
+
+  it("добавляет два общих основания ровно один раз в стабильном порядке после «Прошу:»", () => {
+    const result = formatRequestDraft(createDraft());
+    const firstBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_LINES[1]);
+    const secondBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_LINES[2]);
+
+    expect(result.body.match(/Общие нормативные основания:/gu)).toHaveLength(1);
+    expect(firstBasisPosition).toBeGreaterThan(result.body.indexOf("Прошу:"));
+    expect(secondBasisPosition).toBeGreaterThan(firstBasisPosition);
+    expect(result.body.match(new RegExp(HOUSING_CODE_URL, "gu"))).toHaveLength(1);
+    expect(result.body.match(new RegExp(MANAGEMENT_RULES_URL, "gu"))).toHaveLength(1);
   });
 
   it("не создаёт блок impact при null и нумерует одно требование", () => {
@@ -544,6 +586,8 @@ describe("formatRequestDraft", () => {
         "",
         "Прошу:",
         "1. Восстановить освещение",
+        "",
+        ...COMMON_LEGAL_BASIS_LINES,
       ].join("\n"),
     );
   });

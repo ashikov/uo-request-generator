@@ -8,3 +8,4 @@ export {
   type LlmApiProtocol,
   type OpenAiCompatibleGatewayConfig,
 } from "./openai-compatible-gateway.js";
+export { COMMON_LEGAL_BASIS_BLOCK } from "./request-draft.js";

@@ -6,6 +6,12 @@ import {
 import { z } from "zod";
 
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
+const REQUEST_BODY_SECTION_SEPARATOR = "\n\n";
+export const COMMON_LEGAL_BASIS_BLOCK = [
+  "Общие нормативные основания:",
+  "1. Части 1 и 2.3 статьи 161 Жилищного кодекса РФ — общие требования к управлению многоквартирным домом и ответственность управляющей организации: https://www.consultant.ru/document/cons_doc_LAW_51057/71c7149b7b2a7693ca3f88b93580da0a5376e041/",
+  "2. Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, — приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений: https://www.consultant.ru/document/cons_doc_LAW_146444/b045a68db61f55f3f407349ed4dfd788833df145/",
+].join("\n");
 
 export const requestDraftLimits = {
   titleMax: generateRequestLimits.result.titleMax,
@@ -15,6 +21,10 @@ export const requestDraftLimits = {
   requestMax: 500,
   warningsMax: generateRequestLimits.result.warningsMax,
   warningMax: generateRequestLimits.result.warningMax,
+  generatedBodyMax:
+    generateRequestLimits.result.bodyMax -
+    REQUEST_BODY_SECTION_SEPARATOR.length -
+    COMMON_LEGAL_BASIS_BLOCK.length,
 } as const;
 
 export const REQUEST_DRAFT_RESPONSE_FORMAT_NAME = "request_draft";
@@ -131,7 +141,7 @@ type RequestDraftBodyParts = {
   requests: string[];
 };
 
-function buildRequestBody(draft: RequestDraftBodyParts): string {
+function buildGeneratedRequestBody(draft: RequestDraftBodyParts): string {
   const requestLines = draft.requests.map((request, index) => `${String(index + 1)}. ${request}`);
   const requestBlock = ["Прошу:", ...requestLines].join("\n");
   const bodyBlocks = [draft.problem];
@@ -143,6 +153,12 @@ function buildRequestBody(draft: RequestDraftBodyParts): string {
   bodyBlocks.push(requestBlock);
 
   return bodyBlocks.join("\n\n");
+}
+
+function buildRequestBody(draft: RequestDraftBodyParts): string {
+  return [buildGeneratedRequestBody(draft), COMMON_LEGAL_BASIS_BLOCK].join(
+    REQUEST_BODY_SECTION_SEPARATOR,
+  );
 }
 
 const generatedRequestDraftSchema = z
@@ -158,7 +174,7 @@ const generatedRequestDraftSchema = z
   })
   .strict()
   .superRefine((draft, context) => {
-    if (buildRequestBody(draft).length > generateRequestLimits.result.bodyMax) {
+    if (buildGeneratedRequestBody(draft).length > requestDraftLimits.generatedBodyMax) {
       context.addIssue({
         code: "custom",
         message: "Сформированный текст заявки превышает допустимую длину",
@@ -221,7 +237,7 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   'Правила outcome: "generated":',
   '- Используй outcome: "generated" только для одной связанной проблемы',
   `- title и problem должны быть непустыми строками, impact — непустой строкой или null, requests — массивом от 1 до ${requestDraftLimits.requestsMax} строк`,
-  `- Сформированный из problem, impact, раздела «Прошу:» и нумерованных требований body должен содержать не более ${generateRequestLimits.result.bodyMax} символов`,
+  `- Сформированный из problem, impact, раздела «Прошу:» и нумерованных требований body должен содержать не более ${requestDraftLimits.generatedBodyMax} символов`,
   "- problem — только неисправность или проблемное состояние: объект, наблюдаемый дефект, место, длительность, повторяемость и наблюдаемые признаки",
   "- impact — только явно переданные последствия, риски, повреждения и неудобства; не переноси их в problem",
   "- requests — желаемые действия, а без них только минимальные действия для проверки и устранения проблемы",

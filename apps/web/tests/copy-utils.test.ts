@@ -15,6 +15,29 @@ describe("formatCopyText", () => {
     expect(result).toBe("Заголовок\n\nСтрока 1\nСтрока 2\nСтрока 3");
   });
 
+  it("сохраняет нормативный раздел и обе ссылки в копируемом тексте", () => {
+    const housingCodeUrl =
+      "https://www.consultant.ru/document/cons_doc_LAW_51057/71c7149b7b2a7693ca3f88b93580da0a5376e041/";
+    const managementRulesUrl =
+      "https://www.consultant.ru/document/cons_doc_LAW_146444/b045a68db61f55f3f407349ed4dfd788833df145/";
+    const body = [
+      "В общем коридоре не работает освещение.",
+      "",
+      "Прошу:",
+      "1. Восстановить освещение",
+      "",
+      "Общие нормативные основания:",
+      `1. Части 1 и 2.3 статьи 161 Жилищного кодекса РФ: ${housingCodeUrl}`,
+      `2. Подпункт «з» пункта 4 Правил по ПП РФ № 416: ${managementRulesUrl}`,
+    ].join("\n");
+
+    const result = formatCopyText("Не работает освещение", body);
+
+    expect(result).toBe(`Не работает освещение\n\n${body}`);
+    expect(result).toContain(housingCodeUrl);
+    expect(result).toContain(managementRulesUrl);
+  });
+
   it("корректно обрабатывает пустое тело", () => {
     const result = formatCopyText("Заголовок", "");
     expect(result).toBe("Заголовок\n\n");
