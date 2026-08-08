@@ -6,9 +6,13 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const skippedDirectories = new Set([
+  ".browser-test-artifacts",
   ".git",
   ".playwright-mcp",
   ".pi-subagents",
+  ".pnpm-cache",
+  ".pnpm-state",
+  ".pnpm-store",
   "coverage",
   "dist",
   "node_modules",

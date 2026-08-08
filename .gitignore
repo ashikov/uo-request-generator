@@ -3,6 +3,8 @@ dist/
 coverage/
 test-results/
 playwright-report/
+.browser-test-artifacts/
+.browser-test.lock
 .playwright-mcp/
 .pi-subagents/
 *.tsbuildinfo

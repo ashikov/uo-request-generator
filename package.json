@@ -18,13 +18,14 @@
     "lint:md": "markdownlint-cli2 && node scripts/check-file-endings.mjs",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "typecheck": "pnpm --recursive --if-present typecheck",
+    "typecheck": "pnpm --recursive --if-present typecheck && tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "check:quality": "pnpm format:check && pnpm lint && pnpm lint:md && pnpm typecheck",
     "check": "pnpm check:quality && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",
+    "@playwright/test": "1.62.1",
     "@types/node": "26.1.1",
     "happy-dom": "^20.11.0",
     "markdownlint-cli2": "0.23.0",

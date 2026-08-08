@@ -1,5 +1,7 @@
 .git
 .github
+.browser-test-artifacts
+.browser-test.lock
 .pi-subagents
 .playwright-mcp
 .npmrc
@@ -14,5 +16,6 @@ coverage
 dist
 .env*
 node_modules
+playwright-report
 reports
 test-results
