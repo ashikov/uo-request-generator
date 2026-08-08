@@ -6,7 +6,11 @@ import {
   generateRequestResultSchema,
   type LlmGateway,
 } from "@uo-request-generator/core";
-import { DisabledLlmGateway, GenerationProviderUnavailableError } from "@uo-request-generator/llm";
+import {
+  COMMON_LEGAL_BASIS_BLOCK,
+  DisabledLlmGateway,
+  GenerationProviderUnavailableError,
+} from "@uo-request-generator/llm";
 import { scenarios, type TestScenario } from "../../../../packages/core/tests/fixtures.js";
 import { createLlmGateway } from "../../src/llm-config.js";
 
@@ -43,7 +47,18 @@ function findGeneratedResultError(result: GenerateRequestResult): string | undef
     return "предупреждения смешаны с текстом заявки";
   }
 
-  const bodyBlocks = result.body.split("\n\n");
+  const legalBasisSuffix = `\n\n${COMMON_LEGAL_BASIS_BLOCK}`;
+  const legalBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK);
+
+  if (
+    !result.body.endsWith(legalBasisSuffix) ||
+    legalBasisPosition !== result.body.lastIndexOf(COMMON_LEGAL_BASIS_BLOCK)
+  ) {
+    return "нарушен формат раздела «Общие нормативные основания»";
+  }
+
+  const generatedBody = result.body.slice(0, -legalBasisSuffix.length);
+  const bodyBlocks = generatedBody.split("\n\n");
   const requestBlock = bodyBlocks.at(-1);
   const problemBlocks = bodyBlocks.slice(0, -1);
 
