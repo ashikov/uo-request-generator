@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
+import { COMMON_LEGAL_BASIS_BLOCK } from "@uo-request-generator/llm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyToClipboard, formatCopyText } from "../public/copy-utils.js";
 
@@ -16,16 +17,10 @@ describe("formatCopyText", () => {
   });
 
   it("сохраняет нормативные абзацы без URL в копируемом тексте", () => {
-    const housingCodeBasis =
-      "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.";
-    const managementRulesBasis =
-      "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
     const body = [
       "В общем коридоре не работает освещение.",
       "",
-      housingCodeBasis,
-      "",
-      managementRulesBasis,
+      COMMON_LEGAL_BASIS_BLOCK,
       "",
       "Прошу:",
       "1. Восстановить освещение",
@@ -34,8 +29,7 @@ describe("formatCopyText", () => {
     const result = formatCopyText("Не работает освещение", body);
 
     expect(result).toBe(`Не работает освещение\n\n${body}`);
-    expect(result).toContain(housingCodeBasis);
-    expect(result).toContain(managementRulesBasis);
+    expect(result).toContain(COMMON_LEGAL_BASIS_BLOCK);
     expect(result).not.toContain("http://");
     expect(result).not.toContain("https://");
     expect(result).not.toContain("Общие нормативные основания:");

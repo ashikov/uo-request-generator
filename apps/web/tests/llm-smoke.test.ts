@@ -125,6 +125,14 @@ describe("runLlmSmokeCheck", () => {
         "Прошу:\n1. Проверить проблему",
       ].join("\n\n"),
     ],
+    [
+      "с нормативными основаниями, склеенными одной строкой",
+      [
+        "Описанная проблема требует проверки.",
+        COMMON_LEGAL_BASIS_BLOCK.replace("\n\n", "\n"),
+        "Прошу:\n1. Проверить проблему",
+      ].join("\n\n"),
+    ],
   ])("отклоняет generated-результат %s", async (_caseName, body) => {
     const outcome = generatedOutcome();
     if (outcome.status !== "generated") {
