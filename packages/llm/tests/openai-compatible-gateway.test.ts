@@ -7,11 +7,11 @@ const HOUSING_CODE_URL =
   "https://www.consultant.ru/document/cons_doc_LAW_51057/71c7149b7b2a7693ca3f88b93580da0a5376e041/";
 const MANAGEMENT_RULES_URL =
   "https://www.consultant.ru/document/cons_doc_LAW_146444/b045a68db61f55f3f407349ed4dfd788833df145/";
-const COMMON_LEGAL_BASIS_LINES = [
-  "Общие нормативные основания:",
-  `1. Части 1 и 2.3 статьи 161 Жилищного кодекса РФ — общие требования к управлению многоквартирным домом и ответственность управляющей организации: ${HOUSING_CODE_URL}`,
-  `2. Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, — приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений: ${MANAGEMENT_RULES_URL}`,
-] as const;
+const HOUSING_CODE_BASIS =
+  "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.";
+const MANAGEMENT_RULES_BASIS =
+  "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
+const COMMON_LEGAL_BASIS_LINES = [HOUSING_CODE_BASIS, MANAGEMENT_RULES_BASIS] as const;
 const VALID_INPUT = { description: "На лестничной площадке не горит свет" };
 const GATEWAY_CONFIG: OpenAiCompatibleGatewayConfig = {
   apiUrl: "https://provider.example/v1/chat/completions",
@@ -43,10 +43,10 @@ const VALID_LLM_RESPONSE = {
     body: [
       "На лестничной площадке не горит свет.",
       "",
+      ...COMMON_LEGAL_BASIS_LINES,
+      "",
       "Прошу:",
       "1. Проверить и восстановить освещение",
-      "",
-      ...COMMON_LEGAL_BASIS_LINES,
     ].join("\n"),
     warnings: [],
   },
@@ -155,6 +155,10 @@ describe("OpenAiCompatibleGateway", () => {
     expect(JSON.stringify(callBody)).not.toContain(HOUSING_CODE_URL);
     expect(JSON.stringify(callBody)).not.toContain(MANAGEMENT_RULES_URL);
     expect(JSON.stringify(callBody)).not.toContain("Общие нормативные основания:");
+    expect(JSON.stringify(callBody)).not.toContain("http://");
+    expect(JSON.stringify(callBody)).not.toContain("https://");
+    expect(JSON.stringify(callBody)).not.toContain(HOUSING_CODE_BASIS);
+    expect(JSON.stringify(callBody)).not.toContain(MANAGEMENT_RULES_BASIS);
     expect(callBody.instructions).toBeUndefined();
     expect(callBody.input).toBeUndefined();
     expect(callBody.max_output_tokens).toBeUndefined();
@@ -277,6 +281,10 @@ describe("OpenAiCompatibleGateway", () => {
     expect(JSON.stringify(result)).not.toContain("Общие нормативные основания:");
     expect(JSON.stringify(result)).not.toContain(HOUSING_CODE_URL);
     expect(JSON.stringify(result)).not.toContain(MANAGEMENT_RULES_URL);
+    expect(JSON.stringify(result)).not.toContain("http://");
+    expect(JSON.stringify(result)).not.toContain("https://");
+    expect(JSON.stringify(result)).not.toContain(HOUSING_CODE_BASIS);
+    expect(JSON.stringify(result)).not.toContain(MANAGEMENT_RULES_BASIS);
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
