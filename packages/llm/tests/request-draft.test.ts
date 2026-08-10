@@ -1,6 +1,7 @@
 import { generateRequestLimits } from "@uo-request-generator/core";
 import { describe, expect, it } from "vitest";
 import {
+  COMMON_LEGAL_BASIS_BLOCK,
   formatRequestDraft,
   parseRequestDraft,
   requestDraftLimits,
@@ -107,11 +108,9 @@ describe("parseRequestDraft", () => {
   });
 
   it("описывает в prompt оба исхода и доступный лимит генерируемой части body", () => {
-    const commonLegalBasisLength = COMMON_LEGAL_BASIS_LINES.join("\n").length;
-
-    expect(requestDraftLimits.generatedBodyMax + "\n\n".length + commonLegalBasisLength).toBe(
-      generateRequestLimits.result.bodyMax,
-    );
+    expect(
+      requestDraftLimits.generatedBodyMax + "\n\n".length + COMMON_LEGAL_BASIS_BLOCK.length,
+    ).toBe(generateRequestLimits.result.bodyMax);
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       `body должен содержать не более ${requestDraftLimits.generatedBodyMax} символов`,
     );
@@ -554,7 +553,7 @@ describe("formatRequestDraft", () => {
         "",
         "В тёмное время суток проход по коридору затруднён.",
         "",
-        ...COMMON_LEGAL_BASIS_LINES,
+        COMMON_LEGAL_BASIS_BLOCK,
         "",
         "Прошу:",
         "1. Проверить освещение",
@@ -581,6 +580,25 @@ describe("formatRequestDraft", () => {
     expect(secondBasisPosition).toBeLessThan(requestPosition);
   });
 
+  it("разделяет два нормативных основания пустой строкой", () => {
+    const result = formatRequestDraft(
+      createDraft({ impact: null, requests: ["Восстановить освещение"] }),
+    );
+
+    expect(result.body).toBe(
+      [
+        "В общем коридоре не работает освещение уже несколько дней.",
+        "",
+        COMMON_LEGAL_BASIS_BLOCK,
+        "",
+        "Прошу:",
+        "1. Восстановить освещение",
+      ].join("\n"),
+    );
+    expect(COMMON_LEGAL_BASIS_BLOCK).toContain("\n\n");
+    expect(COMMON_LEGAL_BASIS_BLOCK).not.toContain("\n\n\n");
+  });
+
   it("не создаёт блок impact при null и нумерует одно требование", () => {
     const result = formatRequestDraft(
       createDraft({
@@ -593,7 +611,7 @@ describe("formatRequestDraft", () => {
       [
         "В общем коридоре не работает освещение уже несколько дней.",
         "",
-        ...COMMON_LEGAL_BASIS_LINES,
+        COMMON_LEGAL_BASIS_BLOCK,
         "",
         "Прошу:",
         "1. Восстановить освещение",
