@@ -15,11 +15,11 @@ const HOUSING_CODE_URL =
   "https://www.consultant.ru/document/cons_doc_LAW_51057/71c7149b7b2a7693ca3f88b93580da0a5376e041/";
 const MANAGEMENT_RULES_URL =
   "https://www.consultant.ru/document/cons_doc_LAW_146444/b045a68db61f55f3f407349ed4dfd788833df145/";
-const COMMON_LEGAL_BASIS_LINES = [
-  "Общие нормативные основания:",
-  `1. Части 1 и 2.3 статьи 161 Жилищного кодекса РФ — общие требования к управлению многоквартирным домом и ответственность управляющей организации: ${HOUSING_CODE_URL}`,
-  `2. Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, — приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений: ${MANAGEMENT_RULES_URL}`,
-] as const;
+const HOUSING_CODE_BASIS =
+  "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.";
+const MANAGEMENT_RULES_BASIS =
+  "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
+const COMMON_LEGAL_BASIS_LINES = [HOUSING_CODE_BASIS, MANAGEMENT_RULES_BASIS] as const;
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -139,8 +139,13 @@ describe("parseRequestDraft", () => {
     for (const forbiddenFragment of [
       "Жилищного кодекса",
       "постановлением Правительства",
+      "Общие нормативные основания:",
+      "http://",
+      "https://",
       HOUSING_CODE_URL,
       MANAGEMENT_RULES_URL,
+      HOUSING_CODE_BASIS,
+      MANAGEMENT_RULES_BASIS,
     ]) {
       expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(forbiddenFragment);
       expect(structuredOutput).not.toContain(forbiddenFragment);
@@ -549,27 +554,31 @@ describe("formatRequestDraft", () => {
         "",
         "В тёмное время суток проход по коридору затруднён.",
         "",
+        ...COMMON_LEGAL_BASIS_LINES,
+        "",
         "Прошу:",
         "1. Проверить освещение",
         "2. Устранить неисправность",
         "3. Восстановить освещение",
-        "",
-        ...COMMON_LEGAL_BASIS_LINES,
       ].join("\n"),
       warnings: ["Не указана причина неисправности"],
     });
   });
 
-  it("добавляет два общих основания ровно один раз в стабильном порядке после «Прошу:»", () => {
+  it("добавляет два общих основания ровно один раз в стабильном порядке перед «Прошу:»", () => {
     const result = formatRequestDraft(createDraft());
-    const firstBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_LINES[1]);
-    const secondBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_LINES[2]);
+    const firstBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_LINES[0]);
+    const secondBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_LINES[1]);
+    const requestPosition = result.body.indexOf("Прошу:");
 
-    expect(result.body.match(/Общие нормативные основания:/gu)).toHaveLength(1);
-    expect(firstBasisPosition).toBeGreaterThan(result.body.indexOf("Прошу:"));
+    expect(result.body).not.toContain("Общие нормативные основания:");
+    expect(result.body).not.toContain("http://");
+    expect(result.body).not.toContain("https://");
+    expect(result.body.match(new RegExp(COMMON_LEGAL_BASIS_LINES[0], "gu"))).toHaveLength(1);
+    expect(result.body.match(new RegExp(COMMON_LEGAL_BASIS_LINES[1], "gu"))).toHaveLength(1);
+    expect(firstBasisPosition).toBeLessThan(requestPosition);
     expect(secondBasisPosition).toBeGreaterThan(firstBasisPosition);
-    expect(result.body.match(new RegExp(HOUSING_CODE_URL, "gu"))).toHaveLength(1);
-    expect(result.body.match(new RegExp(MANAGEMENT_RULES_URL, "gu"))).toHaveLength(1);
+    expect(secondBasisPosition).toBeLessThan(requestPosition);
   });
 
   it("не создаёт блок impact при null и нумерует одно требование", () => {
@@ -584,10 +593,10 @@ describe("formatRequestDraft", () => {
       [
         "В общем коридоре не работает освещение уже несколько дней.",
         "",
+        ...COMMON_LEGAL_BASIS_LINES,
+        "",
         "Прошу:",
         "1. Восстановить освещение",
-        "",
-        ...COMMON_LEGAL_BASIS_LINES,
       ].join("\n"),
     );
   });
