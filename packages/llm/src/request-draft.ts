@@ -8,9 +8,8 @@ import { z } from "zod";
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
 const REQUEST_BODY_SECTION_SEPARATOR = "\n\n";
 export const COMMON_LEGAL_BASIS_BLOCK = [
-  "Общие нормативные основания:",
-  "1. Части 1 и 2.3 статьи 161 Жилищного кодекса РФ — общие требования к управлению многоквартирным домом и ответственность управляющей организации: https://www.consultant.ru/document/cons_doc_LAW_51057/71c7149b7b2a7693ca3f88b93580da0a5376e041/",
-  "2. Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, — приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений: https://www.consultant.ru/document/cons_doc_LAW_146444/b045a68db61f55f3f407349ed4dfd788833df145/",
+  "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.",
+  "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.",
 ].join("\n");
 
 export const requestDraftLimits = {
@@ -141,24 +140,34 @@ type RequestDraftBodyParts = {
   requests: string[];
 };
 
-function buildGeneratedRequestBody(draft: RequestDraftBodyParts): string {
-  const requestLines = draft.requests.map((request, index) => `${String(index + 1)}. ${request}`);
-  const requestBlock = ["Прошу:", ...requestLines].join("\n");
-  const bodyBlocks = [draft.problem];
+function buildRequestBlock(requests: string[]): string {
+  const requestLines = requests.map((request, index) => `${String(index + 1)}. ${request}`);
+
+  return ["Прошу:", ...requestLines].join("\n");
+}
+
+function buildIntroBlocks(draft: RequestDraftBodyParts): string[] {
+  const blocks = [draft.problem];
 
   if (draft.impact !== null) {
-    bodyBlocks.push(draft.impact);
+    blocks.push(draft.impact);
   }
 
-  bodyBlocks.push(requestBlock);
+  return blocks;
+}
 
-  return bodyBlocks.join("\n\n");
+function buildGeneratedRequestBody(draft: RequestDraftBodyParts): string {
+  return [...buildIntroBlocks(draft), buildRequestBlock(draft.requests)].join(
+    REQUEST_BODY_SECTION_SEPARATOR,
+  );
 }
 
 function buildRequestBody(draft: RequestDraftBodyParts): string {
-  return [buildGeneratedRequestBody(draft), COMMON_LEGAL_BASIS_BLOCK].join(
-    REQUEST_BODY_SECTION_SEPARATOR,
-  );
+  return [
+    ...buildIntroBlocks(draft),
+    COMMON_LEGAL_BASIS_BLOCK,
+    buildRequestBlock(draft.requests),
+  ].join(REQUEST_BODY_SECTION_SEPARATOR);
 }
 
 const generatedRequestDraftSchema = z
