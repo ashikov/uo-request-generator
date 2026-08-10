@@ -47,27 +47,44 @@ function findGeneratedResultError(result: GenerateRequestResult): string | undef
     return "предупреждения смешаны с текстом заявки";
   }
 
-  const legalBasisSuffix = `\n\n${COMMON_LEGAL_BASIS_BLOCK}`;
-  const legalBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK);
-
   if (
-    !result.body.endsWith(legalBasisSuffix) ||
-    legalBasisPosition !== result.body.lastIndexOf(COMMON_LEGAL_BASIS_BLOCK)
+    result.body.includes("http://") ||
+    result.body.includes("https://") ||
+    result.body.includes("Общие нормативные основания:")
   ) {
-    return "нарушен формат раздела «Общие нормативные основания»";
+    return "нарушен формат нормативных оснований";
   }
 
-  const generatedBody = result.body.slice(0, -legalBasisSuffix.length);
-  const bodyBlocks = generatedBody.split("\n\n");
-  const requestBlock = bodyBlocks.at(-1);
-  const problemBlocks = bodyBlocks.slice(0, -1);
+  const legalBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK);
+  const requestPosition = result.body.indexOf("Прошу:\n");
 
   if (
-    requestBlock === undefined ||
-    problemBlocks.length === 0 ||
-    problemBlocks.some((block) => block.trim().length === 0) ||
-    !requestBlock.startsWith("Прошу:\n")
+    legalBasisPosition === -1 ||
+    legalBasisPosition !== result.body.lastIndexOf(COMMON_LEGAL_BASIS_BLOCK)
   ) {
+    return "нарушен формат нормативных оснований";
+  }
+
+  if (requestPosition === -1) {
+    return "нарушен формат раздела «Прошу:»";
+  }
+
+  if (requestPosition < legalBasisPosition + COMMON_LEGAL_BASIS_BLOCK.length) {
+    return "нарушен формат нормативных оснований";
+  }
+
+  const beforeLegal = result.body.slice(0, legalBasisPosition);
+  const afterLegal = result.body.slice(legalBasisPosition + COMMON_LEGAL_BASIS_BLOCK.length);
+  const requestBlock = result.body.slice(requestPosition);
+
+  if (!beforeLegal.endsWith("\n\n") || afterLegal !== `\n\n${requestBlock}`) {
+    return "нарушен формат нормативных оснований";
+  }
+
+  const introPart = beforeLegal.slice(0, -"\n\n".length);
+  const introBlocks = introPart.split("\n\n");
+
+  if (introBlocks.length === 0 || introBlocks.some((block) => block.trim().length === 0)) {
     return "нарушен формат раздела «Прошу:»";
   }
 
