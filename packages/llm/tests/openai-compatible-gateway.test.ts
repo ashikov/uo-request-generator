@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAiCompatibleGateway, type OpenAiCompatibleGatewayConfig } from "../src";
-import { REQUEST_DRAFT_JSON_SCHEMA } from "../src/request-draft.js";
+import { COMMON_LEGAL_BASIS_BLOCK, REQUEST_DRAFT_JSON_SCHEMA } from "../src/request-draft.js";
 
 const MOCK_API_KEY = "test-key-123";
 const HOUSING_CODE_URL =
@@ -11,7 +11,6 @@ const HOUSING_CODE_BASIS =
   "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.";
 const MANAGEMENT_RULES_BASIS =
   "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
-const COMMON_LEGAL_BASIS_LINES = [HOUSING_CODE_BASIS, MANAGEMENT_RULES_BASIS] as const;
 const VALID_INPUT = { description: "На лестничной площадке не горит свет" };
 const GATEWAY_CONFIG: OpenAiCompatibleGatewayConfig = {
   apiUrl: "https://provider.example/v1/chat/completions",
@@ -43,7 +42,7 @@ const VALID_LLM_RESPONSE = {
     body: [
       "На лестничной площадке не горит свет.",
       "",
-      ...COMMON_LEGAL_BASIS_LINES,
+      COMMON_LEGAL_BASIS_BLOCK,
       "",
       "Прошу:",
       "1. Проверить и восстановить освещение",
