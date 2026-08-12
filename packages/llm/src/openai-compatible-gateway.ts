@@ -1,12 +1,12 @@
-import type {
-  GenerateRequestInput,
-  GenerateRequestOutcome,
-  LlmGateway,
+import {
+  renderPrimaryRequestDraft,
+  type GenerateRequestInput,
+  type GenerateRequestOutcome,
+  type LlmGateway,
 } from "@uo-request-generator/core";
 import { z } from "zod";
 import { GenerationProviderUnavailableError } from "./disabled-llm-gateway.js";
 import {
-  formatRequestDraft,
   parseRequestDraft,
   REQUEST_DRAFT_JSON_SCHEMA,
   REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
@@ -110,7 +110,7 @@ const openAiResponsesOutputTextSchema = z
   })
   .passthrough();
 
-const DEFAULT_MAX_OUTPUT_TOKENS = 1000;
+const DEFAULT_MAX_OUTPUT_TOKENS = 4000;
 const TEMPERATURE = 0.3;
 
 function createRequestBody(
@@ -333,9 +333,11 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       return { status: "multiple_issues" };
     }
 
+    const { outcome: _outcome, ...primaryRequestDraft } = draft;
+
     return {
       status: "generated",
-      result: formatRequestDraft(draft),
+      result: renderPrimaryRequestDraft(primaryRequestDraft),
     };
   }
 }

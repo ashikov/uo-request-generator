@@ -89,6 +89,30 @@ describe("runLlmSmokeCheck", () => {
     );
   });
 
+  it("принимает пять последовательно пронумерованных требований", async () => {
+    const requests = ["Первое", "Второе", "Третье", "Четвёртое", "Пятое"];
+    const outcome = generatedOutcome();
+    if (outcome.status !== "generated") {
+      throw new Error("Ожидался generated outcome");
+    }
+    outcome.result.body = [
+      "Описанная проблема требует проверки.",
+      COMMON_LEGAL_BASIS_BLOCK,
+      ["Прошу:", ...requests.map((request, index) => `${String(index + 1)}. ${request}`)].join(
+        "\n",
+      ),
+    ].join("\n\n");
+    const writeLine = vi.fn();
+
+    const exitCode = await runLlmSmokeCheck(
+      { generateRequest: vi.fn().mockResolvedValue(outcome) },
+      writeLine,
+      [generatedScenario()],
+    );
+
+    expect(exitCode).toBe(0);
+  });
+
   it.each([
     ["без нормативного блока", GENERATED_REQUEST_BODY],
     [
