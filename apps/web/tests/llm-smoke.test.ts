@@ -69,7 +69,9 @@ describe("runLlmSmokeCheck", () => {
       const scenario = scenarios.find((candidate) => candidate.input === input);
       return scenario?.expectedOutcome === "multiple_issues"
         ? ({ status: "multiple_issues" } as const)
-        : generatedOutcome();
+        : generatedOutcome(
+            scenario?.expectWarning ? ["Проверьте место перед подачей заявки."] : [],
+          );
     });
     const writeLine = vi.fn();
 

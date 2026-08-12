@@ -7,6 +7,12 @@ export type ScenarioCategory =
   | "desired_actions"
   | "all_fields"
   | "emotional_description"
+  | "wording_normalization"
+  | "minimum_sufficient_requests"
+  | "simple_defect"
+  | "location_preservation"
+  | "conflicting_location"
+  | "compatible_location"
   | "multiple_unrelated_issues";
 
 type TestScenarioBase = {
@@ -143,6 +149,94 @@ export const scenarios: TestScenario[] = [
       "возрастные, медицинские или социальные категории жильцов",
       "требования сообщить сроки ремонта, предоставить ответ или отчитаться о работах",
     ],
+    expectWarning: false,
+  },
+  {
+    id: "wording-normalization",
+    category: "wording_normalization",
+    expectedOutcome: "generated",
+    input: {
+      description: "дверь в помещение общего пользования не закрывается до конца надо исправить",
+    },
+    mustPreserveFacts: [
+      "дверь в помещении общего пользования не закрывается полностью",
+      "необходимость устранить неисправность",
+    ],
+    mustNotInvent: ["причина неисправности", "последствия неисправности", "срок выполнения работ"],
+    expectWarning: false,
+  },
+  {
+    id: "minimum-sufficient-requests",
+    category: "minimum_sufficient_requests",
+    expectedOutcome: "generated",
+    input: {
+      description:
+        "Дверь общего пользования не закрывается полностью. Причина неизвестна и требует осмотра.",
+    },
+    mustPreserveFacts: [
+      "дверь общего пользования не закрывается полностью",
+      "необходимость осмотра для установления причины",
+      "устранение выявленной неисправности",
+      "функциональная проверка нормального закрывания после работ",
+    ],
+    mustNotInvent: ["конкретная причина неисправности", "повреждение доводчика", "срок работ"],
+    expectWarning: false,
+  },
+  {
+    id: "simple-defect",
+    category: "simple_defect",
+    expectedOutcome: "generated",
+    input: {
+      description: "На входной двери отсутствует ручка.",
+    },
+    mustPreserveFacts: ["на входной двери отсутствует ручка", "восстановление дверной ручки"],
+    mustNotInvent: [
+      "причина отсутствия ручки",
+      "неисправность доводчика",
+      "дополнительная диагностика",
+    ],
+    expectWarning: false,
+  },
+  {
+    id: "location-preservation",
+    category: "location_preservation",
+    expectedOutcome: "generated",
+    input: {
+      description: "Дверь в помещении общего пользования не закрывается полностью.",
+      location: "подъезд 3, этаж 4",
+    },
+    mustPreserveFacts: ["дверь не закрывается полностью", "подъезд 3", "этаж 4"],
+    mustNotInvent: ["причина неисправности", "номер дома", "последствия неисправности"],
+    expectWarning: false,
+  },
+  {
+    id: "conflicting-location",
+    category: "conflicting_location",
+    expectedOutcome: "generated",
+    input: {
+      description:
+        "Дверь в помещении общего пользования во втором подъезде не закрывается полностью.",
+      location: "подъезд 3, этаж 4",
+    },
+    mustPreserveFacts: [
+      "дверь не закрывается полностью",
+      "подъезд 3",
+      "этаж 4",
+      "предупреждение о необходимости проверить место",
+    ],
+    mustNotInvent: ["объединение второго и третьего подъездов", "фактически верное место"],
+    expectWarning: true,
+  },
+  {
+    id: "compatible-location",
+    category: "compatible_location",
+    expectedOutcome: "generated",
+    input: {
+      description: "В третьем подъезде дверь не закрывается полностью.",
+      location: "подъезд 3, этаж 4",
+    },
+    mustPreserveFacts: ["дверь не закрывается полностью", "подъезд 3", "этаж 4"],
+    mustNotInvent: ["конфликт места", "другой подъезд", "причина неисправности"],
     expectWarning: false,
   },
   {
