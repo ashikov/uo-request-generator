@@ -271,6 +271,21 @@ describe("parseRequestDraft", () => {
     expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
   });
 
+  it("не сужает допустимое текстовое содержимое provider-facing черновика", () => {
+    const draft = createDraft({
+      problem:
+        "В описании проблемы приведена фраза «Жилищный кодекс РФ» без отдельной нормативной роли.",
+      impact: null,
+      requests: ["Проверить описание проблемы"],
+    });
+
+    const parsedDraft = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsedDraft);
+
+    expect(parsedDraft).toEqual(draft);
+    expect(formatRequestDraft(parsedDraft).body).toContain(draft.problem);
+  });
+
   it("валидирует черновик с тремя требованиями", () => {
     const draft = createDraft({
       requests: ["Проверить освещение", "Устранить неисправность", "Восстановить освещение"],
