@@ -543,6 +543,72 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     );
   });
 
+  it("требует грамотные законченные формулировки динамических частей", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Формулируй problem, circumstances, impact и verification как грамотные законченные русские предложения",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Начинай их с прописной буквы, используй естественную пунктуацию и подходящий завершающий знак",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не копируй разговорный текст дословно, если его можно нормализовать без изменения фактов",
+    );
+  });
+
+  it("требует конкретные действия без встроенного форматирования", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Каждое требование начинай с прописной буквы и формулируй как грамматически законченное конкретное действие",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не добавляй в requirements нумерацию или префикс «Прошу:»",
+    );
+  });
+
+  it("задаёт минимально достаточный набор требований", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Определяй количество требований по минимально достаточному циклу действий для решения проблемы",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не схлопывай разные необходимые этапы в одно абстрактное требование",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Если из фактов следуют осмотр, устранение неисправности и функциональная проверка после работ, они могут быть отдельными требованиями",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не добавляй осмотр или проверку только ради увеличения количества требований",
+    );
+  });
+
+  it("сохраняет непротиворечивое место и обрабатывает конфликт мест", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Если location непустой и не противоречит description, обязательно сохрани его в problem",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Если location явно противоречит месту в description, используй location в problem как более явное структурированное значение",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не объединяй несовместимые места и не удаляй оба места молча",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "добавь warning с просьбой проверить место перед подачей заявки",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "без названий полей, повторения переданных значений и утверждения, какое место верное",
+    );
+  });
+
+  it("не создаёт предупреждение для совместимого уточнения места", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Более точное location, которое уточняет совместимое место из description, не является конфликтом и не требует warning",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Используй warnings только для фактической неоднозначности или противоречия, которое пользователь должен проверить перед подачей",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не добавляй warning для общих советов, отсутствующих необязательных сведений или неизвестной причины",
+    );
+  });
+
   it("сохраняет multiple_issues без частичного черновика", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("outcome: multiple_issues");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(

@@ -257,6 +257,19 @@ describe("renderPrimaryRequestDraft", () => {
     expect(result.body).not.toContain("\n\n\n");
   });
 
+  it("не нормализует динамические части", () => {
+    const draft = createDraft({
+      problem: "дверь не закрывается полностью",
+      requests: ["устранить неисправность двери"],
+    });
+    const result = renderPrimaryRequestDraft(draft);
+
+    expect(result.body).toContain(draft.problem);
+    expect(result.body).toContain("1. устранить неисправность двери");
+    expect(result.body).not.toContain("Дверь не закрывается полностью.");
+    expect(result.body).not.toContain("1. Устранить неисправность двери.");
+  });
+
   it("переиспользует два нормативных абзаца без URL перед нумерованными требованиями", () => {
     const result = renderPrimaryRequestDraft(detailedEntranceDoorDraft);
 

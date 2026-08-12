@@ -9,6 +9,12 @@ const REQUIRED_CATEGORIES: ScenarioCategory[] = [
   "desired_actions",
   "all_fields",
   "emotional_description",
+  "wording_normalization",
+  "minimum_sufficient_requests",
+  "simple_defect",
+  "location_preservation",
+  "conflicting_location",
+  "compatible_location",
   "multiple_unrelated_issues",
 ];
 
@@ -101,6 +107,30 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
   emotional_description: {
     present: ["description"],
     absent: ["location", "consequences", "desiredActions"],
+  },
+  wording_normalization: {
+    present: ["description"],
+    absent: ["location", "consequences", "desiredActions"],
+  },
+  minimum_sufficient_requests: {
+    present: ["description"],
+    absent: ["location", "consequences", "desiredActions"],
+  },
+  simple_defect: {
+    present: ["description"],
+    absent: ["location", "consequences", "desiredActions"],
+  },
+  location_preservation: {
+    present: ["description", "location"],
+    absent: ["consequences", "desiredActions"],
+  },
+  conflicting_location: {
+    present: ["description", "location"],
+    absent: ["consequences", "desiredActions"],
+  },
+  compatible_location: {
+    present: ["description", "location"],
+    absent: ["consequences", "desiredActions"],
   },
   multiple_unrelated_issues: {
     present: ["description"],
