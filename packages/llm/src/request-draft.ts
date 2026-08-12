@@ -1,16 +1,15 @@
 import {
+  COMMON_LEGAL_BASIS_BLOCK,
   generateRequestLimits,
-  generateRequestResultSchema,
+  renderPrimaryRequestDraft,
   type GenerateRequestResult,
+  type PrimaryRequestDraft,
 } from "@uo-request-generator/core";
 import { z } from "zod";
 
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
 const REQUEST_BODY_SECTION_SEPARATOR = "\n\n";
-export const COMMON_LEGAL_BASIS_BLOCK = [
-  "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.",
-  "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.",
-].join("\n\n");
+export { COMMON_LEGAL_BASIS_BLOCK };
 
 export const requestDraftLimits = {
   titleMax: generateRequestLimits.result.titleMax,
@@ -160,14 +159,6 @@ function buildGeneratedRequestBody(draft: RequestDraftBodyParts): string {
   return [...buildIntroBlocks(draft), buildRequestBlock(draft.requests)].join(
     REQUEST_BODY_SECTION_SEPARATOR,
   );
-}
-
-function buildRequestBody(draft: RequestDraftBodyParts): string {
-  return [
-    ...buildIntroBlocks(draft),
-    COMMON_LEGAL_BASIS_BLOCK,
-    buildRequestBlock(draft.requests),
-  ].join(REQUEST_BODY_SECTION_SEPARATOR);
 }
 
 const generatedRequestDraftSchema = z
@@ -331,15 +322,21 @@ export function parseRequestDraft(responseText: string): RequestDraft {
 }
 
 export function formatRequestDraft(draft: GeneratedRequestDraft): GenerateRequestResult {
-  const result = generateRequestResultSchema.safeParse({
+  // До #101 adapter сохраняет provider-facing контракт и передаёт старые роли
+  // новому renderer без заполнения отсутствующих обстоятельств.
+  const primaryRequestDraft = {
     title: draft.title,
-    body: buildRequestBody(draft),
+    problem: draft.problem,
+    circumstances: null,
+    impact: draft.impact,
+    verification: null,
+    requests: draft.requests,
     warnings: draft.warnings,
-  });
+  } satisfies PrimaryRequestDraft;
 
-  if (!result.success) {
+  try {
+    return renderPrimaryRequestDraft(primaryRequestDraft);
+  } catch {
     throw invalidResponseError();
   }
-
-  return result.data;
 }
