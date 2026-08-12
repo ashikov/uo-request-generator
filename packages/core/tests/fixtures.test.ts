@@ -81,6 +81,67 @@ describe("test scenario fixtures", () => {
       expect(scenario.expectedOutcome).toBe("multiple_issues");
     }
   });
+
+  it("покрывает безопасное смысловое и процедурное обогащение без роста набора", () => {
+    expect(scenarios).toHaveLength(13);
+
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+    const lighting = byId.get("only-description");
+    const door = byId.get("wording-normalization");
+    const explicitRisk = byId.get("consequences");
+    const procedural = byId.get("minimum-sufficient-requests");
+    const simpleDefect = byId.get("simple-defect");
+
+    for (const scenario of [lighting, door, explicitRisk, procedural, simpleDefect]) {
+      expect(scenario?.expectedOutcome).toBe("generated");
+    }
+
+    if (
+      lighting?.expectedOutcome !== "generated" ||
+      door?.expectedOutcome !== "generated" ||
+      explicitRisk?.expectedOutcome !== "generated" ||
+      procedural?.expectedOutcome !== "generated" ||
+      simpleDefect?.expectedOutcome !== "generated"
+    ) {
+      throw new Error("Ожидались generated-сценарии смыслового обогащения");
+    }
+
+    expect(lighting.mustPreserveFacts).toContain(
+      "отсутствие освещения затрудняет безопасное пользование лестничной площадкой",
+    );
+    expect(lighting.mustNotInvent).toEqual(
+      expect.arrayContaining(["факт падения", "факт травмы", "угроза жизни"]),
+    );
+
+    expect(door.mustPreserveFacts).toEqual(
+      expect.arrayContaining([
+        "риск несанкционированного доступа",
+        "установление необходимой для ремонта причины",
+        "проверка нормального открывания и закрывания после работ",
+      ]),
+    );
+    expect(door.mustNotInvent).toEqual(
+      expect.arrayContaining(["неисправность доводчика", "уже произошедшая кража"]),
+    );
+
+    expect(explicitRisk.mustPreserveFacts).toContain("явно переданный риск утраты имущества");
+    expect(explicitRisk.mustNotInvent).toContain("утверждение, что имущество уже утрачено");
+
+    expect(procedural.mustPreserveFacts).toEqual(
+      expect.arrayContaining([
+        "установление источника поступления воды",
+        "устранение причины протечки",
+        "проверка прекращения поступления воды после работ",
+      ]),
+    );
+    expect(procedural.mustNotInvent).toEqual(
+      expect.arrayContaining(["крыша как источник протечки", "труба как источник протечки"]),
+    );
+
+    expect(simpleDefect.mustNotInvent).toEqual(
+      expect.arrayContaining(["необоснованное практическое значение или риск"]),
+    );
+  });
 });
 
 const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] }> = {
