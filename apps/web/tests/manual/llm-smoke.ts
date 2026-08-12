@@ -5,6 +5,7 @@ import {
   type GenerateRequestResult,
   generateRequestResultSchema,
   type LlmGateway,
+  primaryRequestDraftLimits,
 } from "@uo-request-generator/core";
 import {
   COMMON_LEGAL_BASIS_BLOCK,
@@ -14,7 +15,7 @@ import {
 import { scenarios, type TestScenario } from "../../../../packages/core/tests/fixtures.js";
 import { createLlmGateway } from "../../src/llm-config.js";
 
-const MAX_REQUESTS = 3;
+const MAX_REQUESTS = primaryRequestDraftLimits.requests.max;
 
 type WriteLine = (message: string) => void;
 

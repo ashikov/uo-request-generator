@@ -1,10 +1,14 @@
-import { generateRequestLimits } from "@uo-request-generator/core";
-import { describe, expect, it } from "vitest";
 import {
   COMMON_LEGAL_BASIS_BLOCK,
-  formatRequestDraft,
+  generateRequestLimits,
+  primaryRequestDraftLimits,
+  renderPrimaryRequestDraft,
+  type PrimaryRequestDraft,
+} from "@uo-request-generator/core";
+import { describe, expect, it } from "vitest";
+import {
   parseRequestDraft,
-  requestDraftLimits,
+  REQUEST_DRAFT_DYNAMIC_BODY_MAX,
   REQUEST_DRAFT_JSON_SCHEMA,
   REQUEST_DRAFT_SYSTEM_PROMPT,
   type GeneratedRequestDraft,
@@ -12,32 +16,31 @@ import {
 } from "../src/request-draft.js";
 
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
-const HOUSING_CODE_URL =
-  "https://www.consultant.ru/document/cons_doc_LAW_51057/71c7149b7b2a7693ca3f88b93580da0a5376e041/";
-const MANAGEMENT_RULES_URL =
-  "https://www.consultant.ru/document/cons_doc_LAW_146444/b045a68db61f55f3f407349ed4dfd788833df145/";
-const HOUSING_CODE_BASIS =
-  "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.";
-const MANAGEMENT_RULES_BASIS =
-  "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
-const COMMON_LEGAL_BASIS_LINES = [HOUSING_CODE_BASIS, MANAGEMENT_RULES_BASIS] as const;
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
     outcome: "generated",
     title: "Не работает освещение",
     problem: "В общем коридоре не работает освещение уже несколько дней.",
+    circumstances: null,
     impact: "В тёмное время суток проход по коридору затруднён.",
+    verification: null,
     requests: ["Проверить освещение", "Устранить неисправность"],
     warnings: [],
     ...overrides,
   };
 }
 
-function createRawDraft(overrides: Record<string, unknown>): Record<string, unknown> {
+function createMultipleIssuesDraft(): Extract<RequestDraft, { outcome: "multiple_issues" }> {
   return {
-    ...createDraft(),
-    ...overrides,
+    outcome: "multiple_issues",
+    title: null,
+    problem: null,
+    circumstances: null,
+    impact: null,
+    verification: null,
+    requests: [],
+    warnings: [],
   };
 }
 
@@ -45,23 +48,8 @@ function serializeDraft(draft: unknown): string {
   return JSON.stringify({ draft });
 }
 
-function expectInvalidResponse(responseText: string): void {
-  expect(() => parseRequestDraft(responseText)).toThrow(INVALID_RESPONSE_MESSAGE);
-}
-
-function createDraftAtBodyLength(bodyLength: number): GeneratedRequestDraft {
-  const fixedDraft = createDraft({
-    problem: "а",
-    impact: "б",
-    requests: ["Проверить освещение"],
-  });
-  const fixedBodyLength = formatRequestDraft(fixedDraft).body.length;
-
-  return createDraft({
-    problem: "а".repeat(bodyLength - fixedBodyLength + 1),
-    impact: fixedDraft.impact,
-    requests: fixedDraft.requests,
-  });
+function expectInvalidResponse(draft: unknown): void {
+  expect(() => parseRequestDraft(serializeDraft(draft))).toThrow(INVALID_RESPONSE_MESSAGE);
 }
 
 function expectGeneratedDraft(draft: RequestDraft): asserts draft is GeneratedRequestDraft {
@@ -71,35 +59,130 @@ function expectGeneratedDraft(draft: RequestDraft): asserts draft is GeneratedRe
   }
 }
 
-describe("parseRequestDraft", () => {
-  it("разделяет исходы во вложенных ветках провайдерской схемы", () => {
+function toPrimaryRequestDraft(draft: GeneratedRequestDraft): PrimaryRequestDraft {
+  const { outcome: _outcome, ...primaryRequestDraft } = draft;
+  return primaryRequestDraft;
+}
+
+function renderGeneratedDraft(draft: GeneratedRequestDraft) {
+  return renderPrimaryRequestDraft(toPrimaryRequestDraft(draft));
+}
+
+function createDraftAtBodyLength(bodyLength: number): GeneratedRequestDraft {
+  const fixedDraft = createDraft({
+    problem: "а",
+    circumstances: null,
+    impact: null,
+    verification: null,
+    requests: ["б"],
+  });
+  const fixedBodyLength = renderGeneratedDraft(fixedDraft).body.length;
+
+  return createDraft({
+    problem: "а".repeat(bodyLength - fixedBodyLength + 1),
+    circumstances: null,
+    impact: null,
+    verification: null,
+    requests: fixedDraft.requests,
+  });
+}
+
+describe("provider-facing RequestDraft", () => {
+  it("задаёт строгую generated-ветку по полям и лимитам PrimaryRequestDraft", () => {
+    const generatedSchema = REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[0];
+
+    expect(generatedSchema.additionalProperties).toBe(false);
+    expect(generatedSchema.required).toEqual([
+      "outcome",
+      "title",
+      "problem",
+      "circumstances",
+      "impact",
+      "verification",
+      "requests",
+      "warnings",
+    ]);
+    expect(generatedSchema.properties).toEqual({
+      outcome: { type: "string", enum: ["generated"] },
+      title: {
+        type: "string",
+        minLength: 1,
+        maxLength: primaryRequestDraftLimits.title.max,
+      },
+      problem: {
+        type: "string",
+        minLength: 1,
+        maxLength: primaryRequestDraftLimits.problem.max,
+      },
+      circumstances: {
+        type: ["string", "null"],
+        minLength: 1,
+        maxLength: primaryRequestDraftLimits.circumstances.max,
+      },
+      impact: {
+        type: ["string", "null"],
+        minLength: 1,
+        maxLength: primaryRequestDraftLimits.impact.max,
+      },
+      verification: {
+        type: ["string", "null"],
+        minLength: 1,
+        maxLength: primaryRequestDraftLimits.verification.max,
+      },
+      requests: {
+        type: "array",
+        minItems: primaryRequestDraftLimits.requests.min,
+        maxItems: primaryRequestDraftLimits.requests.max,
+        items: {
+          type: "string",
+          minLength: 1,
+          maxLength: primaryRequestDraftLimits.request.max,
+        },
+      },
+      warnings: {
+        type: "array",
+        maxItems: primaryRequestDraftLimits.warnings.max,
+        items: {
+          type: "string",
+          minLength: 1,
+          maxLength: primaryRequestDraftLimits.warning.max,
+        },
+      },
+    });
+  });
+
+  it("задаёт строгую multiple_issues-ветку без частичного черновика", () => {
+    const multipleIssuesSchema = REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[1];
+
+    expect(multipleIssuesSchema.additionalProperties).toBe(false);
+    expect(multipleIssuesSchema.required).toEqual([
+      "outcome",
+      "title",
+      "problem",
+      "circumstances",
+      "impact",
+      "verification",
+      "requests",
+      "warnings",
+    ]);
+    expect(multipleIssuesSchema.properties).toEqual({
+      outcome: { type: "string", enum: ["multiple_issues"] },
+      title: { type: "null" },
+      problem: { type: "null" },
+      circumstances: { type: "null" },
+      impact: { type: "null" },
+      verification: { type: "null" },
+      requests: { type: "array", maxItems: 0, items: { type: "string" } },
+      warnings: { type: "array", maxItems: 0, items: { type: "string" } },
+    });
+  });
+
+  it("оставляет корневую оболочку строгой", () => {
     expect(REQUEST_DRAFT_JSON_SCHEMA).toEqual({
       type: "object",
       properties: {
         draft: {
-          anyOf: [
-            expect.objectContaining({
-              type: "object",
-              properties: expect.objectContaining({
-                outcome: { type: "string", enum: ["generated"] },
-                title: expect.objectContaining({ type: "string" }),
-                requests: expect.objectContaining({ minItems: 1 }),
-              }),
-              additionalProperties: false,
-            }),
-            expect.objectContaining({
-              type: "object",
-              properties: expect.objectContaining({
-                outcome: { type: "string", enum: ["multiple_issues"] },
-                title: { type: "null" },
-                problem: { type: "null" },
-                impact: { type: "null" },
-                requests: expect.objectContaining({ maxItems: 0 }),
-                warnings: expect.objectContaining({ maxItems: 0 }),
-              }),
-              additionalProperties: false,
-            }),
-          ],
+          anyOf: expect.any(Array),
         },
       },
       required: ["draft"],
@@ -107,536 +190,371 @@ describe("parseRequestDraft", () => {
     });
   });
 
-  it("описывает в prompt оба исхода и доступный лимит генерируемой части body", () => {
-    expect(
-      requestDraftLimits.generatedBodyMax + "\n\n".length + COMMON_LEGAL_BASIS_BLOCK.length,
-    ).toBe(generateRequestLimits.result.bodyMax);
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      `body должен содержать не более ${requestDraftLimits.generatedBodyMax} символов`,
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('outcome: "generated"');
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('outcome: "multiple_issues"');
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain('"draft": {');
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Протечка крыши");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Сломанные качели");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("старый диван");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Все строковые поля должны быть однострочными");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Последствия и действия учитывай только если пользователь передал их явно",
-    );
-  });
-
-  it("задаёт отдельную смысловую роль каждому полю generated-черновика", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("problem — только неисправность");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("impact — только явно переданные последствия");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("requests — желаемые действия");
-  });
-
-  it("не передаёт нормативные основания и ссылки в prompt или Structured Output", () => {
-    const structuredOutput = JSON.stringify(REQUEST_DRAFT_JSON_SCHEMA);
+  it("не содержит нормативной роли, законодательства, URL или готового body", () => {
+    const schemaText = JSON.stringify(REQUEST_DRAFT_JSON_SCHEMA);
 
     for (const forbiddenFragment of [
-      "Жилищного кодекса",
-      "постановлением Правительства",
-      "Общие нормативные основания:",
+      "legalBasis",
+      "legalReferences",
+      "law",
+      "body",
+      "Жилищн",
+      "Правительств",
       "http://",
       "https://",
-      HOUSING_CODE_URL,
-      MANAGEMENT_RULES_URL,
-      HOUSING_CODE_BASIS,
-      MANAGEMENT_RULES_BASIS,
+      COMMON_LEGAL_BASIS_BLOCK,
     ]) {
-      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(forbiddenFragment);
-      expect(structuredOutput).not.toContain(forbiddenFragment);
+      expect(schemaText).not.toContain(forbiddenFragment);
     }
   });
 
-  it("описывает JSON-вход с четырьмя исходными полями", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Сообщение пользователя содержит один JSON-объект",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "description, location, consequences и desiredActions",
-    );
-  });
-
-  it("считает description свободным описанием, а не готовым problem", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "description — свободный пользовательский текст, а не готовое значение problem",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("содержимое description классифицируй по смыслу");
-  });
-
-  it("выводит пересекающееся последствие один раз в impact", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Сведения из consequences, повторённые в description, выведи один раз в impact и исключи из problem",
-    );
-  });
-
-  it("не считает наблюдаемую причину и связанное последствие дубликатами", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не считай наблюдаемую причину и связанное с ней последствие дубликатами",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "сохрани причину в problem, а последствие в impact",
-    );
-  });
-
-  it("назначает каждый смысловой факт только одному полю черновика", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Каждый смысловой факт помещай ровно в одно из полей problem, impact или requests",
-    );
-  });
-
-  it("не переносит практические последствия и неудобства в problem", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("impact — только явно переданные последствия");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не переноси их в problem");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Если одна фраза содержит неисправность и последствие, раздели её на непересекающиеся факты для problem и impact",
-    );
-  });
-
-  it("не повторяет факт из impact в problem", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "problem, impact и requests не дублируют смысл друг друга буквально или перефразированно",
-    );
-  });
-
-  it("требует проверить смысловое дублирование перед возвратом JSON", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Перед возвратом JSON проверь");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "problem, impact и requests не дублируют смысл друг друга",
-    );
-  });
-
-  it("оставляет желаемые действия только в requests", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Сведения из desiredActions, повторённые в description, выведи один раз в requests и исключи из problem и impact",
-    );
-  });
-
-  it("запрещает выводить неподтверждённые категории людей", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "не выводи новые факты, состояния или категории людей из косвенных признаков",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не превращай факт о конкретном человеке в возрастную, медицинскую или социальную категорию",
-    );
-  });
-
-  it("сохраняет конкретные сведения о человеке, месте и обстоятельствах", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Сохраняй в impact конкретного человека или пользователя, отношение к нему, место, обстоятельства и названное затруднение",
-    );
-  });
-
-  it("не заменяет конкретного человека или пользователя группой людей", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не заменяй конкретного человека или самого пользователя группой людей и не меняй единственное число на множественное",
-    );
-  });
-
-  it("ставит сохранение конкретных фактов выше компактности", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Сохранение конкретных фактов важнее краткости");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не обобщай и не заменяй факты");
-  });
-
-  it("не меняет конкретные факты при нормализации эмоционального ввода", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Нормализуя эмоции, не меняй субъект, число людей, место или названное затруднение",
-    );
-  });
-
-  it("запрещает добавлять коммуникационные требования без явного основания", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Без явного основания не добавляй требования сообщить сроки, предоставить письменный ответ или отчитаться о работах",
-    );
-  });
-
-  it("валидирует черновик с impact и несколькими предупреждениями", () => {
+  it("валидирует подробный provider-facing черновик входной двери и renderer сохраняет роли", () => {
     const draft = createDraft({
-      warnings: ["Не указана причина неисправности", "Неизвестен точный срок возникновения"],
+      title: "Отсутствует ручка входной двери",
+      problem: "У входной двери подъезда полностью отсутствует ручка.",
+      circumstances: "Дверь оставляют открытой и фиксируют ограничителем.",
+      impact:
+        "Такой способ эксплуатации создаёт риск дополнительной нагрузки на доводчик и крепления.",
+      verification: "Необходимо проверить состояние доводчика и креплений двери.",
+      requests: [
+        "Восстановить ручку и обеспечить её надёжное крепление",
+        "Проверить доводчик и крепления двери",
+        "Устранить выявленные при проверке повреждения",
+        "Выполнить функциональную проверку двери после ремонта",
+      ],
     });
 
-    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
+    const parsed = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsed);
+    const result = renderGeneratedDraft(parsed);
+
+    expect(parsed).toEqual(draft);
+    expect(result.body).toContain(draft.problem);
+    expect(result.body).toContain(draft.circumstances);
+    expect(result.body).toContain(draft.impact);
+    expect(result.body).toContain(draft.verification);
+    expect(result.body).not.toContain("доводчик повреждён");
   });
 
-  it("валидирует черновик с impact null, одним требованием и пустыми warnings", () => {
+  it("не добавляет отсутствующие подробности в минимальный черновик входной двери", () => {
     const draft = createDraft({
+      title: "Отсутствует ручка входной двери",
+      problem: "У входной двери подъезда отсутствует ручка.",
+      circumstances: null,
       impact: null,
-      requests: ["Восстановить освещение"],
-      warnings: [],
+      verification: null,
+      requests: ["Восстановить ручку входной двери"],
     });
 
-    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
+    const parsed = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsed);
+    const result = renderGeneratedDraft(parsed);
+
+    expect(parsed.circumstances).toBeNull();
+    expect(parsed.impact).toBeNull();
+    expect(parsed.verification).toBeNull();
+    for (const absentFact of ["открыт", "ограничител", "нагруз", "доводчик", "поврежд"]) {
+      expect(result.body.toLocaleLowerCase("ru")).not.toContain(absentFact);
+    }
   });
 
-  it("не сужает допустимое текстовое содержимое provider-facing черновика", () => {
+  it("сохраняет предполагаемую причину только как предмет проверки", () => {
     const draft = createDraft({
-      problem:
-        "В описании проблемы приведена фраза «Жилищный кодекс РФ» без отдельной нормативной роли.",
+      problem: "Входная дверь закрывается не полностью.",
+      circumstances: null,
       impact: null,
-      requests: ["Проверить описание проблемы"],
+      verification: "Необходимо проверить предполагаемую неисправность доводчика.",
+      requests: ["Проверить доводчик и устранить выявленную неисправность"],
     });
 
-    const parsedDraft = parseRequestDraft(serializeDraft(draft));
-    expectGeneratedDraft(parsedDraft);
+    const parsed = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsed);
 
-    expect(parsedDraft).toEqual(draft);
-    expect(formatRequestDraft(parsedDraft).body).toContain(draft.problem);
+    expect(parsed.problem).not.toContain("неисправность доводчика");
+    expect(parsed.verification).toContain("предполагаемую неисправность доводчика");
+    expect(renderGeneratedDraft(parsed).body).toContain(parsed.verification);
   });
 
-  it("валидирует черновик с тремя требованиями", () => {
+  it("сохраняет явный риск в impact без утверждения наступившего повреждения", () => {
     const draft = createDraft({
-      requests: ["Проверить освещение", "Устранить неисправность", "Восстановить освещение"],
+      problem: "Входную дверь приходится удерживать вручную.",
+      circumstances: null,
+      impact: "Это создаёт риск повреждения креплений двери.",
+      verification: null,
+      requests: ["Проверить и восстановить работу двери"],
     });
+
+    const parsed = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsed);
+
+    expect(parsed.impact).toContain("риск повреждения");
+    expect(parsed.impact).not.toContain("крепления повреждены");
+  });
+
+  it("оставляет impact null при отсутствии последствий и рисков", () => {
+    const draft = createDraft({ impact: null });
 
     expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
   });
 
-  it("удаляет только незначащие пробелы по краям строк", () => {
+  it("принимает от одного до пяти требований", () => {
+    for (const requests of [
+      ["Устранить неисправность"],
+      ["Первое", "Второе", "Третье", "Четвёртое", "Пятое"],
+    ]) {
+      expect(parseRequestDraft(serializeDraft(createDraft({ requests })))).toEqual(
+        createDraft({ requests }),
+      );
+    }
+  });
+
+  it("отклоняет шестое требование без усечения", () => {
+    expectInvalidResponse(
+      createDraft({ requests: ["Первое", "Второе", "Третье", "Четвёртое", "Пятое", "Шестое"] }),
+    );
+  });
+
+  it("валидирует multiple_issues только с безопасными пустыми значениями", () => {
+    const draft = createMultipleIssuesDraft();
+
+    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
+    expectInvalidResponse({ ...draft, verification: "Проверить причину" });
+    expectInvalidResponse({ ...draft, requests: ["Устранить первую проблему"] });
+  });
+
+  it.each([
+    ["title", "title", primaryRequestDraftLimits.title.max],
+    ["problem", "problem", primaryRequestDraftLimits.problem.max],
+    ["circumstances", "circumstances", primaryRequestDraftLimits.circumstances.max],
+    ["impact", "impact", primaryRequestDraftLimits.impact.max],
+    ["verification", "verification", primaryRequestDraftLimits.verification.max],
+  ] as const)("проверяет точную границу поля %s и превышение", (_caseName, field, max) => {
+    const exactDraft = createDraft({
+      problem: "а",
+      impact: null,
+      requests: ["в"],
+      [field]: "б".repeat(max),
+    });
+    const tooLongDraft = createDraft({
+      problem: "а",
+      impact: null,
+      requests: ["в"],
+      [field]: "б".repeat(max + 1),
+    });
+
+    expect(parseRequestDraft(serializeDraft(exactDraft))).toEqual(exactDraft);
+    expectInvalidResponse(tooLongDraft);
+  });
+
+  it("проверяет границы элементов requests и warnings", () => {
+    const exactDraft = createDraft({
+      problem: "а",
+      impact: null,
+      requests: ["б".repeat(primaryRequestDraftLimits.request.max)],
+      warnings: ["в".repeat(primaryRequestDraftLimits.warning.max)],
+    });
+
+    expect(parseRequestDraft(serializeDraft(exactDraft))).toEqual(exactDraft);
+    expectInvalidResponse(
+      createDraft({ requests: ["б".repeat(primaryRequestDraftLimits.request.max + 1)] }),
+    );
+    expectInvalidResponse(
+      createDraft({ warnings: ["в".repeat(primaryRequestDraftLimits.warning.max + 1)] }),
+    );
+    expectInvalidResponse(
+      createDraft({
+        warnings: Array.from(
+          { length: primaryRequestDraftLimits.warnings.max + 1 },
+          (_, index) => `Предупреждение ${String(index + 1)}`,
+        ),
+      }),
+    );
+  });
+
+  it("проверяет точный итоговый лимит body и превышение на один символ", () => {
+    const exactDraft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
+    const parsed = parseRequestDraft(serializeDraft(exactDraft));
+    expectGeneratedDraft(parsed);
+
+    expect(renderGeneratedDraft(parsed).body).toHaveLength(generateRequestLimits.result.bodyMax);
+    expectInvalidResponse(createDraftAtBodyLength(generateRequestLimits.result.bodyMax + 1));
+  });
+
+  it("отклоняет невалидный JSON, лишние поля и неверную ветку outcome", () => {
+    expect(() => parseRequestDraft('{"draft":')).toThrow(INVALID_RESPONSE_MESSAGE);
+    expectInvalidResponse({ ...createDraft(), body: "Готовый текст" });
+    expect(() =>
+      parseRequestDraft(JSON.stringify({ draft: createDraft(), explanation: "Лишнее поле" })),
+    ).toThrow(INVALID_RESPONSE_MESSAGE);
+    expectInvalidResponse({ ...createDraft(), outcome: "unknown" });
+  });
+
+  it("отклоняет отсутствие каждого обязательного поля", () => {
+    for (const field of [
+      "outcome",
+      "title",
+      "problem",
+      "circumstances",
+      "impact",
+      "verification",
+      "requests",
+      "warnings",
+    ] as const) {
+      const draft: Record<string, unknown> = { ...createDraft() };
+      delete draft[field];
+      expectInvalidResponse(draft);
+    }
+  });
+
+  it("нормализует края строк, но отклоняет переводы строк и префикс «Прошу:»", () => {
     const parsed = parseRequestDraft(
-      serializeDraft({
-        outcome: "generated",
-        title: "  Не работает освещение  ",
-        problem: "  В общем коридоре не работает освещение.  ",
-        impact: "  Проход по коридору затруднён.  ",
-        requests: ["  Восстановить освещение  "],
-        warnings: ["  Неизвестна причина неисправности  "],
-      }),
-    );
-
-    expect(parsed).toEqual({
-      outcome: "generated",
-      title: "Не работает освещение",
-      problem: "В общем коридоре не работает освещение.",
-      impact: "Проход по коридору затруднён.",
-      requests: ["Восстановить освещение"],
-      warnings: ["Неизвестна причина неисправности"],
-    });
-  });
-
-  it.each([
-    ["title", { title: "Не работает\nосвещение" }],
-    ["problem", { problem: "Не работает\r\nосвещение" }],
-    ["impact", { impact: "Проход затруднён\nвечером" }],
-    ["элемент requests", { requests: ["Проверить освещение\r"] }],
-    ["элемент warnings", { warnings: ["Не указано место\n"] }],
-  ])("отклоняет перевод строки в поле %s", (_caseName, overrides) => {
-    expectInvalidResponse(serializeDraft(createDraft(overrides)));
-  });
-
-  it.each([
-    ["обычным регистром", "Прошу: проверить освещение"],
-    ["смешанным регистром и пробелом перед двоеточием", "пРоШу : проверить освещение"],
-    ["пробелами перед префиксом", "  Прошу: проверить освещение"],
-  ])("отклоняет требование с префиксом «Прошу:» %s", (_caseName, request) => {
-    expectInvalidResponse(serializeDraft(createDraft({ requests: [request] })));
-  });
-
-  it("принимает однострочное требование без форматирующего префикса", () => {
-    const draft = createDraft({ requests: ["Проверить освещение"] });
-
-    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
-  });
-
-  it("не отклоняет обычное употребление слова «прошу» без форматирующего префикса", () => {
-    const draft = createDraft({ requests: ["Пожалуйста, прошу проверить освещение"] });
-
-    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
-  });
-
-  it.each([
-    ["синтаксически невалидный JSON", '{"title":'],
-    [
-      "JSON в Markdown code fence",
-      `\`\`\`json
-${serializeDraft(createDraft())}
-\`\`\``,
-    ],
-    ["текст перед JSON", `Черновик:\n${serializeDraft(createDraft())}`],
-    ["текст после JSON", `${serializeDraft(createDraft())}\nГотово`],
-  ])("отклоняет %s", (_caseName, responseText) => {
-    expectInvalidResponse(responseText);
-  });
-
-  it.each([
-    "outcome",
-    "title",
-    "problem",
-    "impact",
-    "requests",
-    "warnings",
-  ] as const)("отклоняет черновик без обязательного поля %s", (field) => {
-    const draft: Record<string, unknown> = { ...createDraft() };
-    delete draft[field];
-
-    expectInvalidResponse(serializeDraft(draft));
-  });
-
-  it("отклоняет лишнее поле", () => {
-    expectInvalidResponse(
-      serializeDraft({
-        ...createDraft(),
-        explanation: "Дополнительное пояснение",
-      }),
-    );
-  });
-
-  it("отклоняет черновик без корневого поля draft", () => {
-    expectInvalidResponse(JSON.stringify(createDraft()));
-  });
-
-  it("отклоняет лишнее поле рядом с draft", () => {
-    expectInvalidResponse(
-      JSON.stringify({ draft: createDraft(), explanation: "Дополнительное пояснение" }),
-    );
-  });
-
-  it("валидирует исход multiple_issues без данных готовой заявки", () => {
-    const response = {
-      outcome: "multiple_issues",
-      title: null,
-      problem: null,
-      impact: null,
-      requests: [],
-      warnings: [],
-    } satisfies RequestDraft;
-
-    expect(parseRequestDraft(serializeDraft(response))).toEqual(response);
-  });
-
-  it.each([
-    ["title", { title: "Сломаны качели" }],
-    ["problem", { problem: "На площадке сломаны качели." }],
-    ["impact", { impact: "Торчат острые болты." }],
-    ["requests", { requests: ["Починить качели"] }],
-    ["warnings", { warnings: ["Во вводе несколько проблем"] }],
-  ])("отклоняет multiple_issues с непустым полем %s", (_caseName, field) => {
-    expectInvalidResponse(
-      serializeDraft({
-        outcome: "multiple_issues",
-        title: null,
-        problem: null,
-        impact: null,
-        requests: [],
-        warnings: [],
-        ...field,
-      }),
-    );
-  });
-
-  it("отклоняет generated без обязательных данных заявки", () => {
-    expectInvalidResponse(
-      serializeDraft({
-        outcome: "generated",
-        title: null,
-        problem: null,
-        impact: null,
-        requests: [],
-        warnings: [],
-      }),
-    );
-  });
-
-  it("отклоняет неизвестный outcome", () => {
-    expectInvalidResponse(serializeDraft({ ...createDraft(), outcome: "unknown" }));
-  });
-
-  it.each([
-    ["title", { title: "" }],
-    ["title из пробелов", { title: "   " }],
-    ["problem", { problem: "" }],
-    ["problem из пробелов", { problem: "   " }],
-    ["impact", { impact: "" }],
-    ["impact из пробелов", { impact: "   " }],
-    ["элемент requests", { requests: [""] }],
-    ["элемент requests из пробелов", { requests: ["   "] }],
-    ["элемент warnings", { warnings: [""] }],
-  ])("отклоняет пустое значение %s", (_caseName, overrides) => {
-    expectInvalidResponse(serializeDraft(createDraft(overrides)));
-  });
-
-  it.each([
-    ["title", { title: "а".repeat(requestDraftLimits.titleMax + 1) }],
-    ["problem", { problem: "а".repeat(requestDraftLimits.problemMax + 1) }],
-    ["impact", { impact: "а".repeat(requestDraftLimits.impactMax + 1) }],
-    ["элемент requests", { requests: ["а".repeat(requestDraftLimits.requestMax + 1)] }],
-    ["элемент warnings", { warnings: ["а".repeat(requestDraftLimits.warningMax + 1)] }],
-  ])("отклоняет слишком длинное значение %s", (_caseName, overrides) => {
-    expectInvalidResponse(serializeDraft(createDraft(overrides)));
-  });
-
-  it("отклоняет пустой массив requests", () => {
-    expectInvalidResponse(serializeDraft(createDraft({ requests: [] })));
-  });
-
-  it("отклоняет четыре требования", () => {
-    expectInvalidResponse(
       serializeDraft(
         createDraft({
-          requests: ["Первое требование", "Второе требование", "Третье требование", "Четвёртое"],
+          title: "  Не работает освещение  ",
+          problem: "  Не работает освещение.  ",
+          circumstances: "  Свет периодически включается.  ",
+          impact: null,
+          verification: "  Необходимо проверить проводку.  ",
+          requests: ["  Проверить освещение  "],
+          warnings: ["  Не указана длительность  "],
         }),
       ),
     );
-  });
+    expectGeneratedDraft(parsed);
 
-  it("отклоняет слишком много предупреждений", () => {
-    expectInvalidResponse(
-      serializeDraft(
-        createDraft({
-          warnings: Array.from(
-            { length: generateRequestLimits.result.warningsMax + 1 },
-            (_, index) => `Предупреждение ${index + 1}`,
-          ),
-        }),
-      ),
-    );
-  });
-
-  it("отклоняет черновик с допустимыми отдельными полями и слишком длинным body", () => {
-    const draft = createDraft({
-      title: "а".repeat(requestDraftLimits.titleMax),
-      problem: "б".repeat(requestDraftLimits.problemMax),
-      impact: "в".repeat(requestDraftLimits.impactMax),
-      requests: Array.from({ length: requestDraftLimits.requestsMax }, () =>
-        "г".repeat(requestDraftLimits.requestMax),
-      ),
-      warnings: [],
-    });
-
-    expectInvalidResponse(serializeDraft(draft));
-  });
-
-  it("принимает черновик с body ровно на внешнем лимите", () => {
-    const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
-
-    const parsedDraft = parseRequestDraft(serializeDraft(draft));
-    expectGeneratedDraft(parsedDraft);
-    const result = formatRequestDraft(parsedDraft);
-
-    expect(result.body).toHaveLength(generateRequestLimits.result.bodyMax);
-  });
-
-  it("проверяет длину body после нормализации пробелов", () => {
-    const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
-    const parsedDraft = parseRequestDraft(
-      serializeDraft({
-        ...draft,
-        problem: `  ${draft.problem}  `,
-        impact: `  ${draft.impact ?? ""}  `,
-      }),
-    );
-    expectGeneratedDraft(parsedDraft);
-
-    expect(formatRequestDraft(parsedDraft).body).toHaveLength(generateRequestLimits.result.bodyMax);
-  });
-
-  it("отклоняет черновик с body длиннее внешнего лимита на один символ", () => {
-    const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax + 1);
-
-    expectInvalidResponse(serializeDraft(draft));
-  });
-
-  it.each([
-    ["массив вместо draft", []],
-    ["числовой title", createRawDraft({ title: 42 })],
-    ["null в problem", createRawDraft({ problem: null })],
-    ["числовой impact", createRawDraft({ impact: 42 })],
-    ["строку вместо requests", createRawDraft({ requests: "Проверить" })],
-    ["число в requests", createRawDraft({ requests: [42] })],
-    ["null вместо warnings", createRawDraft({ warnings: null })],
-    ["число в warnings", createRawDraft({ warnings: [42] })],
-  ])("отклоняет неверный тип: %s", (_caseName, draft) => {
-    expectInvalidResponse(serializeDraft(draft));
+    expect(parsed.title).toBe("Не работает освещение");
+    expect(parsed.circumstances).toBe("Свет периодически включается.");
+    expect(parsed.verification).toBe("Необходимо проверить проводку.");
+    expect(parsed.requests).toEqual(["Проверить освещение"]);
+    expectInvalidResponse(createDraft({ circumstances: "Условие\nпроявления" }));
+    expectInvalidResponse(createDraft({ requests: ["Прошу: проверить освещение"] }));
   });
 });
 
-describe("formatRequestDraft", () => {
-  it("детерминированно форматирует problem, impact и три требования", () => {
-    const result = formatRequestDraft(
-      createDraft({
-        requests: ["Проверить освещение", "Устранить неисправность", "Восстановить освещение"],
-        warnings: ["Не указана причина неисправности"],
-      }),
+describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
+  it("объясняет семантику отдельных входных полей", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("description — свободное описание ситуации");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("распределяй по смысловым ролям");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("location — отдельно переданное место проблемы");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("учитывай его в problem");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "consequences — отдельно переданные известные последствия или риски",
     );
-
-    expect(result).toEqual({
-      title: "Не работает освещение",
-      body: [
-        "В общем коридоре не работает освещение уже несколько дней.",
-        "",
-        "В тёмное время суток проход по коридору затруднён.",
-        "",
-        COMMON_LEGAL_BASIS_BLOCK,
-        "",
-        "Прошу:",
-        "1. Проверить освещение",
-        "2. Устранить неисправность",
-        "3. Восстановить освещение",
-      ].join("\n"),
-      warnings: ["Не указана причина неисправности"],
-    });
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("учитывай их в impact");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "desiredActions — отдельно переданные желаемые действия",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("учитывай их в requests");
   });
 
-  it("добавляет два общих основания ровно один раз в стабильном порядке перед «Прошу:»", () => {
-    const result = formatRequestDraft(createDraft());
-    const firstBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_LINES[0]);
-    const secondBasisPosition = result.body.indexOf(COMMON_LEGAL_BASIS_LINES[1]);
-    const requestPosition = result.body.indexOf("Прошу:");
-
-    expect(result.body).not.toContain("Общие нормативные основания:");
-    expect(result.body).not.toContain("http://");
-    expect(result.body).not.toContain("https://");
-    expect(result.body.match(new RegExp(COMMON_LEGAL_BASIS_LINES[0], "gu"))).toHaveLength(1);
-    expect(result.body.match(new RegExp(COMMON_LEGAL_BASIS_LINES[1], "gu"))).toHaveLength(1);
-    expect(firstBasisPosition).toBeLessThan(requestPosition);
-    expect(secondBasisPosition).toBeGreaterThan(firstBasisPosition);
-    expect(secondBasisPosition).toBeLessThan(requestPosition);
+  it("не дублирует сведения отдельных полей, уже переданные в description", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Если сведения из location, consequences или desiredActions уже есть в description, выведи их один раз",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не дублируй между смысловыми ролями");
   });
 
-  it("разделяет два нормативных основания пустой строкой", () => {
-    const result = formatRequestDraft(
-      createDraft({ impact: null, requests: ["Восстановить освещение"] }),
+  it("определяет связанную и несколько несвязанных проблем", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Одна связанная проблема может включать несколько признаков, мест проявления, последствий, обстоятельств и желаемых действий",
     );
-
-    expect(result.body).toBe(
-      [
-        "В общем коридоре не работает освещение уже несколько дней.",
-        "",
-        COMMON_LEGAL_BASIS_BLOCK,
-        "",
-        "Прошу:",
-        "1. Восстановить освещение",
-      ].join("\n"),
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "относятся к одному объекту или одной причинно связанной ситуации",
     );
-    expect(COMMON_LEGAL_BASIS_BLOCK).toContain("\n\n");
-    expect(COMMON_LEGAL_BASIS_BLOCK).not.toContain("\n\n\n");
-  });
-
-  it("не создаёт блок impact при null и нумерует одно требование", () => {
-    const result = formatRequestDraft(
-      createDraft({
-        impact: null,
-        requests: ["Восстановить освещение"],
-      }),
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "каждую можно независимо описать и устранить отдельной заявкой",
     );
-
-    expect(result.body).toBe(
-      [
-        "В общем коридоре не работает освещение уже несколько дней.",
-        "",
-        COMMON_LEGAL_BASIS_BLOCK,
-        "",
-        "Прошу:",
-        "1. Восстановить освещение",
-      ].join("\n"),
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не разделяй связанные проявления одной ситуации",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не выбирай одну проблему и не объединяй несколько независимых проблем в одну заявку",
     );
   });
 
-  it("повторно отклоняет итоговый body сверх внешнего лимита", () => {
-    const draft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax + 1);
+  it("требует фактическое основание для verification", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Неизвестная причина сама по себе не требует verification",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Простой непосредственно наблюдаемый дефект без дополнительного основания может иметь verification: null",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Проверяй связанные элементы только при фактическом основании",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не заполняй verification только ради заполнения поля",
+    );
+  });
 
-    expect(() => formatRequestDraft(draft)).toThrow(INVALID_RESPONSE_MESSAGE);
+  it("сообщает вычисляемый агрегатный бюджет динамической части", () => {
+    const sectionSeparator = "\n\n";
+    const expectedDynamicBodyMax =
+      primaryRequestDraftLimits.body.max -
+      COMMON_LEGAL_BASIS_BLOCK.length -
+      sectionSeparator.length * 2;
+
+    expect(REQUEST_DRAFT_DYNAMIC_BODY_MAX).toBe(expectedDynamicBodyMax);
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      `Совокупный текст динамических частей и раздела требований должен содержать не более ${String(REQUEST_DRAFT_DYNAMIC_BODY_MAX)} символов`,
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Сохраняй существенные сведения, но формулируй их компактно",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не заполняй необязательные части общими фразами",
+    );
+  });
+
+  it("описывает роли расширенного черновика и правила пустых частей", () => {
+    for (const field of ["problem", "circumstances", "impact", "verification", "requests"]) {
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(`${field} содержит`);
+    }
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("если их нет, укажи null");
+  });
+
+  it("переводит предположение в предмет проверки без утверждения причины", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Предположение всегда преобразуй в предмет проверки в verification",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("никогда не утверждай как причину");
+  });
+
+  it("различает риск и уже произошедшее повреждение", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Риск повреждения сохраняй как риск в impact");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "никогда не превращай в уже произошедшее повреждение",
+    );
+  });
+
+  it("запрещает домыслы и дублирование смысловых фактов", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Один смысловой факт помещай ровно в одну динамическую роль",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не придумывай причины, обстоятельства, последствия, риски, повреждения, людей, выполненные работы, сроки и требования без основания",
+    );
+  });
+
+  it("задаёт 1–5 требований без искусственного заполнения массива", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("от 1 до 5 непустых строк");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "количество определяется содержанием, не заполняй массив до пяти искусственно",
+    );
+  });
+
+  it("сохраняет multiple_issues без частичного черновика", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("outcome: multiple_issues");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не выбирай одну проблему и не формируй частичный черновик",
+    );
+  });
+
+  it("не поручает модели законодательство или готовый body", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не возвращай готовый body");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не выбирай и не цитируй законодательство");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(COMMON_LEGAL_BASIS_BLOCK);
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain("http://");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain("https://");
   });
 });
