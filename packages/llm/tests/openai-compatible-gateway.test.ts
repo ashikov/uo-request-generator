@@ -24,7 +24,9 @@ const VALID_DRAFT = {
   outcome: "generated",
   title: "Не работает освещение на этаже",
   problem: "На лестничной площадке не горит свет.",
+  circumstances: null,
   impact: null,
+  verification: null,
   requests: ["Проверить и восстановить освещение"],
   warnings: [],
 };
@@ -55,7 +57,9 @@ const MULTIPLE_ISSUES_LLM_TEXT = createLlmText({
   outcome: "multiple_issues",
   title: null,
   problem: null,
+  circumstances: null,
   impact: null,
+  verification: null,
   requests: [],
   warnings: [],
 });
@@ -148,8 +152,9 @@ describe("OpenAiCompatibleGateway", () => {
       },
     });
     expect(callBody.messages[0]?.content).toContain("Верни только один валидный JSON-объект");
-    expect(callBody.messages[0]?.content).toContain('"impact": null');
-    expect(callBody.messages[0]?.content).toContain('"warnings": []');
+    expect(callBody.messages[0]?.content).toContain("circumstances содержит");
+    expect(callBody.messages[0]?.content).toContain("verification содержит");
+    expect(callBody.messages[0]?.content).toContain("warnings: []");
     expect(callBody.messages[0]?.content).toContain("без нумерации");
     expect(JSON.stringify(callBody)).not.toContain(HOUSING_CODE_URL);
     expect(JSON.stringify(callBody)).not.toContain(MANAGEMENT_RULES_URL);
@@ -251,7 +256,9 @@ describe("OpenAiCompatibleGateway", () => {
       outcome: "generated",
       title: "Течь на кухне",
       problem: "На кухне течёт кран.",
+      circumstances: null,
       impact: null,
+      verification: null,
       requests: ["Отремонтировать кран"],
       warnings: ["Пользователь выразил эмоции", "Не указана причина протечки"],
     });
@@ -269,6 +276,39 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.title).toBe("Течь на кухне");
     expect(result.result.body).toContain("Отремонтировать");
     expect(result.result.warnings).toHaveLength(2);
+  });
+
+  it("передаёт расширенный черновик входной двери напрямую в renderer одним вызовом", async () => {
+    const draft = {
+      outcome: "generated",
+      title: "Отсутствует ручка входной двери",
+      problem: "У входной двери подъезда полностью отсутствует ручка.",
+      circumstances: "Дверь оставляют открытой и фиксируют ограничителем.",
+      impact:
+        "Такой способ эксплуатации создаёт риск дополнительной нагрузки на доводчик и крепления.",
+      verification: "Необходимо проверить состояние доводчика и креплений двери.",
+      requests: [
+        "Восстановить ручку и обеспечить её надёжное крепление",
+        "Проверить доводчик и крепления двери",
+        "Устранить выявленные при проверке повреждения",
+        "Выполнить функциональную проверку двери после ремонта",
+      ],
+      warnings: [],
+    };
+    const mockFetch = createMockFetch(createLlmText(draft));
+
+    const result = await createGateway().generateRequest(VALID_INPUT);
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body).toContain(draft.problem);
+    expect(result.result.body).toContain(draft.circumstances);
+    expect(result.result.body).toContain(draft.impact);
+    expect(result.result.body).toContain(draft.verification);
+    expect(result.result.body).not.toContain("доводчик повреждён");
+    expect(mockFetch).toHaveBeenCalledOnce();
   });
 
   it("возвращает multiple_issues без заявки и нормативного блока", async () => {
@@ -294,7 +334,9 @@ describe("OpenAiCompatibleGateway", () => {
         outcome: "multiple_issues",
         title: internalDetail,
         problem: null,
+        circumstances: null,
         impact: null,
+        verification: null,
         requests: [],
         warnings: [],
       }),
@@ -540,7 +582,7 @@ describe("OpenAiCompatibleGateway", () => {
           desiredActions: null,
         }),
         temperature: 0.3,
-        max_output_tokens: 1000,
+        max_output_tokens: 4000,
         store: false,
         text: {
           format: {
