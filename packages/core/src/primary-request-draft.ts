@@ -28,11 +28,11 @@ export const primaryRequestDraftLimits = {
   verification: {
     max: 500,
   },
-  requests: {
-    min: 1,
-    max: 5,
+  actionPlan: {
+    remedyActionsMin: 1,
+    itemsMax: 5,
   },
-  request: {
+  action: {
     max: generateRequestLimits.desiredActions.max,
   },
   warnings: {
@@ -54,22 +54,52 @@ const draftString = (maxLength: number) =>
     .min(1)
     .max(maxLength);
 
-const requestString = draftString(primaryRequestDraftLimits.request.max).refine(
-  (request) => !/^прошу\s*:/iu.test(request),
+const actionString = draftString(primaryRequestDraftLimits.action.max).refine(
+  (action) => !/^прошу\s*:/iu.test(action),
 );
+
+const actionPlanSchema = z
+  .object({
+    preliminaryCheck: z.union([actionString, z.null()]),
+    remedyActions: z.array(actionString).min(primaryRequestDraftLimits.actionPlan.remedyActionsMin),
+    resultCheck: z.union([actionString, z.null()]),
+  })
+  .strict()
+  .superRefine((actionPlan, context) => {
+    const itemCount =
+      Number(actionPlan.preliminaryCheck !== null) +
+      actionPlan.remedyActions.length +
+      Number(actionPlan.resultCheck !== null);
+
+    if (itemCount > primaryRequestDraftLimits.actionPlan.itemsMax) {
+      context.addIssue({
+        code: "custom",
+        message: "Процедурный план превышает допустимое число требований",
+      });
+    }
+  });
+
+type PrimaryRequestActionPlan = z.infer<typeof actionPlanSchema>;
 
 type PrimaryRequestBodyParts = {
   problem: string;
   circumstances: string | null;
   impact: string | null;
   verification: string | null;
-  requests: string[];
+  actionPlan: PrimaryRequestActionPlan;
 };
 
-function buildRequestBlock(requests: string[]): string {
-  return ["Прошу:", ...requests.map((request, index) => `${String(index + 1)}. ${request}`)].join(
-    "\n",
-  );
+function buildRequestBlock(actionPlan: PrimaryRequestActionPlan): string {
+  const requestItems = [
+    actionPlan.preliminaryCheck,
+    ...actionPlan.remedyActions,
+    actionPlan.resultCheck,
+  ].filter((action): action is string => action !== null);
+
+  return [
+    "Прошу:",
+    ...requestItems.map((request, index) => `${String(index + 1)}. ${request}`),
+  ].join("\n");
 }
 
 function buildPrimaryRequestBody(draft: PrimaryRequestBodyParts): string {
@@ -79,7 +109,7 @@ function buildPrimaryRequestBody(draft: PrimaryRequestBodyParts): string {
     draft.impact,
     draft.verification,
     COMMON_LEGAL_BASIS_BLOCK,
-    buildRequestBlock(draft.requests),
+    buildRequestBlock(draft.actionPlan),
   ]
     .filter((block): block is string => block !== null)
     .join(REQUEST_BODY_SECTION_SEPARATOR);
@@ -92,10 +122,7 @@ export const primaryRequestDraftSchema = z
     circumstances: z.union([draftString(primaryRequestDraftLimits.circumstances.max), z.null()]),
     impact: z.union([draftString(primaryRequestDraftLimits.impact.max), z.null()]),
     verification: z.union([draftString(primaryRequestDraftLimits.verification.max), z.null()]),
-    requests: z
-      .array(requestString)
-      .min(primaryRequestDraftLimits.requests.min)
-      .max(primaryRequestDraftLimits.requests.max),
+    actionPlan: actionPlanSchema,
     warnings: z
       .array(draftString(primaryRequestDraftLimits.warning.max))
       .max(primaryRequestDraftLimits.warnings.max),
