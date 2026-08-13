@@ -10,7 +10,11 @@ const VALID_LLM_TEXT = JSON.stringify({
     circumstances: null,
     impact: null,
     verification: null,
-    requests: ["Проверить и восстановить освещение"],
+    actionPlan: {
+      preliminaryCheck: null,
+      remedyActions: ["Проверить и восстановить освещение"],
+      resultCheck: null,
+    },
     warnings: [],
   },
 });

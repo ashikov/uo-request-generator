@@ -10,6 +10,11 @@ import {
 import {
   assumedCauseDraft,
   detailedEntranceDoorDraft,
+  diagnosticActionSeparatedFromRemedyDraft,
+  explicitPreliminaryCheckDraft,
+  explicitResultCheckDraft,
+  functionalDoorDraft,
+  leakingCeilingDraft,
   minimalEntranceDoorDraft,
 } from "./primary-request-draft.fixtures.js";
 
@@ -25,7 +30,11 @@ function createDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryReque
     circumstances: null,
     impact: null,
     verification: null,
-    requests: ["Восстановить освещение"],
+    actionPlan: {
+      preliminaryCheck: null,
+      remedyActions: ["Восстановить освещение"],
+      resultCheck: null,
+    },
     warnings: [],
     ...overrides,
   };
@@ -37,7 +46,11 @@ function buildDraftAtBodyLimit(): PrimaryRequestDraft {
     circumstances: "б",
     impact: "в",
     verification: "г",
-    requests: ["д", "е", "ж", "з", "и"],
+    actionPlan: {
+      preliminaryCheck: "д",
+      remedyActions: ["е", "ж", "з"],
+      resultCheck: "и",
+    },
   });
   let remaining =
     generateRequestLimits.result.bodyMax - renderPrimaryRequestDraft(draft).body.length;
@@ -50,16 +63,26 @@ function buildDraftAtBodyLimit(): PrimaryRequestDraft {
     remaining -= addition;
   }
 
-  const requests = [...draft.requests];
-  for (let index = 0; index < requests.length && remaining > 0; index += 1) {
-    const request = requests[index] ?? "";
-    const addition = Math.min(remaining, primaryRequestDraftLimits.request.max - request.length);
-    requests[index] = `${request}${"а".repeat(addition)}`;
+  const actionPlan = {
+    ...draft.actionPlan,
+    remedyActions: [...draft.actionPlan.remedyActions],
+  };
+  for (const field of ["preliminaryCheck", "resultCheck"] as const) {
+    const value = actionPlan[field] ?? "";
+    const addition = Math.min(remaining, primaryRequestDraftLimits.action.max - value.length);
+    actionPlan[field] = `${value}${"а".repeat(addition)}`;
+    remaining -= addition;
+  }
+
+  for (let index = 0; index < actionPlan.remedyActions.length && remaining > 0; index += 1) {
+    const action = actionPlan.remedyActions[index] ?? "";
+    const addition = Math.min(remaining, primaryRequestDraftLimits.action.max - action.length);
+    actionPlan.remedyActions[index] = `${action}${"а".repeat(addition)}`;
     remaining -= addition;
   }
 
   expect(remaining).toBe(0);
-  return { ...draft, requests };
+  return { ...draft, actionPlan };
 }
 
 describe("primaryRequestDraftSchema", () => {
@@ -73,7 +96,7 @@ describe("primaryRequestDraftSchema", () => {
       "circumstances",
       "impact",
       "verification",
-      "requests",
+      "actionPlan",
       "warnings",
     ]);
   });
@@ -89,6 +112,21 @@ describe("primaryRequestDraftSchema", () => {
         legalBasis: "Нормативный текст",
       }).success,
     ).toBe(false);
+  });
+
+  it("строго отклоняет legacy-поля inspection и actions без compatibility fallback", () => {
+    const legacyActionPlanDraft = {
+      ...minimalEntranceDoorDraft,
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Установить ручку на входную дверь"],
+        resultCheck: null,
+        inspection: null,
+        actions: ["Установить ручку на входную дверь"],
+      },
+    };
+
+    expect(primaryRequestDraftSchema.safeParse(legacyActionPlanDraft).success).toBe(false);
   });
 
   it("отделяет нормативный блок от структуры и синтетических данных черновика", () => {
@@ -114,7 +152,12 @@ describe("primaryRequestDraftSchema", () => {
   ] as const)("принимает %s на точном лимите и отклоняет превышение", (_name, field, max) => {
     const otherFields =
       field === "problem"
-        ? { circumstances: null, impact: null, verification: null, requests: ["а"] }
+        ? {
+            circumstances: null,
+            impact: null,
+            verification: null,
+            actionPlan: { preliminaryCheck: null, remedyActions: ["а"], resultCheck: null },
+          }
         : {};
     const exact = createDraft({ ...otherFields, [field]: "а".repeat(max) });
     const tooLong = createDraft({ ...otherFields, [field]: "а".repeat(max + 1) });
@@ -123,18 +166,50 @@ describe("primaryRequestDraftSchema", () => {
     expect(primaryRequestDraftSchema.safeParse(tooLong).success).toBe(false);
   });
 
-  it("проверяет точный лимит требования и предупреждения", () => {
+  it("проверяет точный лимит процедурного действия и предупреждения", () => {
     expect(
       primaryRequestDraftSchema.safeParse(
         createDraft({
-          requests: ["а".repeat(primaryRequestDraftLimits.request.max)],
+          actionPlan: {
+            preliminaryCheck: "а".repeat(primaryRequestDraftLimits.action.max),
+            remedyActions: ["б".repeat(primaryRequestDraftLimits.action.max)],
+            resultCheck: "в".repeat(primaryRequestDraftLimits.action.max),
+          },
           warnings: ["б".repeat(primaryRequestDraftLimits.warning.max)],
         }),
       ).success,
     ).toBe(true);
     expect(
       primaryRequestDraftSchema.safeParse(
-        createDraft({ requests: ["а".repeat(primaryRequestDraftLimits.request.max + 1)] }),
+        createDraft({
+          actionPlan: {
+            preliminaryCheck: null,
+            remedyActions: ["а".repeat(primaryRequestDraftLimits.action.max + 1)],
+            resultCheck: null,
+          },
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      primaryRequestDraftSchema.safeParse(
+        createDraft({
+          actionPlan: {
+            preliminaryCheck: "а".repeat(primaryRequestDraftLimits.action.max + 1),
+            remedyActions: ["Восстановить освещение"],
+            resultCheck: null,
+          },
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      primaryRequestDraftSchema.safeParse(
+        createDraft({
+          actionPlan: {
+            preliminaryCheck: null,
+            remedyActions: ["Восстановить освещение"],
+            resultCheck: "а".repeat(primaryRequestDraftLimits.action.max + 1),
+          },
+        }),
       ).success,
     ).toBe(false);
     expect(
@@ -144,19 +219,33 @@ describe("primaryRequestDraftSchema", () => {
     ).toBe(false);
   });
 
-  it("принимает от одного до пяти требований и отклоняет шестое без усечения", () => {
-    const oneRequest = createDraft({ requests: ["Первое требование"] });
+  it("принимает от одного до пяти итоговых пунктов и отклоняет шестой без усечения", () => {
+    const oneRequest = createDraft({
+      actionPlan: { preliminaryCheck: null, remedyActions: ["Одно действие"], resultCheck: null },
+    });
     const fiveRequests = createDraft({
-      requests: Array.from({ length: 5 }, (_, index) => `Требование ${index + 1}`),
+      actionPlan: {
+        preliminaryCheck: "Предварительная проверка",
+        remedyActions: ["Первое действие", "Второе действие", "Третье действие"],
+        resultCheck: "Проверка результата",
+      },
     });
     const sixRequests = createDraft({
-      requests: Array.from({ length: 6 }, (_, index) => `Требование ${index + 1}`),
+      actionPlan: {
+        preliminaryCheck: "Предварительная проверка",
+        remedyActions: ["Первое", "Второе", "Третье", "Четвёртое"],
+        resultCheck: "Проверка результата",
+      },
     });
 
     expect(primaryRequestDraftSchema.safeParse(oneRequest).success).toBe(true);
     expect(primaryRequestDraftSchema.safeParse(fiveRequests).success).toBe(true);
     expect(primaryRequestDraftSchema.safeParse(sixRequests).success).toBe(false);
-    expect(sixRequests.requests).toHaveLength(6);
+    expect([
+      sixRequests.actionPlan.preliminaryCheck,
+      ...sixRequests.actionPlan.remedyActions,
+      sixRequests.actionPlan.resultCheck,
+    ]).toHaveLength(6);
   });
 
   it("принимает пять предупреждений и отклоняет шестое", () => {
@@ -176,7 +265,36 @@ describe("primaryRequestDraftSchema", () => {
     ["circumstances", { circumstances: "Дверь открыта\r\nи закреплена" }],
     ["impact", { impact: "Проход\nзатруднён" }],
     ["verification", { verification: "Проверить\rдоводчик" }],
-    ["requests", { requests: ["Проверить\nосвещение"] }],
+    [
+      "preliminaryCheck",
+      {
+        actionPlan: {
+          preliminaryCheck: "Проверить\nосвещение",
+          remedyActions: ["Восстановить освещение"],
+          resultCheck: null,
+        },
+      },
+    ],
+    [
+      "remedyActions",
+      {
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["Проверить\nосвещение"],
+          resultCheck: null,
+        },
+      },
+    ],
+    [
+      "resultCheck",
+      {
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["Восстановить освещение"],
+          resultCheck: "Проверить\nрезультат",
+        },
+      },
+    ],
     ["warnings", { warnings: ["Не указано\nвремя"] }],
   ])("отклоняет перевод строки в поле %s", (_field, overrides) => {
     expect(primaryRequestDraftSchema.safeParse(createDraft(overrides)).success).toBe(false);
@@ -205,21 +323,34 @@ describe("renderPrimaryRequestDraft", () => {
       detailedEntranceDoorDraft.circumstances ?? "",
     );
     const impactPosition = result.body.indexOf(detailedEntranceDoorDraft.impact ?? "");
-    const verificationPosition = result.body.indexOf(detailedEntranceDoorDraft.verification ?? "");
     const legalPosition = result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK);
-    const requestsPosition = result.body.indexOf("Прошу:");
+    const requestBlockPosition = result.body.indexOf("Прошу:");
 
     expect(problemPosition).toBeLessThan(circumstancesPosition);
     expect(circumstancesPosition).toBeLessThan(impactPosition);
-    expect(impactPosition).toBeLessThan(verificationPosition);
-    expect(verificationPosition).toBeLessThan(legalPosition);
-    expect(legalPosition).toBeLessThan(requestsPosition);
+    expect(impactPosition).toBeLessThan(legalPosition);
+    expect(legalPosition).toBeLessThan(requestBlockPosition);
     expect(result.body).toContain("дверь оставляют открытой");
     expect(result.body).toContain("фиксируют ограничителем");
     expect(result.body).toContain("дополнительную нагрузку на доводчик");
     expect(result.body).not.toContain("доводчик повреждён");
-    expect(result.body).toContain("1. Восстановить дверную ручку");
-    expect(result.body).toContain("4. После ремонта проверить");
+    expect(detailedEntranceDoorDraft.actionPlan).toEqual({
+      preliminaryCheck:
+        "Проверить состояние доводчика, ограничителя, креплений двери и связанных элементов",
+      remedyActions: ["Установить и закрепить ручку на входной двери"],
+      resultCheck: "После работ проверить нормальное открывание и закрывание двери",
+    });
+    expect(result.body).toContain(
+      "Прошу:\n1. Проверить состояние доводчика, ограничителя, креплений двери и связанных элементов",
+    );
+    expect(result.body).toContain("2. Установить и закрепить ручку на входной двери");
+    expect(result.body).toContain(
+      "3. После работ проверить нормальное открывание и закрывание двери",
+    );
+    expect(result.body).not.toContain("Устранить выявленные повреждения");
+    expect(result.body).not.toContain("preliminaryCheck");
+    expect(result.body).not.toContain("resultCheck");
+    expect(result.body).not.toContain("actionPlan");
     expect(result.warnings).toEqual([]);
   });
 
@@ -237,8 +368,102 @@ describe("renderPrimaryRequestDraft", () => {
   it("сохраняет предполагаемую причину только как предмет проверки", () => {
     const result = renderPrimaryRequestDraft(assumedCauseDraft);
 
-    expect(result.body).toContain("Предполагаемую неисправность доводчика необходимо проверить");
+    expect(result.body).toContain("Предполагаемая неисправность доводчика не установлена");
     expect(result.body).not.toContain("Причиной является неисправность доводчика");
+  });
+
+  it("формирует полный процедурный набор для неизвестного источника протечки", () => {
+    const result = renderPrimaryRequestDraft(leakingCeilingDraft);
+
+    expect(leakingCeilingDraft.actionPlan).toEqual({
+      preliminaryCheck: "Установить источник поступления воды",
+      remedyActions: ["Устранить причину протечки"],
+      resultCheck: "После работ проверить прекращение поступления воды",
+    });
+    expect(result.body).toContain("Прошу:\n1. Установить источник поступления воды");
+    expect(result.body).toContain("2. Устранить причину протечки");
+    expect(result.body).toContain("3. После работ проверить прекращение поступления воды");
+    for (const inventedFact of [
+      "крыша",
+      "труба",
+      "квартира",
+      "ремонт потолка",
+      "плесень",
+      "короткое замыкание",
+      "разрушение конструкций",
+    ]) {
+      expect(result.body.toLocaleLowerCase("ru")).not.toContain(inventedFact);
+    }
+  });
+
+  it("оставляет простой отсутствующий элемент одним действием", () => {
+    const result = renderPrimaryRequestDraft(minimalEntranceDoorDraft);
+
+    expect(minimalEntranceDoorDraft.actionPlan).toEqual({
+      preliminaryCheck: null,
+      remedyActions: ["Установить ручку на входную дверь"],
+      resultCheck: null,
+    });
+    expect(result.body).toContain("Прошу:\n1. Установить ручку на входную дверь");
+    expect(result.body).not.toContain("\n2. ");
+    expect(minimalEntranceDoorDraft.actionPlan.preliminaryCheck).toBeNull();
+    expect(minimalEntranceDoorDraft.actionPlan.resultCheck).toBeNull();
+    for (const inventedDetail of [
+      "креплен",
+      "тип ручки",
+      "диагност",
+      "проверить работу",
+      "проверить открывание",
+      "проверить закрывание",
+    ]) {
+      expect(result.body.toLocaleLowerCase("ru")).not.toContain(inventedDetail);
+    }
+  });
+
+  it("допускает проверку результата функционального дефекта без обязательной диагностики", () => {
+    const result = renderPrimaryRequestDraft(functionalDoorDraft);
+
+    expect(functionalDoorDraft.actionPlan).toEqual({
+      preliminaryCheck: null,
+      remedyActions: ["Устранить неисправность двери и восстановить её полное закрывание"],
+      resultCheck: "После работ проверить полное закрывание двери",
+    });
+    expect(result.body).toContain(
+      "1. Устранить неисправность двери и восстановить её полное закрывание",
+    );
+    expect(result.body).toContain("2. После работ проверить полное закрывание двери");
+    expect(result.body).not.toContain("доводчик");
+    expect(result.body).not.toContain("петл");
+    expect(result.body).not.toContain("замок");
+    expect(result.body).not.toContain("ручк");
+  });
+
+  it("сохраняет явно заданную предварительную проверку", () => {
+    const result = renderPrimaryRequestDraft(explicitPreliminaryCheckDraft);
+
+    expect(result.body).toContain("1. Проверить наличие напряжения в светильнике");
+    expect(result.body).toContain("2. Восстановить освещение в общем коридоре");
+  });
+
+  it("сохраняет явно заданную проверку результата простого действия", () => {
+    const result = renderPrimaryRequestDraft(explicitResultCheckDraft);
+
+    expect(result.body).toContain("1. Закрепить крышку почтового ящика");
+    expect(result.body).toContain("2. После работ проверить надёжность крепления крышки");
+  });
+
+  it("отделяет предварительную диагностику от прямого восстановления", () => {
+    const result = renderPrimaryRequestDraft(diagnosticActionSeparatedFromRemedyDraft);
+
+    expect(diagnosticActionSeparatedFromRemedyDraft.actionPlan.preliminaryCheck).toBe(
+      "Установить причину отсутствия освещения",
+    );
+    expect(diagnosticActionSeparatedFromRemedyDraft.actionPlan.remedyActions).toEqual([
+      "Восстановить освещение на лестничной площадке",
+    ]);
+    expect(result.body).toContain(
+      "1. Установить причину отсутствия освещения\n2. Восстановить освещение на лестничной площадке",
+    );
   });
 
   it("полностью пропускает отсутствующие части без артефактов", () => {
@@ -251,7 +476,7 @@ describe("renderPrimaryRequestDraft", () => {
         COMMON_LEGAL_BASIS_BLOCK,
         "",
         "Прошу:",
-        "1. Восстановить дверную ручку",
+        "1. Установить ручку на входную дверь",
       ].join("\n"),
     );
     expect(result.body).not.toContain("\n\n\n");
@@ -260,7 +485,11 @@ describe("renderPrimaryRequestDraft", () => {
   it("не нормализует динамические части", () => {
     const draft = createDraft({
       problem: "дверь не закрывается полностью",
-      requests: ["устранить неисправность двери"],
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["устранить неисправность двери"],
+        resultCheck: null,
+      },
     });
     const result = renderPrimaryRequestDraft(draft);
 

@@ -1,7 +1,7 @@
 import { type GenerateRequestResult, primaryRequestDraftLimits } from "@uo-request-generator/core";
 import { COMMON_LEGAL_BASIS_BLOCK } from "@uo-request-generator/llm";
 
-const MAX_REQUESTS = primaryRequestDraftLimits.requests.max;
+const MAX_REQUESTS = primaryRequestDraftLimits.actionPlan.itemsMax;
 
 export function findGeneratedResultError(result: GenerateRequestResult): string | undefined {
   if (result.title.trim().length === 0 || result.body.trim().length === 0) {
