@@ -8,6 +8,7 @@
     "build": "tsc --build --clean tsconfig.build.json && tsc -p tsconfig.build.json",
     "start": "node --env-file-if-exists=../../.env dist/server.js",
     "smoke:llm": "node --env-file-if-exists=../../.env --conditions=development --import tsx tests/manual/llm-smoke.ts",
+    "benchmark:llm": "node --env-file-if-exists=../../.env --conditions=development --import tsx tests/manual/llm-benchmark.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

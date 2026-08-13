@@ -11,6 +11,8 @@
 .pnpm-cache
 .pnpm-state
 .pnpm-store
+.llm-benchmark.local.json
+.tmp
 *.tsbuildinfo
 coverage
 dist
