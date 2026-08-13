@@ -14,6 +14,8 @@ playwright-report/
 .pnpm-store/
 .pnpm-cache/
 .pnpm-state/
+.llm-benchmark.local.json
+.tmp/
 .DS_Store
 start-server.bat
 server.log

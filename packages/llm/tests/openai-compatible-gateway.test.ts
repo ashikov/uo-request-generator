@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenAiCompatibleGateway, type OpenAiCompatibleGatewayConfig } from "../src";
-import { COMMON_LEGAL_BASIS_BLOCK, REQUEST_DRAFT_JSON_SCHEMA } from "../src/request-draft.js";
+import {
+  createOpenAiCompatibleRequestBody,
+  OpenAiCompatibleGateway,
+  type OpenAiCompatibleGatewayConfig,
+} from "../src";
+import {
+  COMMON_LEGAL_BASIS_BLOCK,
+  REQUEST_DRAFT_JSON_SCHEMA,
+  REQUEST_DRAFT_SYSTEM_PROMPT,
+} from "../src/request-draft.js";
 
 const MOCK_API_KEY = "test-key-123";
 const HOUSING_CODE_URL =
@@ -172,6 +180,59 @@ describe("OpenAiCompatibleGateway", () => {
     expect(headers.Authorization).toBe("Api-Key test-key-123");
   });
 
+  it("строит capped Chat Completions request из production prompt и schema", () => {
+    const requestBody = createOpenAiCompatibleRequestBody(
+      {
+        apiProtocol: "chat-completions",
+        model: "benchmark-model",
+        maxOutputTokens: 1200,
+        chatCompletionsOutputTokenParameter: "max_completion_tokens",
+      },
+      VALID_INPUT,
+    );
+
+    expect(requestBody).toMatchObject({
+      model: "benchmark-model",
+      max_completion_tokens: 1200,
+      messages: [
+        { role: "system", content: REQUEST_DRAFT_SYSTEM_PROMPT },
+        { role: "user", content: expect.any(String) },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { schema: REQUEST_DRAFT_JSON_SCHEMA },
+      },
+    });
+  });
+
+  it("возвращает optional usage из Chat Completions без изменения LlmGateway outcome", async () => {
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: VALID_LLM_TEXT } }],
+          usage: { prompt_tokens: 101, completion_tokens: 52, total_tokens: 153 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const gateway = createGateway({
+      maxOutputTokens: 1200,
+      chatCompletionsOutputTokenParameter: "max_tokens",
+    });
+    const generation = await gateway.generateRequestWithMetadata(VALID_INPUT);
+
+    expect(generation.status).toBe("success");
+    if (generation.status !== "success") {
+      throw new Error("Ожидался успешный generation result");
+    }
+    expect(generation.outcome).toEqual(VALID_LLM_RESPONSE);
+    expect(generation.usage).toEqual({ inputTokens: 101, outputTokens: 52, totalTokens: 153 });
+    const requestBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+    expect(requestBody.max_tokens).toBe(1200);
+    expect(requestBody.max_completion_tokens).toBeUndefined();
+  });
+
   it("передаёт Chat Completions исходные поля как JSON с явными null", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
@@ -239,6 +300,48 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
       "Generation provider is not configured",
     );
+  });
+
+  it.each([
+    400, 404, 422,
+  ])("классифицирует HTTP %s как ошибку конкретного request", async (statusCode) => {
+    createMockFetch("", statusCode);
+
+    const generation = await createGateway().generateRequestWithMetadata(VALID_INPUT);
+
+    expect(generation).toEqual({
+      status: "failure",
+      failureKind: "request",
+      error: "request failed",
+      statusCode,
+    });
+  });
+
+  it.each([
+    401, 403, 429, 500,
+  ])("классифицирует HTTP %s как общую ошибку provider", async (statusCode) => {
+    createMockFetch("", statusCode);
+
+    const generation = await createGateway().generateRequestWithMetadata(VALID_INPUT);
+
+    expect(generation).toEqual({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider unavailable",
+      statusCode,
+    });
+  });
+
+  it("классифицирует сетевую ошибку как общую ошибку provider", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+    const generation = await createGateway().generateRequestWithMetadata(VALID_INPUT);
+
+    expect(generation).toEqual({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider unavailable",
+    });
   });
 
   it("бросает ошибку при пустом ответе", async () => {
@@ -659,6 +762,42 @@ describe("OpenAiCompatibleGateway", () => {
       );
     });
 
+    it("возвращает incomplete как request failure и сохраняет usage", async () => {
+      createResponsesMockFetch({
+        status: "incomplete",
+        output_text: VALID_LLM_TEXT,
+        usage: { input_tokens: 90, output_tokens: 45, total_tokens: 135 },
+      });
+
+      const generation =
+        await createGateway(responsesConfig).generateRequestWithMetadata(VALID_INPUT);
+
+      expect(generation).toEqual({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+        usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
+      });
+    });
+
+    it("сохраняет usage при локальной валидации ответа", async () => {
+      createResponsesMockFetch({
+        status: "completed",
+        output_text: JSON.stringify({ draft: { outcome: "generated" } }),
+        usage: { input_tokens: 120, output_tokens: 30, total_tokens: 150 },
+      });
+
+      const generation =
+        await createGateway(responsesConfig).generateRequestWithMetadata(VALID_INPUT);
+
+      expect(generation).toEqual({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+        usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+      });
+    });
+
     it("отклоняет incomplete-ответ с валидным вложенным текстом", async () => {
       createResponsesMockFetch(createOpenAiResponsesBody(VALID_LLM_TEXT, { status: "incomplete" }));
       const gateway = createGateway(responsesConfig);
@@ -859,6 +998,36 @@ describe("OpenAiCompatibleGateway", () => {
 
       const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
       expect(callBody.max_output_tokens).toBe(1200);
+    });
+
+    it("возвращает optional usage из Responses API", async () => {
+      createResponsesMockFetch({
+        output_text: VALID_LLM_TEXT,
+        usage: { input_tokens: 90, output_tokens: 45, total_tokens: 135 },
+      });
+      const gateway = createGateway(responsesConfig);
+
+      const generation = await gateway.generateRequestWithMetadata(VALID_INPUT);
+
+      expect(generation.status).toBe("success");
+      if (generation.status !== "success") {
+        throw new Error("Ожидался успешный generation result");
+      }
+      expect(generation.outcome).toEqual(VALID_LLM_RESPONSE);
+      expect(generation.usage).toEqual({ inputTokens: 90, outputTokens: 45, totalTokens: 135 });
+    });
+
+    it("не падает при отсутствии Responses usage", async () => {
+      createResponsesMockFetch({ output_text: VALID_LLM_TEXT });
+      const gateway = createGateway(responsesConfig);
+
+      const generation = await gateway.generateRequestWithMetadata(VALID_INPUT);
+
+      expect(generation.status).toBe("success");
+      if (generation.status !== "success") {
+        throw new Error("Ожидался успешный generation result");
+      }
+      expect(generation.usage).toBeUndefined();
     });
 
     it("использует схему авторизации и дополнительные заголовки", async () => {

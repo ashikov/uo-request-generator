@@ -1,0 +1,19 @@
+{
+  "currency": "RUB",
+  "apiProtocol": "responses",
+  "maxOutputTokens": 1200,
+  "models": [
+    {
+      "label": "current",
+      "model": "replace-with-current-model-id",
+      "inputPricePerMillion": 123.45,
+      "outputPricePerMillion": 678.9
+    },
+    {
+      "label": "candidate",
+      "model": "replace-with-candidate-model-id",
+      "inputPricePerMillion": 123.45,
+      "outputPricePerMillion": 678.9
+    }
+  ]
+}
