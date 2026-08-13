@@ -35,7 +35,11 @@ const VALID_DRAFT = {
   circumstances: null,
   impact: null,
   verification: null,
-  requests: ["Проверить и восстановить освещение"],
+  actionPlan: {
+    preliminaryCheck: null,
+    remedyActions: ["Проверить и восстановить освещение"],
+    resultCheck: null,
+  },
   warnings: [],
 };
 
@@ -68,7 +72,7 @@ const MULTIPLE_ISSUES_LLM_TEXT = createLlmText({
   circumstances: null,
   impact: null,
   verification: null,
-  requests: [],
+  actionPlan: null,
   warnings: [],
 });
 
@@ -163,7 +167,7 @@ describe("OpenAiCompatibleGateway", () => {
     expect(callBody.messages[0]?.content).toContain("circumstances содержит");
     expect(callBody.messages[0]?.content).toContain("verification содержит");
     expect(callBody.messages[0]?.content).toContain("warnings: []");
-    expect(callBody.messages[0]?.content).toContain("без нумерации");
+    expect(callBody.messages[0]?.content).toContain("Не добавляй в actionPlan нумерацию");
     expect(JSON.stringify(callBody)).not.toContain(HOUSING_CODE_URL);
     expect(JSON.stringify(callBody)).not.toContain(MANAGEMENT_RULES_URL);
     expect(JSON.stringify(callBody)).not.toContain("Общие нормативные основания:");
@@ -362,7 +366,11 @@ describe("OpenAiCompatibleGateway", () => {
       circumstances: null,
       impact: null,
       verification: null,
-      requests: ["Отремонтировать кран"],
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Отремонтировать кран"],
+        resultCheck: null,
+      },
       warnings: ["Пользователь выразил эмоции", "Не указана причина протечки"],
     });
 
@@ -389,13 +397,12 @@ describe("OpenAiCompatibleGateway", () => {
       circumstances: "Дверь оставляют открытой и фиксируют ограничителем.",
       impact:
         "Такой способ эксплуатации создаёт риск дополнительной нагрузки на доводчик и крепления.",
-      verification: "Необходимо проверить состояние доводчика и креплений двери.",
-      requests: [
-        "Восстановить ручку и обеспечить её надёжное крепление",
-        "Проверить доводчик и крепления двери",
-        "Устранить выявленные при проверке повреждения",
-        "Выполнить функциональную проверку двери после ремонта",
-      ],
+      verification: null,
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Установить ручку на входную дверь"],
+        resultCheck: null,
+      },
       warnings: [],
     };
     const mockFetch = createMockFetch(createLlmText(draft));
@@ -409,8 +416,10 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.body).toContain(draft.problem);
     expect(result.result.body).toContain(draft.circumstances);
     expect(result.result.body).toContain(draft.impact);
-    expect(result.result.body).toContain(draft.verification);
+    expect(result.result.body).toContain("Прошу:\n1. Установить ручку на входную дверь");
+    expect(result.result.body).not.toContain("\n2. ");
     expect(result.result.body).not.toContain("доводчик повреждён");
+    expect(result.result.body).not.toContain("Устранить выявленные повреждения");
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
@@ -440,7 +449,7 @@ describe("OpenAiCompatibleGateway", () => {
         circumstances: null,
         impact: null,
         verification: null,
-        requests: [],
+        actionPlan: null,
         warnings: [],
       }),
     );

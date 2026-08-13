@@ -6,6 +6,7 @@ import {
   type PrimaryRequestDraft,
 } from "@uo-request-generator/core";
 import { describe, expect, it } from "vitest";
+import { detailedEntranceDoorDraft } from "../../core/tests/primary-request-draft.fixtures.js";
 import {
   parseRequestDraft,
   REQUEST_DRAFT_DYNAMIC_BODY_MAX,
@@ -25,7 +26,11 @@ function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedR
     circumstances: null,
     impact: "В тёмное время суток проход по коридору затруднён.",
     verification: null,
-    requests: ["Проверить освещение", "Устранить неисправность"],
+    actionPlan: {
+      preliminaryCheck: null,
+      remedyActions: ["Проверить и восстановить освещение"],
+      resultCheck: null,
+    },
     warnings: [],
     ...overrides,
   };
@@ -39,7 +44,7 @@ function createMultipleIssuesDraft(): Extract<RequestDraft, { outcome: "multiple
     circumstances: null,
     impact: null,
     verification: null,
-    requests: [],
+    actionPlan: null,
     warnings: [],
   };
 }
@@ -74,7 +79,7 @@ function createDraftAtBodyLength(bodyLength: number): GeneratedRequestDraft {
     circumstances: null,
     impact: null,
     verification: null,
-    requests: ["б"],
+    actionPlan: { preliminaryCheck: null, remedyActions: ["б"], resultCheck: null },
   });
   const fixedBodyLength = renderGeneratedDraft(fixedDraft).body.length;
 
@@ -83,9 +88,96 @@ function createDraftAtBodyLength(bodyLength: number): GeneratedRequestDraft {
     circumstances: null,
     impact: null,
     verification: null,
-    requests: fixedDraft.requests,
+    actionPlan: fixedDraft.actionPlan,
   });
 }
+
+describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
+  it("распределяет все входные роли", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("description — свободное описание ситуации");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("location — отдельно переданное место");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("consequences — отдельно переданные");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("desiredActions — отдельно переданные");
+  });
+
+  it("различает конфликт места и совместимое уточнение", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("location явно противоречит");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("используй location в problem");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не объединяй несовместимые места");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не является конфликтом");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не требует warning");
+  });
+
+  it("сохраняет явные последствия и ограничивает безопасный вывод", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("consequences имеют приоритет");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не превращай риск в событие");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("скрытое повреждение");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("отсутствующее во вводе оборудование");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не более двух независимых");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("многоступенчатую причинную цепочку");
+  });
+
+  it("требует фактическое основание проверки без дублирования", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "обоснованную обстоятельствами проверку связанных элементов",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Неизвестная причина сама по себе");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не превращай неизвестную причину");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("заполняй verification только ради");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "verification только повторяет actionPlan.preliminaryCheck",
+    );
+  });
+
+  it("сохраняет приоритет желаемых действий", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("desiredActions имеют приоритет");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не заменяй более общими действиями");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "раздели действие между ролями без потери смысла",
+    );
+  });
+
+  it("задаёт общие процедурные роли без искусственного заполнения", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("существенное неизвестное обстоятельство");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не обязательно визуальный осмотр");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("непосредственно необходимое действие");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("а не самостоятельные диагностики или проверки");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("существенный функциональный результат");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("для простой установки или замены");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не дублируй preliminaryCheck в remedyActions");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не заполняй procedural plan до пяти пунктов искусственно",
+    );
+  });
+
+  it("оставляет multiple_issues без частичного actionPlan", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("outcome: multiple_issues");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("actionPlan: null");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не выбирай одну проблему");
+  });
+
+  it("сохраняет границу body, законодательства и URL", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не возвращай готовый body");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не выбирай и не цитируй законодательство");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(COMMON_LEGAL_BASIS_BLOCK);
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain("http://");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain("https://");
+  });
+
+  it("передаёт модели динамический лимит body", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      `не более ${REQUEST_DRAFT_DYNAMIC_BODY_MAX} символов`,
+    );
+  });
+
+  it.each([
+    "При неизвестном источнике воды используй один preliminaryCheck",
+    "Для простой отсутствующей ручки",
+    "Для двери, которая не закрывается",
+  ])("не содержит benchmark-specific подсказку: %s", (hintPrefix) => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(hintPrefix);
+  });
+});
 
 describe("provider-facing RequestDraft", () => {
   it("задаёт строгую generated-ветку по полям и лимитам PrimaryRequestDraft", () => {
@@ -99,7 +191,7 @@ describe("provider-facing RequestDraft", () => {
       "circumstances",
       "impact",
       "verification",
-      "requests",
+      "actionPlan",
       "warnings",
     ]);
     expect(generatedSchema.properties).toEqual({
@@ -129,15 +221,14 @@ describe("provider-facing RequestDraft", () => {
         minLength: 1,
         maxLength: primaryRequestDraftLimits.verification.max,
       },
-      requests: {
-        type: "array",
-        minItems: primaryRequestDraftLimits.requests.min,
-        maxItems: primaryRequestDraftLimits.requests.max,
-        items: {
-          type: "string",
-          minLength: 1,
-          maxLength: primaryRequestDraftLimits.request.max,
-        },
+      actionPlan: {
+        anyOf: expect.arrayContaining([
+          expect.objectContaining({
+            type: "object",
+            additionalProperties: false,
+            required: ["preliminaryCheck", "remedyActions", "resultCheck"],
+          }),
+        ]),
       },
       warnings: {
         type: "array",
@@ -151,6 +242,36 @@ describe("provider-facing RequestDraft", () => {
     });
   });
 
+  it("ограничивает общий размер procedural plan средствами provider JSON Schema", () => {
+    const actionPlanSchemas =
+      REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[0].properties.actionPlan.anyOf;
+
+    expect(actionPlanSchemas).toHaveLength(4);
+    expect(
+      actionPlanSchemas.map((schema) => [
+        schema.properties.preliminaryCheck.type,
+        schema.properties.resultCheck.type,
+        schema.properties.remedyActions.maxItems,
+      ]),
+    ).toEqual([
+      ["string", "string", 3],
+      ["string", "null", 4],
+      ["null", "string", 4],
+      ["null", "null", 5],
+    ]);
+
+    for (const schema of actionPlanSchemas) {
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.required).toEqual(["preliminaryCheck", "remedyActions", "resultCheck"]);
+      expect(schema.properties.remedyActions.minItems).toBe(1);
+      expect(schema.properties.remedyActions.items).toEqual({
+        type: "string",
+        minLength: 1,
+        maxLength: primaryRequestDraftLimits.action.max,
+      });
+    }
+  });
+
   it("задаёт строгую multiple_issues-ветку без частичного черновика", () => {
     const multipleIssuesSchema = REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[1];
 
@@ -162,7 +283,7 @@ describe("provider-facing RequestDraft", () => {
       "circumstances",
       "impact",
       "verification",
-      "requests",
+      "actionPlan",
       "warnings",
     ]);
     expect(multipleIssuesSchema.properties).toEqual({
@@ -172,7 +293,7 @@ describe("provider-facing RequestDraft", () => {
       circumstances: { type: "null" },
       impact: { type: "null" },
       verification: { type: "null" },
-      requests: { type: "array", maxItems: 0, items: { type: "string" } },
+      actionPlan: { type: "null" },
       warnings: { type: "array", maxItems: 0, items: { type: "string" } },
     });
   });
@@ -209,20 +330,7 @@ describe("provider-facing RequestDraft", () => {
   });
 
   it("валидирует подробный provider-facing черновик входной двери и renderer сохраняет роли", () => {
-    const draft = createDraft({
-      title: "Отсутствует ручка входной двери",
-      problem: "У входной двери подъезда полностью отсутствует ручка.",
-      circumstances: "Дверь оставляют открытой и фиксируют ограничителем.",
-      impact:
-        "Такой способ эксплуатации создаёт риск дополнительной нагрузки на доводчик и крепления.",
-      verification: "Необходимо проверить состояние доводчика и креплений двери.",
-      requests: [
-        "Восстановить ручку и обеспечить её надёжное крепление",
-        "Проверить доводчик и крепления двери",
-        "Устранить выявленные при проверке повреждения",
-        "Выполнить функциональную проверку двери после ремонта",
-      ],
-    });
+    const draft = createDraft(detailedEntranceDoorDraft);
 
     const parsed = parseRequestDraft(serializeDraft(draft));
     expectGeneratedDraft(parsed);
@@ -232,8 +340,21 @@ describe("provider-facing RequestDraft", () => {
     expect(result.body).toContain(draft.problem);
     expect(result.body).toContain(draft.circumstances);
     expect(result.body).toContain(draft.impact);
-    expect(result.body).toContain(draft.verification);
+    expect(parsed.actionPlan).toEqual({
+      preliminaryCheck:
+        "Проверить состояние доводчика, ограничителя, креплений двери и связанных элементов",
+      remedyActions: ["Установить и закрепить ручку на входной двери"],
+      resultCheck: "После работ проверить нормальное открывание и закрывание двери",
+    });
+    expect(result.body).toContain(
+      "Прошу:\n1. Проверить состояние доводчика, ограничителя, креплений двери и связанных элементов",
+    );
+    expect(result.body).toContain("2. Установить и закрепить ручку на входной двери");
+    expect(result.body).toContain(
+      "3. После работ проверить нормальное открывание и закрывание двери",
+    );
     expect(result.body).not.toContain("доводчик повреждён");
+    expect(result.body).not.toContain("Устранить выявленные повреждения");
   });
 
   it("не добавляет отсутствующие подробности в минимальный черновик входной двери", () => {
@@ -243,7 +364,11 @@ describe("provider-facing RequestDraft", () => {
       circumstances: null,
       impact: null,
       verification: null,
-      requests: ["Восстановить ручку входной двери"],
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Установить ручку на входную дверь"],
+        resultCheck: null,
+      },
     });
 
     const parsed = parseRequestDraft(serializeDraft(draft));
@@ -253,7 +378,26 @@ describe("provider-facing RequestDraft", () => {
     expect(parsed.circumstances).toBeNull();
     expect(parsed.impact).toBeNull();
     expect(parsed.verification).toBeNull();
-    for (const absentFact of ["открыт", "ограничител", "нагруз", "доводчик", "поврежд"]) {
+    expect(parsed.actionPlan).toEqual({
+      preliminaryCheck: null,
+      remedyActions: ["Установить ручку на входную дверь"],
+      resultCheck: null,
+    });
+    expect(result.body).toContain("Прошу:\n1. Установить ручку на входную дверь");
+    expect(result.body).not.toContain("\n2. ");
+    for (const absentFact of [
+      "открыт",
+      "ограничител",
+      "нагруз",
+      "доводчик",
+      "поврежд",
+      "креплен",
+      "тип ручки",
+      "диагност",
+      "проверить работу",
+      "проверить открывание",
+      "проверить закрывание",
+    ]) {
       expect(result.body.toLocaleLowerCase("ru")).not.toContain(absentFact);
     }
   });
@@ -263,15 +407,19 @@ describe("provider-facing RequestDraft", () => {
       problem: "Входная дверь закрывается не полностью.",
       circumstances: null,
       impact: null,
-      verification: "Необходимо проверить предполагаемую неисправность доводчика.",
-      requests: ["Проверить доводчик и устранить выявленную неисправность"],
+      verification: "Пользователь предполагает неисправность доводчика.",
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Устранить неисправность двери и восстановить её полное закрывание"],
+        resultCheck: "После работ проверить полное закрывание двери",
+      },
     });
 
     const parsed = parseRequestDraft(serializeDraft(draft));
     expectGeneratedDraft(parsed);
 
     expect(parsed.problem).not.toContain("неисправность доводчика");
-    expect(parsed.verification).toContain("предполагаемую неисправность доводчика");
+    expect(parsed.verification).toContain("предполагает неисправность доводчика");
     expect(renderGeneratedDraft(parsed).body).toContain(parsed.verification);
   });
 
@@ -281,7 +429,11 @@ describe("provider-facing RequestDraft", () => {
       circumstances: null,
       impact: "Это создаёт риск повреждения креплений двери.",
       verification: null,
-      requests: ["Проверить и восстановить работу двери"],
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Восстановить работу двери"],
+        resultCheck: null,
+      },
     });
 
     const parsed = parseRequestDraft(serializeDraft(draft));
@@ -297,20 +449,131 @@ describe("provider-facing RequestDraft", () => {
     expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
   });
 
-  it("принимает от одного до пяти требований", () => {
-    for (const requests of [
-      ["Устранить неисправность"],
-      ["Первое", "Второе", "Третье", "Четвёртое", "Пятое"],
+  it("принимает от одного до пяти итоговых пунктов procedural plan", () => {
+    for (const actionPlan of [
+      { preliminaryCheck: null, remedyActions: ["Устранить неисправность"], resultCheck: null },
+      {
+        preliminaryCheck: "Проверить причину",
+        remedyActions: ["Первое", "Второе", "Третье"],
+        resultCheck: "Проверить результат",
+      },
     ]) {
-      expect(parseRequestDraft(serializeDraft(createDraft({ requests })))).toEqual(
-        createDraft({ requests }),
+      expect(parseRequestDraft(serializeDraft(createDraft({ actionPlan })))).toEqual(
+        createDraft({ actionPlan }),
       );
     }
   });
 
-  it("отклоняет шестое требование без усечения", () => {
+  it("отклоняет шестой итоговый пункт без усечения", () => {
     expectInvalidResponse(
-      createDraft({ requests: ["Первое", "Второе", "Третье", "Четвёртое", "Пятое", "Шестое"] }),
+      createDraft({
+        actionPlan: {
+          preliminaryCheck: "Проверить причину",
+          remedyActions: ["Первое", "Второе", "Третье", "Четвёртое"],
+          resultCheck: "Проверить результат",
+        },
+      }),
+    );
+  });
+
+  it("сохраняет полный procedural plan для неизвестного источника протечки", () => {
+    const draft = createDraft({
+      title: "Протечка в общем коридоре",
+      problem: "С потолка в общем коридоре капает вода. Источник поступления воды не установлен.",
+      impact: null,
+      verification: null,
+      actionPlan: {
+        preliminaryCheck: "Установить источник поступления воды",
+        remedyActions: ["Устранить причину протечки"],
+        resultCheck: "После работ проверить прекращение поступления воды",
+      },
+    });
+
+    const parsed = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsed);
+
+    expect(parsed.actionPlan).toEqual(draft.actionPlan);
+    const body = renderGeneratedDraft(parsed).body;
+    expect(body).toContain(
+      "Прошу:\n1. Установить источник поступления воды\n2. Устранить причину протечки\n3. После работ проверить прекращение поступления воды",
+    );
+    for (const inventedFact of [
+      "крыша",
+      "труба",
+      "квартира",
+      "ремонт потолка",
+      "плесень",
+      "короткое замыкание",
+      "разрушение конструкций",
+    ]) {
+      expect(body.toLocaleLowerCase("ru")).not.toContain(inventedFact);
+    }
+  });
+
+  it("сохраняет explicit preliminary check отдельно от remedy actions", () => {
+    const draft = createDraft({
+      problem: "Дверь в помещении общего пользования не закрывается полностью.",
+      impact: null,
+      actionPlan: {
+        preliminaryCheck: "Проверить механизм закрывания двери",
+        remedyActions: ["Отремонтировать дверь и восстановить полное закрывание"],
+        resultCheck: "После ремонта проверить полное закрывание двери",
+      },
+    });
+
+    const parsed = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsed);
+
+    expect(parsed.actionPlan).toEqual(draft.actionPlan);
+    expect(renderGeneratedDraft(parsed).body).toContain(
+      "1. Проверить механизм закрывания двери\n2. Отремонтировать дверь и восстановить полное закрывание\n3. После ремонта проверить полное закрывание двери",
+    );
+  });
+
+  it("не требует предварительную проверку для двери, которая не закрывается", () => {
+    const draft = createDraft({
+      title: "Дверь не закрывается полностью",
+      problem: "Дверь в помещении общего пользования не закрывается полностью.",
+      impact: null,
+      verification: null,
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Устранить неисправность двери и восстановить её полное закрывание"],
+        resultCheck: "После работ проверить полное закрывание двери",
+      },
+    });
+
+    const parsed = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsed);
+    const body = renderGeneratedDraft(parsed).body;
+
+    expect(parsed.actionPlan.preliminaryCheck).toBeNull();
+    expect(body).toContain(
+      "1. Устранить неисправность двери и восстановить её полное закрывание\n2. После работ проверить полное закрывание двери",
+    );
+    for (const inventedComponent of ["доводчик", "петля", "замок", "ручка"]) {
+      expect(body.toLocaleLowerCase("ru")).not.toContain(inventedComponent);
+    }
+  });
+
+  it("сохраняет explicit result check для простого действия", () => {
+    const draft = createDraft({
+      title: "Не закреплена крышка почтового ящика",
+      problem: "Крышка почтового ящика не закреплена.",
+      impact: null,
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Закрепить крышку почтового ящика"],
+        resultCheck: "После работ проверить надёжность крепления крышки",
+      },
+    });
+
+    const parsed = parseRequestDraft(serializeDraft(draft));
+    expectGeneratedDraft(parsed);
+
+    expect(parsed.actionPlan).toEqual(draft.actionPlan);
+    expect(renderGeneratedDraft(parsed).body).toContain(
+      "1. Закрепить крышку почтового ящика\n2. После работ проверить надёжность крепления крышки",
     );
   });
 
@@ -319,7 +582,14 @@ describe("provider-facing RequestDraft", () => {
 
     expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
     expectInvalidResponse({ ...draft, verification: "Проверить причину" });
-    expectInvalidResponse({ ...draft, requests: ["Устранить первую проблему"] });
+    expectInvalidResponse({
+      ...draft,
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Устранить первую проблему"],
+        resultCheck: null,
+      },
+    });
   });
 
   it.each([
@@ -332,13 +602,13 @@ describe("provider-facing RequestDraft", () => {
     const exactDraft = createDraft({
       problem: "а",
       impact: null,
-      requests: ["в"],
+      actionPlan: { preliminaryCheck: null, remedyActions: ["в"], resultCheck: null },
       [field]: "б".repeat(max),
     });
     const tooLongDraft = createDraft({
       problem: "а",
       impact: null,
-      requests: ["в"],
+      actionPlan: { preliminaryCheck: null, remedyActions: ["в"], resultCheck: null },
       [field]: "б".repeat(max + 1),
     });
 
@@ -346,17 +616,63 @@ describe("provider-facing RequestDraft", () => {
     expectInvalidResponse(tooLongDraft);
   });
 
-  it("проверяет границы элементов requests и warnings", () => {
+  it("проверяет границы элементов actionPlan и warnings", () => {
     const exactDraft = createDraft({
       problem: "а",
       impact: null,
-      requests: ["б".repeat(primaryRequestDraftLimits.request.max)],
+      actionPlan: {
+        preliminaryCheck: "а".repeat(primaryRequestDraftLimits.action.max),
+        remedyActions: ["б".repeat(primaryRequestDraftLimits.action.max)],
+        resultCheck: "в".repeat(primaryRequestDraftLimits.action.max),
+      },
       warnings: ["в".repeat(primaryRequestDraftLimits.warning.max)],
     });
 
     expect(parseRequestDraft(serializeDraft(exactDraft))).toEqual(exactDraft);
     expectInvalidResponse(
-      createDraft({ requests: ["б".repeat(primaryRequestDraftLimits.request.max + 1)] }),
+      createDraft({
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["б".repeat(primaryRequestDraftLimits.action.max + 1)],
+          resultCheck: null,
+        },
+      }),
+    );
+    expectInvalidResponse(
+      createDraft({
+        actionPlan: {
+          preliminaryCheck: "б".repeat(primaryRequestDraftLimits.action.max + 1),
+          remedyActions: ["Восстановить освещение"],
+          resultCheck: null,
+        },
+      }),
+    );
+    expectInvalidResponse(
+      createDraft({
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["Восстановить освещение"],
+          resultCheck: "б".repeat(primaryRequestDraftLimits.action.max + 1),
+        },
+      }),
+    );
+    expectInvalidResponse(
+      createDraft({
+        actionPlan: {
+          preliminaryCheck: " ",
+          remedyActions: ["Восстановить освещение"],
+          resultCheck: null,
+        },
+      }),
+    );
+    expectInvalidResponse(
+      createDraft({
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["Восстановить освещение"],
+          resultCheck: " ",
+        },
+      }),
     );
     expectInvalidResponse(
       createDraft({ warnings: ["в".repeat(primaryRequestDraftLimits.warning.max + 1)] }),
@@ -383,10 +699,25 @@ describe("provider-facing RequestDraft", () => {
   it("отклоняет невалидный JSON, лишние поля и неверную ветку outcome", () => {
     expect(() => parseRequestDraft('{"draft":')).toThrow(INVALID_RESPONSE_MESSAGE);
     expectInvalidResponse({ ...createDraft(), body: "Готовый текст" });
+    const { actionPlan: _actionPlan, ...legacyDraft } = createDraft();
+    expectInvalidResponse({ ...legacyDraft, requests: ["Восстановить освещение"] });
     expect(() =>
       parseRequestDraft(JSON.stringify({ draft: createDraft(), explanation: "Лишнее поле" })),
     ).toThrow(INVALID_RESPONSE_MESSAGE);
     expectInvalidResponse({ ...createDraft(), outcome: "unknown" });
+  });
+
+  it("строго отклоняет legacy-поля inspection и actions без compatibility fallback", () => {
+    expectInvalidResponse({
+      ...createDraft(),
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Восстановить освещение"],
+        resultCheck: null,
+        inspection: null,
+        actions: ["Восстановить освещение"],
+      },
+    });
   });
 
   it("отклоняет отсутствие каждого обязательного поля", () => {
@@ -397,7 +728,7 @@ describe("provider-facing RequestDraft", () => {
       "circumstances",
       "impact",
       "verification",
-      "requests",
+      "actionPlan",
       "warnings",
     ] as const) {
       const draft: Record<string, unknown> = { ...createDraft() };
@@ -415,7 +746,11 @@ describe("provider-facing RequestDraft", () => {
           circumstances: "  Свет периодически включается.  ",
           impact: null,
           verification: "  Необходимо проверить проводку.  ",
-          requests: ["  Проверить освещение  "],
+          actionPlan: {
+            preliminaryCheck: "  Проверить источник неисправности  ",
+            remedyActions: ["  Восстановить освещение  "],
+            resultCheck: "  Проверить работу освещения  ",
+          },
           warnings: ["  Не указана длительность  "],
         }),
       ),
@@ -425,286 +760,48 @@ describe("provider-facing RequestDraft", () => {
     expect(parsed.title).toBe("Не работает освещение");
     expect(parsed.circumstances).toBe("Свет периодически включается.");
     expect(parsed.verification).toBe("Необходимо проверить проводку.");
-    expect(parsed.requests).toEqual(["Проверить освещение"]);
+    expect(parsed.actionPlan).toEqual({
+      preliminaryCheck: "Проверить источник неисправности",
+      remedyActions: ["Восстановить освещение"],
+      resultCheck: "Проверить работу освещения",
+    });
     expectInvalidResponse(createDraft({ circumstances: "Условие\nпроявления" }));
-    expectInvalidResponse(createDraft({ requests: ["Прошу: проверить освещение"] }));
-  });
-});
-
-describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
-  it("объясняет семантику отдельных входных полей", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("description — свободное описание ситуации");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("распределяй по смысловым ролям");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("location — отдельно переданное место проблемы");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("учитывай его в problem");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "consequences — отдельно переданные известные последствия или риски",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("учитывай их в impact");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "desiredActions — отдельно переданные желаемые действия",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("учитывай их в requests");
-  });
-
-  it("не дублирует сведения отдельных полей, уже переданные в description", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Если сведения из location, consequences или desiredActions уже есть в description, выведи их один раз",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не дублируй между смысловыми ролями");
-  });
-
-  it("определяет связанную и несколько несвязанных проблем", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Одна связанная проблема может включать несколько признаков, мест проявления, последствий, обстоятельств и желаемых действий",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "относятся к одному объекту или одной причинно связанной ситуации",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "каждую можно независимо описать и устранить отдельной заявкой",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не разделяй связанные проявления одной ситуации",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не выбирай одну проблему и не объединяй несколько независимых проблем в одну заявку",
-    );
-  });
-
-  it("требует фактическое основание для verification", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Неизвестная причина сама по себе не требует verification",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Простой непосредственно наблюдаемый дефект без дополнительного основания может иметь verification: null",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Проверяй связанные элементы только при фактическом основании",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не заполняй verification только ради заполнения поля",
-    );
-  });
-
-  it("сообщает вычисляемый агрегатный бюджет динамической части", () => {
-    const sectionSeparator = "\n\n";
-    const expectedDynamicBodyMax =
-      primaryRequestDraftLimits.body.max -
-      COMMON_LEGAL_BASIS_BLOCK.length -
-      sectionSeparator.length * 2;
-
-    expect(REQUEST_DRAFT_DYNAMIC_BODY_MAX).toBe(expectedDynamicBodyMax);
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      `Совокупный текст динамических частей и раздела требований должен содержать не более ${String(REQUEST_DRAFT_DYNAMIC_BODY_MAX)} символов`,
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Сохраняй существенные сведения, но формулируй их компактно",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "не заполняй необязательные части общими фразами",
-    );
-  });
-
-  it("описывает роли расширенного черновика и правила пустых частей", () => {
-    for (const field of ["problem", "circumstances", "impact", "verification", "requests"]) {
-      expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(`${field} содержит`);
+    for (const actionPlan of [
+      {
+        preliminaryCheck: "Прошу: проверить освещение",
+        remedyActions: ["Восстановить освещение"],
+        resultCheck: null,
+      },
+      {
+        preliminaryCheck: null,
+        remedyActions: ["Прошу: восстановить освещение"],
+        resultCheck: null,
+      },
+      {
+        preliminaryCheck: null,
+        remedyActions: ["Восстановить освещение"],
+        resultCheck: "Прошу: проверить освещение",
+      },
+    ]) {
+      expectInvalidResponse(createDraft({ actionPlan }));
     }
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("если их нет, укажи null");
-  });
-
-  it("переводит предположение в предмет проверки без утверждения причины", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Предположение всегда преобразуй в предмет проверки в verification",
+    expectInvalidResponse(
+      createDraft({
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: [""],
+          resultCheck: null,
+        },
+      }),
     );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("никогда не утверждай как причину");
-  });
-
-  it("различает риск и уже произошедшее повреждение", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Явно переданный риск повреждения сохраняй как риск в impact",
+    expectInvalidResponse(
+      createDraft({
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["Восстановить\nосвещение"],
+          resultCheck: null,
+        },
+      }),
     );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "никогда не превращай в уже произошедшее повреждение",
-    );
-  });
-
-  it("разрешает безопасное практическое значение при пустом consequences", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Если consequences отсутствует, impact может содержать непосредственно вытекающее практическое значение проблемы",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Если нет ни явно переданных сведений, ни безопасного непосредственного основания, укажи impact: null",
-    );
-  });
-
-  it("разрешает непосредственный потенциальный риск", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Допускается вывести наиболее прямой существенный потенциальный риск",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "он непосредственно следует из наблюдаемого состояния",
-    );
-  });
-
-  it("не превращает выводимый риск в свершившийся факт", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Самостоятельно выведенный риск формулируй только как возможность, а не как уже произошедшее событие или ущерб",
-    );
-  });
-
-  it("запрещает риск через скрытую причину или повреждение", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не выводи риск, если для него нужно предположить неизвестную причину, скрытое повреждение или отсутствующее во вводе оборудование",
-    );
-  });
-
-  it("предпочитает нейтральное практическое значение драматизации", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Предпочитай нейтральное практическое значение драматичному перечислению опасностей",
-    );
-  });
-
-  it("ограничивает каскад самостоятельно выводимых рисков", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Для самостоятельно выводимого impact обычно достаточно одного практического значения или одного наиболее прямого риска",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Допускается не более двух независимых непосредственно вытекающих рисков",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Это ограничение не применяется к явно переданным consequences: сохраняй все существенные переданные пользователем последствия и риски в пределах общих лимитов результата",
-    );
-  });
-
-  it("разрешает procedural enrichment при пустом desiredActions", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Если desiredActions отсутствует, самостоятельно сформируй минимально достаточные безопасные действия",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "проверки существенного неизвестного обстоятельства, устранения проблемы, восстановления нормального состояния или проверки результата работ",
-    );
-  });
-
-  it("сохраняет explicit consequences и desiredActions", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Явно переданные consequences имеют приоритет перед самостоятельно выводимым impact: сохрани все существенные сведения и их конкретность",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не превращай риск в событие");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Явно переданные desiredActions имеют приоритет перед procedural enrichment: сохрани их, при необходимости нормализуй и конкретизируй",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "не заменяй более общими требованиями и не противоречь им",
-    );
-  });
-
-  it("не превращает procedural enrichment в фиксированные три требования", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Проверка, устранение и контроль результата не являются фиксированной последовательностью из трёх требований",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Для простого очевидного дефекта не добавляй диагностику причины и другие этапы только ради объёма",
-    );
-  });
-
-  it("запрещает домыслы и дублирование смысловых фактов", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Один смысловой факт помещай ровно в одну динамическую роль",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не придумывай причины, обстоятельства, установленные последствия, повреждения, людей, выполненные работы и сроки",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не добавляй выводимые риски или требования без непосредственного основания",
-    );
-  });
-
-  it("задаёт 1–5 требований без искусственного заполнения массива", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("от 1 до 5 непустых строк");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "количество определяется содержанием, не заполняй массив до пяти искусственно",
-    );
-  });
-
-  it("требует грамотные законченные формулировки динамических частей", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Формулируй problem, circumstances, impact и verification как грамотные законченные русские предложения",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Начинай их с прописной буквы, используй естественную пунктуацию и подходящий завершающий знак",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не копируй разговорный текст дословно, если его можно нормализовать без изменения фактов",
-    );
-  });
-
-  it("требует конкретные действия без встроенного форматирования", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Каждое требование начинай с прописной буквы и формулируй как грамматически законченное конкретное действие",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не добавляй в requirements нумерацию или префикс «Прошу:»",
-    );
-  });
-
-  it("задаёт минимально достаточный набор требований", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "самостоятельно сформируй минимально достаточные безопасные действия",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Проверяй или устанавливай неизвестное обстоятельство только когда оно действительно необходимо для устранения проблемы",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Проверяй результат работ, только когда восстановленное нормальное состояние объективно проверяемо",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Для простого очевидного дефекта не добавляй диагностику причины и другие этапы только ради объёма",
-    );
-  });
-
-  it("сохраняет непротиворечивое место и обрабатывает конфликт мест", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Если location непустой и не противоречит description, обязательно сохрани его в problem",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Если location явно противоречит месту в description, используй location в problem как более явное структурированное значение",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не объединяй несовместимые места и не удаляй оба места молча",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "добавь warning с просьбой проверить место перед подачей заявки",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "без названий полей, повторения переданных значений и утверждения, какое место верное",
-    );
-  });
-
-  it("не создаёт предупреждение для совместимого уточнения места", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Более точное location, которое уточняет совместимое место из description, не является конфликтом и не требует warning",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Используй warnings только для фактической неоднозначности или противоречия, которое пользователь должен проверить перед подачей",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не добавляй warning для общих советов, отсутствующих необязательных сведений или неизвестной причины",
-    );
-  });
-
-  it("сохраняет multiple_issues без частичного черновика", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("outcome: multiple_issues");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не выбирай одну проблему и не формируй частичный черновик",
-    );
-  });
-
-  it("не поручает модели законодательство или готовый body", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не возвращай готовый body");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не выбирай и не цитируй законодательство");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(COMMON_LEGAL_BASIS_BLOCK);
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain("http://");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain("https://");
   });
 });
