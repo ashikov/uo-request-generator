@@ -398,6 +398,19 @@ HTTP-ответ Responses API передаёт текст в блоках `outpu
 нормализации оба формата используют общие разбор черновика и форматтер. Проект
 не зависит от SDK провайдера.
 
+Локальный benchmark вызывает тот же `OpenAiCompatibleGateway` напрямую, без
+Fastify, CAPTCHA, rate limiter и generation safeguard. Дополнительный внутренний
+метод transport возвращает тот же публичный outcome вместе с optional provider
+usage. Обычный `LlmGateway` и production-вызов используют прежний метод и не
+получают benchmark metadata.
+
+Benchmark строит request body общим helper, поэтому сериализация input,
+production prompt, Structured Output schema, temperature и protocol-specific
+response parsing не дублируются. Для Responses API output cap остаётся
+`max_output_tokens`. Для Chat Completions benchmark добавляет `max_tokens` или
+`max_completion_tokens` только по явному локальному выбору. Production config
+этот параметр не задаёт, поэтому её request shape не меняется.
+
 Streaming, tools, conversations, background responses и хранение `response_id`
 не поддерживаются.
 

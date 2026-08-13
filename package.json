@@ -13,6 +13,7 @@
     "build": "pnpm --filter @uo-request-generator/core build && pnpm --filter @uo-request-generator/llm build && pnpm --filter @uo-request-generator/web build",
     "start": "pnpm --filter @uo-request-generator/web start",
     "smoke:llm": "pnpm --filter @uo-request-generator/web smoke:llm",
+    "benchmark:llm": "pnpm --filter @uo-request-generator/web benchmark:llm",
     "test:production-runtime": "bash scripts/test-production-runtime.sh",
     "lint": "biome lint .",
     "lint:md": "markdownlint-cli2 && node scripts/check-file-endings.mjs",

@@ -351,6 +351,21 @@ pnpm smoke:llm
 ошибка сценария не останавливает остальные сценарии, а общая недоступность
 провайдера прекращает дальнейшие платные запросы.
 
+Для воспроизводимого сравнения нескольких явно выбранных моделей есть отдельный
+[локальный benchmark](docs/LLM_BENCHMARK.md). Он использует тот же набор
+synthetic fixtures, production prompt, Structured Output schema, transport и
+renderer. Обычный запуск только показывает request plan и оценочную максимальную
+стоимость, не обращаясь к provider:
+
+```bash
+pnpm benchmark:llm -- --config .llm-benchmark.local.json
+```
+
+Платный режим требует `--run`, интерактивный терминал и точную confirmation
+phrase после показа полного плана. Benchmark не запускается в CI и не входит в
+`pnpm check`. Локальные Markdown-отчёты сохраняются в
+`.tmp/llm-benchmark/` и исключены из Git.
+
 При `SIGINT` или `SIGTERM` сервер прекращает работу через graceful shutdown.
 Повторный сигнал не запускает параллельное закрытие. Если `app.close()` не
 завершится за 10 секунд, процесс принудительно остановится с ненулевым кодом.
@@ -430,6 +445,7 @@ docker compose logs --tail=100 web
 - `pnpm build` — собрать production-версию
 - `pnpm start` — запустить собранное приложение
 - `pnpm smoke:llm` — вручную проверить все fixtures реальными LLM-запросами
+- `pnpm benchmark:llm` — показать план локального сравнения выбранных LLM-моделей
 - `make test-production-runtime` — проверить production Compose в Docker
 - `make test-browser` — проверить интерфейс в Chromium через Docker Compose
 - `pnpm lint` — проверить код с Biome
@@ -448,5 +464,6 @@ docker compose logs --tail=100 web
 - [Краткий PRD](docs/PRD.md)
 - [Архитектура](docs/ARCHITECTURE.md)
 - [Production runtime](docs/PRODUCTION_RUNTIME.md)
+- [Локальный benchmark LLM-моделей](docs/LLM_BENCHMARK.md)
 - [Правила составления заявок](docs/REQUEST_RULES.md)
 - [Архитектурные решения](docs/adr/README.md)
