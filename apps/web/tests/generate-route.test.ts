@@ -197,6 +197,20 @@ describe("POST /api/generate", () => {
     expect(response.statusCode).toBe(503);
   });
 
+  it("передаёт gateway явное пользовательское подтверждение двери общего пользования", async () => {
+    const gateway = new DisabledLlmGateway();
+    const generateRequest = vi.spyOn(gateway, "generateRequest");
+    const input = {
+      description: "Входная дверь подъезда не закрывается",
+      isCommonAreaDoor: true,
+    };
+
+    const response = await injectGenerate(input, gateway);
+
+    expect(generateRequest).toHaveBeenCalledWith(input, expect.any(String));
+    expect(response.statusCode).toBe(503);
+  });
+
   it.each([
     ["только последствия", { consequences: "В вечернее время проход затруднён" }],
     ["только желаемые действия", { desiredActions: "Проверить и восстановить освещение" }],

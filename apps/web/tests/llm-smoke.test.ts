@@ -442,6 +442,7 @@ describe("runLlmSmokeCheck", () => {
       input: {
         description: "В подъезде не работает освещение",
         location: "третий этаж",
+        isCommonAreaDoor: true,
       },
       mustPreserveFacts: ["освещение не работает", "третий этаж"],
       mustNotInvent: ["номер дома", "дата поломки"],
@@ -462,6 +463,7 @@ describe("runLlmSmokeCheck", () => {
     expect(writeLine).toHaveBeenCalledWith("input:");
     expect(writeLine).toHaveBeenCalledWith("description: В подъезде не работает освещение");
     expect(writeLine).toHaveBeenCalledWith("location: третий этаж");
+    expect(writeLine).toHaveBeenCalledWith("isCommonAreaDoor: true");
     expect(writeLine).toHaveBeenCalledWith("title: Проверить проблему");
     expect(writeLine).toHaveBeenCalledWith(`body:\n${GENERATED_BODY}`);
     expect(writeLine).toHaveBeenCalledWith("warnings:\n- Проверьте место");

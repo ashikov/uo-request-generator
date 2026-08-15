@@ -80,6 +80,7 @@ async function initializeApp(
         maxlength="${contextMaxLength}"
         aria-describedby="desired-actions-hint desired-actions-count"
       >${desiredActionsValue}</textarea>
+      <input id="common-area-door" name="isCommonAreaDoor" type="checkbox" />
       <div id="captcha-container"></div>
       <p id="captcha-notice" hidden>
         Этот сайт защищён Yandex SmartCaptcha.
@@ -132,6 +133,10 @@ function getConsequences(): HTMLTextAreaElement {
 
 function getDesiredActions(): HTMLTextAreaElement {
   return document.getElementById("desired-actions") as HTMLTextAreaElement;
+}
+
+function getCommonAreaDoor(): HTMLInputElement {
+  return document.getElementById("common-area-door") as HTMLInputElement;
 }
 
 function getErrorArea(): HTMLElement {
@@ -349,6 +354,24 @@ describe("обработка ответа генерации в приложен
     expect(JSON.parse(fetchMock.mock.calls[2]?.[1]?.body as string)).toMatchObject({
       consequences: "Проход затруднён",
       desiredActions: "Проверить освещение",
+    });
+  });
+
+  it("отправляет явное подтверждение двери общего пользования только при выборе", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues("Входная дверь подъезда не закрывается", "");
+    getCommonAreaDoor().checked = true;
+
+    submitForm();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      description: "Входная дверь подъезда не закрывается",
+      isCommonAreaDoor: true,
     });
   });
 
