@@ -131,6 +131,43 @@ CAPTCHA. Затем общий предохранитель атомарно д�
 CAPTCHA, общий предохранитель и gateway занимают уже допущенный active-слот
 limiter, который освобождается во внешнем `finally` после любого исхода.
 
+## Структурированное логирование генерации
+
+Route-level `onRequest` создаёт контекст генерации до разбора JSON body. Контекст
+хранится в экземпляре Fastify request и содержит уникальный UUID `requestId`,
+момент начала запроса и признак записанного итогового события. Основной handler и
+route `errorHandler` используют один контекст, включая некорректный JSON и ошибки
+подготовки client id или limiter. Глобального изменяемого состояния нет.
+
+Маршрут передаёт `requestId` в `LlmGateway.generateRequest(input, requestId?)` и
+возвращает его клиенту в заголовке `x-request-id`. Ошибочные API-ответы также
+содержат тот же `requestId`, но не раскрывают внутренние детали провайдера.
+
+Каждый начатый запрос создаёт одну JSON-строку `generation_started` и ровно одну
+итоговую JSON-строку с тем же `requestId`:
+
+- `generation_succeeded` со статусом `generated`
+- `generation_rejected` со статусом `validation_error`, `multiple_issues`,
+  `rate_limited`, `captcha_failed`, `captcha_unavailable` или
+  `generation_unavailable`
+- `generation_failed` со статусом `provider_unavailable`, `timeout`,
+  `network_error`, `invalid_response` или `internal_error`
+
+Начальное событие содержит `event`, `requestId` и `timestamp`. Итоговое событие
+дополнительно содержит `status`, `durationMs` и фактический `httpStatus`
+публичного ответа. События записываются в stdout по одной строке и не содержат
+пользовательский ввод, готовую заявку, prompt, response body, API keys,
+`Authorization`, CAPTCHA token, cookies, полный набор headers или `process.env`.
+
+Пакет `llm` классифицирует контролируемые ошибки через
+`GenerationProviderUnavailableError` и его наследников
+`GenerationTimeoutError`, `GenerationNetworkError` и
+`GenerationInvalidResponseError`. Gateway проверяет состояние созданного им
+`AbortSignal.timeout()` как при ожидании HTTP response, так и при чтении body.
+Обычная transport failure остаётся `network_error`, а ошибка разбора ответа без
+timeout — `invalid_response`. Техническое различие используется только для
+событий и не меняет безопасный пользовательский ответ.
+
 ## Общий предохранитель LLM-вызовов
 
 `apps/web` создаёт один `GenerationSafeguard` на экземпляр Fastify-приложения.
