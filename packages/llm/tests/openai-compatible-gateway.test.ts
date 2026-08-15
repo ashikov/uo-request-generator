@@ -59,7 +59,7 @@ const VALID_LLM_RESPONSE = {
       COMMON_LEGAL_BASIS_BLOCK,
       "",
       "Прошу:",
-      "1. Проверить и восстановить освещение",
+      "1. Проверить и восстановить освещение.",
     ].join("\n"),
     warnings: [],
   },

@@ -89,6 +89,10 @@ type PrimaryRequestBodyParts = {
   actionPlan: PrimaryRequestActionPlan;
 };
 
+function normalizeSentenceEnding(text: string): string {
+  return /[.!?…]$/u.test(text) ? text : `${text}.`;
+}
+
 function buildRequestBlock(actionPlan: PrimaryRequestActionPlan): string {
   const requestItems = [
     actionPlan.preliminaryCheck,
@@ -98,16 +102,18 @@ function buildRequestBlock(actionPlan: PrimaryRequestActionPlan): string {
 
   return [
     "Прошу:",
-    ...requestItems.map((request, index) => `${String(index + 1)}. ${request}`),
+    ...requestItems.map(
+      (request, index) => `${String(index + 1)}. ${normalizeSentenceEnding(request)}`,
+    ),
   ].join("\n");
 }
 
 function buildPrimaryRequestBody(draft: PrimaryRequestBodyParts): string {
   return [
-    draft.problem,
-    draft.circumstances,
-    draft.impact,
-    draft.verification,
+    normalizeSentenceEnding(draft.problem),
+    draft.circumstances === null ? null : normalizeSentenceEnding(draft.circumstances),
+    draft.impact === null ? null : normalizeSentenceEnding(draft.impact),
+    draft.verification === null ? null : normalizeSentenceEnding(draft.verification),
     COMMON_LEGAL_BASIS_BLOCK,
     buildRequestBlock(draft.actionPlan),
   ]
