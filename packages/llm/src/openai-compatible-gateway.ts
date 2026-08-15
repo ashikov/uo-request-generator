@@ -408,7 +408,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     this.chatCompletionsOutputTokenParameter = config.chatCompletionsOutputTokenParameter;
   }
 
-  async generateRequest(input: GenerateRequestInput): Promise<GenerateRequestOutcome> {
+  async generateRequest(
+    input: GenerateRequestInput,
+    _requestId?: string,
+  ): Promise<GenerateRequestOutcome> {
     const generation = await this.executeGeneration(input);
     if (generation.status === "failure") {
       throw generation.productionError;
