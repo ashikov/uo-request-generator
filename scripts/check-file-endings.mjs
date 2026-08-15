@@ -22,7 +22,6 @@ const skippedDirectories = new Set([
 ]);
 
 const generatedFiles = new Set(["pnpm-lock.yaml"]);
-const markdownExtensions = new Set([".md", ".mdx"]);
 const textExtensions = new Set([
   ".cjs",
   ".css",
@@ -30,6 +29,8 @@ const textExtensions = new Set([
   ".js",
   ".json",
   ".jsonc",
+  ".md",
+  ".mdx",
   ".mjs",
   ".sh",
   ".toml",
@@ -78,47 +79,48 @@ function isBinary(content) {
   return content.includes(0);
 }
 
-const errors = [];
-const files = await collectFiles(root);
+export async function checkFileEndings(directory = root) {
+  const errors = [];
+  const files = await collectFiles(directory);
 
-for (const filePath of files) {
-  const fileName = path.basename(filePath);
-  if (generatedFiles.has(fileName) || !isSupportedTextFile(filePath)) {
-    continue;
-  }
+  for (const filePath of files) {
+    const fileName = path.basename(filePath);
+    if (generatedFiles.has(fileName) || !isSupportedTextFile(filePath)) {
+      continue;
+    }
 
-  const content = await readFile(filePath);
-  if (isBinary(content)) {
-    continue;
-  }
+    const content = await readFile(filePath);
+    if (isBinary(content)) {
+      continue;
+    }
 
-  const relativePath = path.relative(root, filePath);
-  const isMarkdown = markdownExtensions.has(path.extname(fileName));
-  const hasValidEnding = isMarkdown
-    ? content.length >= 2 &&
-      content.subarray(-2).toString() === "\n\n" &&
-      (content.length < 3 || content.subarray(-3).toString() !== "\n\n\n")
-    : content.length >= 1 &&
+    const relativePath = path.relative(directory, filePath);
+    const hasValidEnding =
+      content.length >= 1 &&
       content.subarray(-1).toString() === "\n" &&
       (content.length < 2 || content.subarray(-2).toString() !== "\n\n");
 
-  if (!hasValidEnding) {
-    errors.push(
-      `${relativePath}: ${
-        isMarkdown
-          ? "ожидается ровно одна пустая строка перед EOF"
-          : "ожидается один перевод строки перед EOF"
-      }`,
-    );
+    if (!hasValidEnding) {
+      errors.push(`${relativePath}: ожидается один перевод строки перед EOF`);
+    }
   }
+
+  return errors;
 }
 
-if (errors.length > 0) {
-  console.error("Найдены некорректные окончания файлов:");
-  for (const error of errors) {
-    console.error(`- ${error}`);
+if (
+  process.argv[1] !== undefined &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  const errors = await checkFileEndings();
+
+  if (errors.length > 0) {
+    console.error("Найдены некорректные окончания файлов:");
+    for (const error of errors) {
+      console.error(`- ${error}`);
+    }
+    process.exitCode = 1;
+  } else {
+    console.log("Окончания текстовых файлов корректны.");
   }
-  process.exitCode = 1;
-} else {
-  console.log("Окончания текстовых файлов корректны.");
 }
