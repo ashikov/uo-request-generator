@@ -7,6 +7,7 @@ export const detailedEntranceDoorDraft = {
   impact:
     "Такой способ эксплуатации создаёт дополнительную нагрузку на доводчик и крепления двери.",
   verification: null,
+  subject: null,
   actionPlan: {
     preliminaryCheck:
       "Проверить состояние доводчика, ограничителя, креплений двери и связанных элементов",
@@ -22,6 +23,7 @@ export const minimalEntranceDoorDraft = {
   circumstances: null,
   impact: null,
   verification: null,
+  subject: null,
   actionPlan: {
     preliminaryCheck: null,
     remedyActions: ["Установить ручку на входную дверь"],
@@ -36,6 +38,7 @@ export const assumedCauseDraft = {
   circumstances: null,
   impact: null,
   verification: "Предполагаемая неисправность доводчика не установлена.",
+  subject: null,
   actionPlan: {
     preliminaryCheck: null,
     remedyActions: ["Устранить неисправность двери и восстановить её полное закрывание"],
@@ -50,6 +53,7 @@ export const leakingCeilingDraft = {
   circumstances: null,
   impact: null,
   verification: null,
+  subject: null,
   actionPlan: {
     preliminaryCheck: "Установить источник поступления воды",
     remedyActions: ["Устранить причину протечки"],
@@ -64,6 +68,7 @@ export const functionalDoorDraft = {
   circumstances: null,
   impact: null,
   verification: null,
+  subject: null,
   actionPlan: {
     preliminaryCheck: null,
     remedyActions: ["Устранить неисправность двери и восстановить её полное закрывание"],
@@ -78,6 +83,7 @@ export const explicitPreliminaryCheckDraft = {
   circumstances: null,
   impact: null,
   verification: null,
+  subject: null,
   actionPlan: {
     preliminaryCheck: "Проверить наличие напряжения в светильнике",
     remedyActions: ["Восстановить освещение в общем коридоре"],
@@ -92,6 +98,7 @@ export const explicitResultCheckDraft = {
   circumstances: null,
   impact: null,
   verification: null,
+  subject: null,
   actionPlan: {
     preliminaryCheck: null,
     remedyActions: ["Закрепить крышку почтового ящика"],
@@ -106,6 +113,7 @@ export const diagnosticActionSeparatedFromRemedyDraft = {
   circumstances: null,
   impact: null,
   verification: null,
+  subject: null,
   actionPlan: {
     preliminaryCheck: "Установить причину отсутствия освещения",
     remedyActions: ["Восстановить освещение на лестничной площадке"],
