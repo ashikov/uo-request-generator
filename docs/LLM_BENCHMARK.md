@@ -9,7 +9,7 @@ Benchmark нужен для ручного сравнения нескольки
 показывает план и выполняет ноль provider requests:
 
 ```bash
-pnpm benchmark:llm -- --config .llm-benchmark.local.json
+make benchmark-llm ARGS="--config .llm-benchmark.local.json"
 ```
 
 ## Локальная конфигурация
@@ -53,23 +53,23 @@ API key в benchmark config не хранится. Только для подт�
 их исходном порядке. Короткий план ограничивается с начала списка:
 
 ```bash
-pnpm benchmark:llm -- --config .llm-benchmark.local.json --limit 5
+make benchmark-llm ARGS="--config .llm-benchmark.local.json --limit 5"
 ```
 
 Конкретные scenarios выбираются повторяемым аргументом. Их порядок всё равно
 определяется общим fixture-набором:
 
 ```bash
-pnpm benchmark:llm -- --config .llm-benchmark.local.json \
+make benchmark-llm ARGS="--config .llm-benchmark.local.json \
   --scenario wording-normalization \
-  --scenario minimum-sufficient-requests
+  --scenario minimum-sufficient-requests"
 ```
 
 `--scenario` и `--limit` несовместимы. Число повторов по умолчанию равно `1`,
 максимум — `5`:
 
 ```bash
-pnpm benchmark:llm -- --config .llm-benchmark.local.json --repeats 3
+make benchmark-llm ARGS="--config .llm-benchmark.local.json --repeats 3"
 ```
 
 Запросы идут последовательно в порядке model → scenario → repeat. Общее число
@@ -88,7 +88,7 @@ pnpm benchmark:llm -- --config .llm-benchmark.local.json --repeats 3
 фразу `RUN <число запросов>` после вывода плана:
 
 ```bash
-pnpm benchmark:llm -- --config .llm-benchmark.local.json --repeats 3 --run
+make benchmark-llm ARGS="--config .llm-benchmark.local.json --repeats 3 --run"
 ```
 
 Любой другой ответ отменяет запуск с нулём запросов. Non-TTY запуск также

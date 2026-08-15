@@ -369,13 +369,14 @@ renderer. Обычный запуск только показывает request 
 стоимость, не обращаясь к provider:
 
 ```bash
-pnpm benchmark:llm -- --config .llm-benchmark.local.json
+make benchmark-llm ARGS="--config .llm-benchmark.local.json"
 ```
 
 Платный режим требует `--run`, интерактивный терминал и точную confirmation
-phrase после показа полного плана. Benchmark не запускается в CI и не входит в
-`pnpm check`. Локальные Markdown-отчёты сохраняются в
-`.tmp/llm-benchmark/` и исключены из Git.
+phrase после показа полного плана. `make benchmark-llm` — основной reproducible
+локальный способ, `pnpm benchmark:llm` остаётся developer-level альтернативой.
+Benchmark не запускается в CI и не входит в `pnpm check`. Локальные Markdown-отчёты
+сохраняются в `.tmp/llm-benchmark/` и исключены из Git.
 
 При `SIGINT` или `SIGTERM` сервер прекращает работу через graceful shutdown.
 Повторный сигнал не запускает параллельное закрытие. Если `app.close()` не
@@ -465,7 +466,8 @@ docker compose logs --tail=100 web
 - `pnpm build` — собрать production-версию
 - `pnpm start` — запустить собранное приложение
 - `pnpm smoke:llm` — вручную проверить все fixtures реальными LLM-запросами
-- `pnpm benchmark:llm` — показать план локального сравнения выбранных LLM-моделей
+- `make benchmark-llm ARGS="--config .llm-benchmark.local.json"` — показать план локального сравнения выбранных LLM-моделей через Docker
+- `pnpm benchmark:llm` — показать план локального сравнения выбранных LLM-моделей в developer-режиме
 - `make test-production-runtime` — проверить production Compose в Docker
 - `make test-browser` — проверить интерфейс в Chromium через Docker Compose
 - `pnpm lint` — проверить код с Biome
