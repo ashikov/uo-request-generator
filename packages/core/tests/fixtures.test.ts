@@ -147,55 +147,55 @@ describe("test scenario fixtures", () => {
 const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] }> = {
   only_required_description: {
     present: ["description"],
-    absent: ["location", "consequences", "desiredActions"],
+    absent: ["location", "consequences", "desiredActions", "isCommonAreaDoor"],
   },
   description_with_location: {
     present: ["description", "location"],
-    absent: ["consequences", "desiredActions"],
+    absent: ["consequences", "desiredActions", "isCommonAreaDoor"],
   },
   known_consequences: {
-    present: ["description", "consequences"],
+    present: ["description", "consequences", "isCommonAreaDoor"],
     absent: ["location", "desiredActions"],
   },
   desired_actions: {
     present: ["description", "desiredActions"],
-    absent: ["location", "consequences"],
+    absent: ["location", "consequences", "isCommonAreaDoor"],
   },
   all_fields: {
     present: ["description", "location", "consequences", "desiredActions"],
-    absent: [],
+    absent: ["isCommonAreaDoor"],
   },
   emotional_description: {
     present: ["description"],
-    absent: ["location", "consequences", "desiredActions"],
+    absent: ["location", "consequences", "desiredActions", "isCommonAreaDoor"],
   },
   wording_normalization: {
-    present: ["description"],
+    present: ["description", "isCommonAreaDoor"],
     absent: ["location", "consequences", "desiredActions"],
   },
   minimum_sufficient_requests: {
     present: ["description"],
-    absent: ["location", "consequences", "desiredActions"],
+    absent: ["location", "consequences", "desiredActions", "isCommonAreaDoor"],
   },
   simple_defect: {
     present: ["description"],
-    absent: ["location", "consequences", "desiredActions"],
+    absent: ["location", "consequences", "desiredActions", "isCommonAreaDoor"],
   },
   location_preservation: {
-    present: ["description", "location"],
+    present: ["description", "location", "isCommonAreaDoor"],
     absent: ["consequences", "desiredActions"],
   },
   conflicting_location: {
-    present: ["description", "location"],
+    present: ["description", "location", "isCommonAreaDoor"],
     absent: ["consequences", "desiredActions"],
   },
   compatible_location: {
-    present: ["description", "location"],
+    present: ["description", "location", "isCommonAreaDoor"],
     absent: ["consequences", "desiredActions"],
   },
   multiple_unrelated_issues: {
     present: ["description"],
-    absent: ["location", "consequences", "desiredActions"],
+    absent: ["location", "consequences", "desiredActions", "isCommonAreaDoor"],
   },
 };
 

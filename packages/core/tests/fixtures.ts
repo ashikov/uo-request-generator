@@ -74,6 +74,7 @@ export const scenarios: TestScenario[] = [
     input: {
       description: "Дверь помещения общего пользования не закрывается полностью.",
       consequences: "Существует риск утраты имущества из помещения.",
+      isCommonAreaDoor: true,
     },
     mustPreserveFacts: [
       "дверь помещения общего пользования не закрывается полностью",
@@ -164,6 +165,7 @@ export const scenarios: TestScenario[] = [
     expectedOutcome: "generated",
     input: {
       description: "дверь в помещение общего пользования не закрывается до конца надо исправить",
+      isCommonAreaDoor: true,
     },
     mustPreserveFacts: [
       "дверь в помещении общего пользования не закрывается полностью",
@@ -227,6 +229,7 @@ export const scenarios: TestScenario[] = [
     input: {
       description: "Дверь в помещении общего пользования не закрывается полностью.",
       location: "подъезд 3, этаж 4",
+      isCommonAreaDoor: true,
     },
     mustPreserveFacts: ["дверь не закрывается полностью", "подъезд 3", "этаж 4"],
     mustNotInvent: [
@@ -245,6 +248,7 @@ export const scenarios: TestScenario[] = [
       description:
         "Дверь в помещении общего пользования во втором подъезде не закрывается полностью.",
       location: "подъезд 3, этаж 4",
+      isCommonAreaDoor: true,
     },
     mustPreserveFacts: [
       "дверь не закрывается полностью",
@@ -262,6 +266,7 @@ export const scenarios: TestScenario[] = [
     input: {
       description: "В третьем подъезде дверь не закрывается полностью.",
       location: "подъезд 3, этаж 4",
+      isCommonAreaDoor: true,
     },
     mustPreserveFacts: ["дверь не закрывается полностью", "подъезд 3", "этаж 4"],
     mustNotInvent: ["конфликт места", "другой подъезд", "причина неисправности"],

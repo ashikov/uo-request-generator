@@ -69,6 +69,7 @@ type LegalBasisModule = {
   id: string;
   applicability: {
     subject: Exclude<PrimaryRequestSubject, null>["kind"];
+    requiresExplicitUserConfirmation: true;
     requiresVerifiedInputEvidence: true;
     limitation: string;
   };
@@ -81,12 +82,13 @@ export const COMMON_AREA_DOOR_LEGAL_BASIS_MODULE = {
   id: "common-area-door",
   applicability: {
     subject: "common_area_entrance_door",
+    requiresExplicitUserConfirmation: true,
     requiresVerifiedInputEvidence: true,
     limitation:
       "Только входная дверь многоквартирного дома или дверь помещения общего пользования, обслуживающая более одного жилого и (или) нежилого помещения.",
   },
   paragraphs: [
-    "Входная дверь многоквартирного дома или дверь помещения общего пользования, обслуживающая более одного жилого и (или) нежилого помещения, относится к общему имуществу. Её содержание должно включать проверку целостности, плотности притворов, механической прочности и работоспособности фурнитуры, а при выявлении нарушений — необходимые восстановительные работы.",
+    "Входная дверь многоквартирного дома и дверь помещения общего пользования, обслуживающие более одного помещения, относятся к общему имуществу. По постановлению Правительства РФ от 13.08.2006 № 491 общее имущество должно содержаться в состоянии, обеспечивающем надёжность и безопасность дома и доступность пользования помещениями общего пользования.",
   ],
   sources: [
     {
@@ -96,14 +98,6 @@ export const COMMON_AREA_DOOR_LEGAL_BASIS_MODULE = {
       provisions: ["подпункт «г» пункта 2", "пункт 10"],
       edition: "с изменениями от 07.03.2025 № 293",
       validThrough: "2027-12-31",
-    },
-    {
-      id: "ru-government-decree-290-minimum-work-list",
-      title: "Постановление Правительства Российской Федерации от 03.04.2013 № 290",
-      officialUrl: "https://government.ru/docs/all/86860/",
-      provisions: ["пункт 13 Минимального перечня"],
-      edition: "с изменениями от 07.03.2025 № 293",
-      validThrough: "2029-09-01",
     },
   ],
   verifiedAt: "2026-08-15",
@@ -135,6 +129,7 @@ export function selectSpecificLegalBasisParagraphs(
 ): readonly string[] {
   if (
     input === undefined ||
+    input.isCommonAreaDoor !== true ||
     subject === null ||
     subject.kind !== COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.applicability.subject ||
     !inputEvidenceMatches(input, subject)

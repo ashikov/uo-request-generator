@@ -39,6 +39,7 @@ function formatInput(input: GenerateRequestInput): string[] {
     ["location", "location"],
     ["consequences", "consequences"],
     ["desiredActions", "desiredActions"],
+    ["isCommonAreaDoor", "isCommonAreaDoor"],
   ];
 
   return fields.flatMap(([field, label]) => {
