@@ -264,7 +264,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("передаёт Chat Completions исходные поля как JSON с явными null", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
-    await createGateway().generateRequest(VALID_INPUT);
+    await createGateway().generateRequest({ ...VALID_INPUT, isCommonAreaDoor: true });
 
     const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     const userContent = callBody.messages[1]?.content as string;
@@ -276,6 +276,7 @@ describe("OpenAiCompatibleGateway", () => {
       consequences: null,
       desiredActions: null,
     });
+    expect(userContent).not.toContain("isCommonAreaDoor");
   });
 
   it("сохраняет свободный description внутри JSON и нормализует опциональные поля", async () => {
@@ -490,6 +491,7 @@ describe("OpenAiCompatibleGateway", () => {
 
     const result = await createGateway().generateRequest({
       description: "У входной двери подъезда полностью отсутствует ручка.",
+      isCommonAreaDoor: true,
     });
 
     expect(result.status).toBe("generated");
@@ -529,6 +531,29 @@ describe("OpenAiCompatibleGateway", () => {
       throw new Error("Ожидался готовый результат");
     }
     expect(result.result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+  });
+
+  it.each([
+    ["дверь квартиры", "Дверь квартиры не закрывается.", "Дверь квартиры"],
+    ["бессмысленное evidence", "аааааааааа", "аааааааааа"],
+  ])("не подключает предметный нормативный текст по ошибочному provider output: %s", async (_caseName, description, quote) => {
+    const draft = {
+      ...VALID_DRAFT,
+      subject: {
+        kind: "common_area_entrance_door",
+        evidence: [{ sourceField: "description", quote }],
+      },
+    };
+    const mockFetch = createMockFetch(createLlmText(draft));
+
+    const result = await createGateway().generateRequest({ description });
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(mockFetch).toHaveBeenCalledOnce();
   });
 
   it("возвращает multiple_issues без заявки и нормативного блока", async () => {

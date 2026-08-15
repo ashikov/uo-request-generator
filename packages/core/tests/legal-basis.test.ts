@@ -12,6 +12,10 @@ import {
 const DOOR_INPUT = {
   description: "Входная дверь подъезда не закрывается полностью.",
 } satisfies GenerateRequestInput;
+const CONFIRMED_DOOR_INPUT = {
+  ...DOOR_INPUT,
+  isCommonAreaDoor: true,
+} satisfies GenerateRequestInput;
 
 const DOOR_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
   kind: "common_area_entrance_door",
@@ -47,7 +51,9 @@ describe("нормативный модуль двери общего польз
       id: "common-area-door",
       applicability: {
         subject: "common_area_entrance_door",
+        requiresExplicitUserConfirmation: true,
         requiresVerifiedInputEvidence: true,
+        limitation: expect.stringContaining("помещения общего пользования"),
       },
       verifiedAt: "2026-08-15",
     });
@@ -60,25 +66,18 @@ describe("нормативный модуль двери общего польз
         edition: "с изменениями от 07.03.2025 № 293",
         validThrough: "2027-12-31",
       }),
-      expect.objectContaining({
-        id: "ru-government-decree-290-minimum-work-list",
-        officialUrl: "https://government.ru/docs/all/86860/",
-        provisions: ["пункт 13 Минимального перечня"],
-        edition: "с изменениями от 07.03.2025 № 293",
-        validThrough: "2029-09-01",
-      }),
     ]);
   });
 
-  it("добавляет предметный абзац ровно один раз при подтверждённом evidence", () => {
-    const result = renderPrimaryRequestDraft(createDraft(), DOOR_INPUT);
+  it("добавляет предметный абзац ровно один раз при явном подтверждении и evidence", () => {
+    const result = renderPrimaryRequestDraft(createDraft(), CONFIRMED_DOOR_INPUT);
     const paragraph = COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0];
 
     expect(result.body.split(paragraph)).toHaveLength(2);
   });
 
   it("сохраняет общий и предметный нормативные абзацы в стабильном порядке", () => {
-    const result = renderPrimaryRequestDraft(createDraft(), DOOR_INPUT);
+    const result = renderPrimaryRequestDraft(createDraft(), CONFIRMED_DOOR_INPUT);
     const paragraph = COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0];
 
     expect(result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK)).toBeLessThan(
@@ -90,9 +89,96 @@ describe("нормативный модуль двери общего польз
   it("не подключает модуль без совпавшего с исходным вводом evidence", () => {
     const result = renderPrimaryRequestDraft(createDraft(), {
       description: "На лестничной площадке не работает освещение.",
+      isCommonAreaDoor: true,
     });
 
     expect(result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it("не подключает модуль для двери квартиры по точной цитате provider", () => {
+    const result = renderPrimaryRequestDraft(
+      createDraft({
+        subject: {
+          kind: "common_area_entrance_door",
+          evidence: [{ sourceField: "description", quote: "Дверь квартиры" }],
+        },
+      }),
+      { description: "Дверь квартиры не закрывается." },
+    );
+
+    expect(result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it("не подключает модуль по семантически бессмысленной точной цитате", () => {
+    const meaninglessInput = { description: "аааааааааа" };
+    const result = renderPrimaryRequestDraft(
+      createDraft({
+        subject: {
+          kind: "common_area_entrance_door",
+          evidence: [{ sourceField: "description", quote: meaninglessInput.description }],
+        },
+      }),
+      meaninglessInput,
+    );
+
+    expect(result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it("не считает model kind и точное provenance evidence достаточным backend gate", () => {
+    const result = renderPrimaryRequestDraft(createDraft(), DOOR_INPUT);
+
+    expect(result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it.each([
+    {
+      description: "Дверь квартиры не закрывается.",
+      isCommonAreaDoor: undefined,
+      expected: false,
+    },
+    {
+      description: "Дверь шкафа сломана.",
+      isCommonAreaDoor: undefined,
+      expected: false,
+    },
+    {
+      description: "aaaaaaaaaa",
+      isCommonAreaDoor: undefined,
+      expected: false,
+    },
+    {
+      description: "Входная дверь подъезда не закрывается.",
+      isCommonAreaDoor: true,
+      expected: true,
+    },
+    {
+      description: "Дверь помещения общего пользования не закрывается.",
+      isCommonAreaDoor: true,
+      expected: true,
+    },
+  ] as const)("adversarial gate: $description, explicit confirmation=$isCommonAreaDoor", ({
+    description,
+    isCommonAreaDoor,
+    expected,
+  }) => {
+    const result = renderPrimaryRequestDraft(
+      createDraft({
+        subject: {
+          kind: "common_area_entrance_door",
+          evidence: [{ sourceField: "description", quote: description }],
+        },
+      }),
+      {
+        description,
+        ...(isCommonAreaDoor === true ? { isCommonAreaDoor } : {}),
+      },
+    );
+
+    expect(result.body.includes(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0])).toBe(expected);
     expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
   });
 
@@ -122,7 +208,7 @@ describe("нормативный модуль двери общего польз
   });
 
   it("не содержит процедурного плана и не выводит developer metadata в body", () => {
-    const result = renderPrimaryRequestDraft(createDraft(), DOOR_INPUT);
+    const result = renderPrimaryRequestDraft(createDraft(), CONFIRMED_DOOR_INPUT);
     const serializedModule = JSON.stringify(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE);
 
     expect(serializedModule).not.toContain("actionPlan");
@@ -132,6 +218,18 @@ describe("нормативный модуль двери общего польз
     expect(result.body).not.toContain("government.ru");
     expect(result.body).not.toContain("2026-08-15");
     expect(result.body).not.toContain("common-area-door");
+  });
+
+  it("не возвращает специальные требования постановления № 290 без отдельного gate", () => {
+    const paragraph = COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0];
+    const serializedModule = JSON.stringify(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE);
+
+    expect(paragraph).toContain("постановлению Правительства РФ от 13.08.2006 № 491");
+    expect(paragraph).not.toContain("плотности притворов");
+    expect(paragraph).not.toContain("работоспособности фурнитуры");
+    expect(paragraph).not.toContain("восстановительные работы");
+    expect(serializedModule).not.toContain("03.04.2013 № 290");
+    expect(serializedModule).not.toContain("ru-government-decree-290");
   });
 
   it("отклоняет draft, который помещался бы без предметного абзаца, без усечения", () => {
@@ -162,7 +260,9 @@ describe("нормативный модуль двери общего польз
     expect(bodyLengthWithoutModule).toBe(generateRequestLimits.result.bodyMax);
     expect(paragraph.length).toBeGreaterThan(0);
     expect(primaryRequestDraftSchema.safeParse(draftFittingWithoutModule).success).toBe(false);
-    expect(() => renderPrimaryRequestDraft(draftFittingWithoutModule, DOOR_INPUT)).toThrow();
+    expect(() =>
+      renderPrimaryRequestDraft(draftFittingWithoutModule, CONFIRMED_DOOR_INPUT),
+    ).toThrow();
     expect(draftFittingWithoutModule.problem).toHaveLength(oldMaximumProblemLength);
   });
 });

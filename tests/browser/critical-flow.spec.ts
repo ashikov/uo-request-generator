@@ -53,12 +53,32 @@ test("загружает начальное состояние и отправл
   await expect(page.locator("#location")).toBeEditable();
   await expect(page.locator("#consequences")).toBeEditable();
   await expect(page.locator("#desired-actions")).toBeEditable();
+  await expect(page.locator("#common-area-door")).toBeEnabled();
 
   await page.locator("#description").fill(requiredDescription);
   await page.locator("#submit-button").click();
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
   expect(submittedPayload).toEqual({ description: requiredDescription });
+});
+
+test("отправляет явное подтверждение двери общего пользования", async ({ page }) => {
+  let submittedPayload: unknown;
+  await page.route(generateUrlPattern, async (route) => {
+    submittedPayload = route.request().postDataJSON();
+    await fulfillJson(route, 200, standardGenerationResult);
+  });
+  await page.goto("/");
+
+  await page.locator("#description").fill("Входная дверь подъезда не закрывается.");
+  await page.locator("#common-area-door").check();
+  await page.locator("#submit-button").click();
+
+  await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
+  expect(submittedPayload).toEqual({
+    description: "Входная дверь подъезда не закрывается.",
+    isCommonAreaDoor: true,
+  });
 });
 
 test("показывает локальную ошибку до запроса и переводит на неё focus", async ({ page }) => {
@@ -251,7 +271,13 @@ test("проходит по интерактивным элементам кла
   await expectKeyboardFocus("#description");
   await page.keyboard.type(requiredDescription);
 
-  for (const selector of ["#location", "#consequences", "#desired-actions", "#submit-button"]) {
+  for (const selector of [
+    "#location",
+    "#consequences",
+    "#desired-actions",
+    "#common-area-door",
+    "#submit-button",
+  ]) {
     await page.keyboard.press("Tab");
     await expectKeyboardFocus(selector);
   }

@@ -59,6 +59,7 @@ export const generateRequestInputSchema = z
         `Желаемые действия должны содержать не более ${generateRequestLimits.desiredActions.max} символов`,
       )
       .optional(),
+    isCommonAreaDoor: z.boolean().optional(),
   })
   .strict();
 

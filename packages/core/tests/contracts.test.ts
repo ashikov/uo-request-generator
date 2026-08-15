@@ -88,6 +88,25 @@ describe("generateRequestInputSchema", () => {
     expect(generateRequestInputSchema.safeParse(input).success).toBe(true);
     expect(generateRequestInputSchema.safeParse(tooLongInput).success).toBe(false);
   });
+
+  it.each([true, false])("принимает boolean isCommonAreaDoor: %s", (isCommonAreaDoor) => {
+    const result = generateRequestInputSchema.safeParse({
+      description: "Входная дверь подъезда не закрывается",
+      isCommonAreaDoor,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.success ? result.data.isCommonAreaDoor : undefined).toBe(isCommonAreaDoor);
+  });
+
+  it.each(["true", 1, null])("отклоняет не boolean isCommonAreaDoor: %j", (value) => {
+    const result = generateRequestInputSchema.safeParse({
+      description: "Входная дверь подъезда не закрывается",
+      isCommonAreaDoor: value,
+    });
+
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("generateRequestResultSchema", () => {
