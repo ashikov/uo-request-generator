@@ -156,10 +156,10 @@ describe("primaryRequestDraftSchema", () => {
             circumstances: null,
             impact: null,
             verification: null,
-            actionPlan: { preliminaryCheck: null, remedyActions: ["а"], resultCheck: null },
+            actionPlan: { preliminaryCheck: null, remedyActions: ["."], resultCheck: null },
           }
         : {};
-    const exact = createDraft({ ...otherFields, [field]: "а".repeat(max) });
+    const exact = createDraft({ ...otherFields, [field]: `${"а".repeat(max - 1)}.` });
     const tooLong = createDraft({ ...otherFields, [field]: "а".repeat(max + 1) });
 
     expect(primaryRequestDraftSchema.safeParse(exact).success).toBe(true);
@@ -462,7 +462,7 @@ describe("renderPrimaryRequestDraft", () => {
       "Восстановить освещение на лестничной площадке",
     ]);
     expect(result.body).toContain(
-      "1. Установить причину отсутствия освещения\n2. Восстановить освещение на лестничной площадке",
+      "1. Установить причину отсутствия освещения.\n2. Восстановить освещение на лестничной площадке.",
     );
   });
 
@@ -476,27 +476,70 @@ describe("renderPrimaryRequestDraft", () => {
         COMMON_LEGAL_BASIS_BLOCK,
         "",
         "Прошу:",
-        "1. Установить ручку на входную дверь",
+        "1. Установить ручку на входную дверь.",
       ].join("\n"),
     );
     expect(result.body).not.toContain("\n\n\n");
   });
 
-  it("не нормализует динамические части", () => {
+  it.each([
+    ["без завершающего знака", "Проверить состояние потолка", "Проверить состояние потолка."],
+    ["с точкой", "Проверить состояние потолка.", "Проверить состояние потолка."],
+    ["с восклицательным знаком", "Проверить состояние потолка!", "Проверить состояние потолка!"],
+    ["с вопросительным знаком", "Проверить состояние потолка?", "Проверить состояние потолка?"],
+    ["с многоточием", "Проверить состояние потолка…", "Проверить состояние потолка…"],
+  ])("нормализует problem %s", (_caseName, problem, expectedProblem) => {
+    const result = renderPrimaryRequestDraft(createDraft({ problem }));
+
+    expect(result.body).toContain(expectedProblem);
+  });
+
+  it("нормализует все выводимые динамические части, сохраняя структуру заявки", () => {
     const draft = createDraft({
-      problem: "дверь не закрывается полностью",
+      title: "Не работает освещение",
+      problem: "В общем коридоре не работает освещение",
+      circumstances: "Неисправность проявляется вечером",
+      impact: "Проход по коридору затруднён",
+      verification: "Проверить работу светильников после устранения неисправности",
       actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: ["устранить неисправность двери"],
-        resultCheck: null,
+        preliminaryCheck: "Проверить состояние светильников",
+        remedyActions: ["Заменить неисправные элементы", "Восстановить освещение"],
+        resultCheck: "Проверить освещение после работ",
       },
     });
     const result = renderPrimaryRequestDraft(draft);
 
-    expect(result.body).toContain(draft.problem);
-    expect(result.body).toContain("1. устранить неисправность двери");
-    expect(result.body).not.toContain("Дверь не закрывается полностью.");
-    expect(result.body).not.toContain("1. Устранить неисправность двери.");
+    expect(result.title).toBe(draft.title);
+    expect(result.body).toContain("В общем коридоре не работает освещение.");
+    expect(result.body).toContain("Неисправность проявляется вечером.");
+    expect(result.body).toContain("Проход по коридору затруднён.");
+    expect(result.body).toContain("Проверить работу светильников после устранения неисправности.");
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+    expect(result.body).toContain(
+      [
+        "Прошу:",
+        "1. Проверить состояние светильников.",
+        "2. Заменить неисправные элементы.",
+        "3. Восстановить освещение.",
+        "4. Проверить освещение после работ.",
+      ].join("\n"),
+    );
+  });
+
+  it("учитывает добавленную пунктуацию при проверке итогового лимита body", () => {
+    const requestBlock = "Прошу:\n1. а!";
+    const problemLength =
+      generateRequestLimits.result.bodyMax -
+      COMMON_LEGAL_BASIS_BLOCK.length -
+      requestBlock.length -
+      "\n\n".length * 2;
+    const draft = createDraft({
+      problem: "а".repeat(problemLength),
+      actionPlan: { preliminaryCheck: null, remedyActions: ["а!"], resultCheck: null },
+    });
+
+    expect(primaryRequestDraftSchema.safeParse(draft).success).toBe(false);
+    expect(() => renderPrimaryRequestDraft(draft)).toThrow();
   });
 
   it("переиспользует два нормативных абзаца без URL перед нумерованными требованиями", () => {
