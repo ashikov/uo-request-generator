@@ -334,7 +334,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
       ip: remoteAddress,
     });
     expect(gateway.generateRequest).toHaveBeenCalledOnce();
-    expect(gateway.generateRequest).toHaveBeenCalledWith(validInput);
+    expect(gateway.generateRequest).toHaveBeenCalledWith(validInput, expect.any(String));
     expect(gateway.generateRequest).not.toHaveBeenCalledWith(
       expect.objectContaining({ captchaToken }),
     );
@@ -456,7 +456,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(generatedRequest);
     expect(verifier.verify).not.toHaveBeenCalled();
-    expect(gateway.generateRequest).toHaveBeenCalledWith(validInput);
+    expect(gateway.generateRequest).toHaveBeenCalledWith(validInput, expect.any(String));
   });
 
   it("отклоняет слишком длинный токен до limiter и внешних вызовов", async () => {

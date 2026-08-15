@@ -1,8 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { LlmGateway } from "@uo-request-generator/core";
-import { GenerationProviderUnavailableError } from "@uo-request-generator/llm";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import {
+  GenerationInvalidResponseError,
+  GenerationNetworkError,
+  GenerationProviderUnavailableError,
+  GenerationTimeoutError,
+} from "@uo-request-generator/llm";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { prepareGenerationClientId } from "../generation-client-id.js";
+import type {
+  GenerationEventWriter,
+  GenerationFailedEvent,
+  GenerationRejectedEvent,
+} from "../generation-log.js";
 import { generateHttpRequestSchema } from "../generation-http-contract.js";
 import type { GenerationRateLimiter } from "../generation-rate-limiter.js";
 import type { GenerationSafeguard } from "../generation-safeguard.js";
@@ -24,6 +34,28 @@ type ApiError = {
   message: string;
   statusCode: 400 | 429 | 500 | 503;
 };
+
+type GenerationRequestContext = {
+  requestId: string;
+  startedAt: number;
+  terminalEventWritten: boolean;
+};
+
+type GenerationTerminalStatus =
+  | {
+      event: "generation_rejected";
+      status: GenerationRejectedEvent["status"];
+    }
+  | {
+      event: "generation_failed";
+      status: GenerationFailedEvent["status"];
+    };
+
+declare module "fastify" {
+  interface FastifyRequest {
+    generationContext: GenerationRequestContext | null;
+  }
+}
 
 const validationApiError: ApiError = {
   code: "validation_error",
@@ -73,14 +105,147 @@ const multipleIssuesApiError: ApiError = {
   statusCode: 400,
 };
 
-function sendApiError(reply: FastifyReply, apiError: ApiError): FastifyReply {
+function ensureGenerationContext(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  writeGenerationEvent: GenerationEventWriter,
+): GenerationRequestContext {
+  if (request.generationContext !== null) {
+    return request.generationContext;
+  }
+
+  const context: GenerationRequestContext = {
+    requestId: randomUUID(),
+    startedAt: performance.now(),
+    terminalEventWritten: false,
+  };
+  request.generationContext = context;
+  reply.header("x-request-id", context.requestId);
+  writeGenerationEvent({
+    event: "generation_started",
+    requestId: context.requestId,
+    timestamp: new Date().toISOString(),
+  });
+  return context;
+}
+
+function writeTerminalEvent(
+  context: GenerationRequestContext,
+  terminalStatus: GenerationTerminalStatus,
+  httpStatus: 400 | 429 | 500 | 503,
+  writeGenerationEvent: GenerationEventWriter,
+): void {
+  if (context.terminalEventWritten) {
+    return;
+  }
+
+  context.terminalEventWritten = true;
+  writeGenerationEvent({
+    ...terminalStatus,
+    requestId: context.requestId,
+    timestamp: new Date().toISOString(),
+    durationMs: Math.round(performance.now() - context.startedAt),
+    httpStatus,
+  });
+}
+
+function writeSuccessEvent(
+  context: GenerationRequestContext,
+  writeGenerationEvent: GenerationEventWriter,
+): void {
+  if (context.terminalEventWritten) {
+    return;
+  }
+
+  context.terminalEventWritten = true;
+  writeGenerationEvent({
+    event: "generation_succeeded",
+    requestId: context.requestId,
+    timestamp: new Date().toISOString(),
+    status: "generated",
+    durationMs: Math.round(performance.now() - context.startedAt),
+    httpStatus: 200,
+  });
+}
+
+function sendApiError(
+  reply: FastifyReply,
+  apiError: ApiError,
+  context: GenerationRequestContext,
+): FastifyReply {
   return reply.code(apiError.statusCode).send({
     error: {
       code: apiError.code,
       message: apiError.message,
-      requestId: randomUUID(),
+      requestId: context.requestId,
     },
   });
+}
+
+function sendApiErrorWithEvent(
+  reply: FastifyReply,
+  apiError: ApiError,
+  context: GenerationRequestContext,
+  terminalStatus: GenerationTerminalStatus,
+  writeGenerationEvent: GenerationEventWriter,
+): FastifyReply {
+  writeTerminalEvent(context, terminalStatus, apiError.statusCode, writeGenerationEvent);
+  return sendApiError(reply, apiError, context);
+}
+
+function sendGenerationFailure(
+  error: unknown,
+  reply: FastifyReply,
+  context: GenerationRequestContext,
+  writeGenerationEvent: GenerationEventWriter,
+): FastifyReply {
+  if (error instanceof GenerationTimeoutError) {
+    return sendApiErrorWithEvent(
+      reply,
+      providerUnavailableApiError,
+      context,
+      { event: "generation_failed", status: "timeout" },
+      writeGenerationEvent,
+    );
+  }
+
+  if (error instanceof GenerationNetworkError) {
+    return sendApiErrorWithEvent(
+      reply,
+      providerUnavailableApiError,
+      context,
+      { event: "generation_failed", status: "network_error" },
+      writeGenerationEvent,
+    );
+  }
+
+  if (error instanceof GenerationInvalidResponseError) {
+    return sendApiErrorWithEvent(
+      reply,
+      providerUnavailableApiError,
+      context,
+      { event: "generation_failed", status: "invalid_response" },
+      writeGenerationEvent,
+    );
+  }
+
+  if (error instanceof GenerationProviderUnavailableError) {
+    return sendApiErrorWithEvent(
+      reply,
+      providerUnavailableApiError,
+      context,
+      { event: "generation_failed", status: "provider_unavailable" },
+      writeGenerationEvent,
+    );
+  }
+
+  return sendApiErrorWithEvent(
+    reply,
+    internalApiError,
+    context,
+    { event: "generation_failed", status: "internal_error" },
+    writeGenerationEvent,
+  );
 }
 
 type RegisterGenerateRouteOptions = {
@@ -90,51 +255,91 @@ type RegisterGenerateRouteOptions = {
   generateClientId: () => string;
   smartCaptchaConfig: SmartCaptchaConfig;
   smartCaptchaVerifier?: Pick<SmartCaptchaVerifier, "verify">;
+  writeGenerationEvent: GenerationEventWriter;
 };
 
 export function registerGenerateRoute(
   app: FastifyInstance,
   options: RegisterGenerateRouteOptions,
 ): void {
+  app.decorateRequest("generationContext", null);
   app.post(
     "/api/generate",
     {
-      errorHandler(error, _request, reply) {
+      onRequest(request, reply, done) {
+        ensureGenerationContext(request, reply, options.writeGenerationEvent);
+        done();
+      },
+      errorHandler(error, request, reply) {
+        const context = ensureGenerationContext(request, reply, options.writeGenerationEvent);
+
         // Fastify отклоняет некорректный JSON до вызова основного обработчика.
         if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY") {
-          return sendApiError(reply, validationApiError);
+          return sendApiErrorWithEvent(
+            reply,
+            validationApiError,
+            context,
+            { event: "generation_rejected", status: "validation_error" },
+            options.writeGenerationEvent,
+          );
         }
 
-        return sendApiError(reply, internalApiError);
+        return sendGenerationFailure(error, reply, context, options.writeGenerationEvent);
       },
     },
     async (request, reply) => {
+      const context = ensureGenerationContext(request, reply, options.writeGenerationEvent);
       const inputValidation = generateHttpRequestSchema.safeParse(request.body);
 
       if (!inputValidation.success) {
-        return sendApiError(reply, validationApiError);
+        return sendApiErrorWithEvent(
+          reply,
+          validationApiError,
+          context,
+          { event: "generation_rejected", status: "validation_error" },
+          options.writeGenerationEvent,
+        );
       }
 
       const { captchaToken, ...generationInput } = inputValidation.data;
-      const preparedClientId = prepareGenerationClientId(request, reply, options.generateClientId);
-      const rateLimitDecision = options.generationRateLimiter.acquire({
-        ip: request.ip,
-        clientId: preparedClientId.clientId,
-        hasValidClientCookie: preparedClientId.hasValidClientCookie,
-      });
-      if (!rateLimitDecision.allowed) {
-        if (rateLimitDecision.retryAfterSeconds !== undefined) {
-          reply.header("Retry-After", String(rateLimitDecision.retryAfterSeconds));
-        }
-
-        return sendApiError(reply, rateLimitApiError);
-      }
+      let releaseRateLimit: (() => void) | undefined;
 
       try {
+        const preparedClientId = prepareGenerationClientId(
+          request,
+          reply,
+          options.generateClientId,
+        );
+        const rateLimitDecision = options.generationRateLimiter.acquire({
+          ip: request.ip,
+          clientId: preparedClientId.clientId,
+          hasValidClientCookie: preparedClientId.hasValidClientCookie,
+        });
+        if (!rateLimitDecision.allowed) {
+          if (rateLimitDecision.retryAfterSeconds !== undefined) {
+            reply.header("Retry-After", String(rateLimitDecision.retryAfterSeconds));
+          }
+
+          return sendApiErrorWithEvent(
+            reply,
+            rateLimitApiError,
+            context,
+            { event: "generation_rejected", status: "rate_limited" },
+            options.writeGenerationEvent,
+          );
+        }
+
+        releaseRateLimit = rateLimitDecision.release;
         preparedClientId.setCookieAfterAdmission();
         if (options.smartCaptchaConfig.mode === "required") {
           if (captchaToken === undefined) {
-            return sendApiError(reply, captchaFailedApiError);
+            return sendApiErrorWithEvent(
+              reply,
+              captchaFailedApiError,
+              context,
+              { event: "generation_rejected", status: "captcha_failed" },
+              options.writeGenerationEvent,
+            );
           }
 
           const verification =
@@ -146,38 +351,62 @@ export function registerGenerateRoute(
                 });
 
           if (verification.status === "failed") {
-            return sendApiError(reply, captchaFailedApiError);
+            return sendApiErrorWithEvent(
+              reply,
+              captchaFailedApiError,
+              context,
+              { event: "generation_rejected", status: "captcha_failed" },
+              options.writeGenerationEvent,
+            );
           }
 
           if (verification.status === "unavailable") {
-            return sendApiError(reply, captchaUnavailableApiError);
+            return sendApiErrorWithEvent(
+              reply,
+              captchaUnavailableApiError,
+              context,
+              { event: "generation_rejected", status: "captcha_unavailable" },
+              options.writeGenerationEvent,
+            );
           }
         }
 
         const safeguardDecision = options.generationSafeguard.acquire();
         if (!safeguardDecision.allowed) {
-          return sendApiError(reply, generationUnavailableApiError);
+          return sendApiErrorWithEvent(
+            reply,
+            generationUnavailableApiError,
+            context,
+            { event: "generation_rejected", status: "generation_unavailable" },
+            options.writeGenerationEvent,
+          );
         }
 
         try {
-          const outcome = await options.llmGateway.generateRequest(generationInput);
+          const outcome = await options.llmGateway.generateRequest(
+            generationInput,
+            context.requestId,
+          );
 
           if (outcome.status === "multiple_issues") {
-            return sendApiError(reply, multipleIssuesApiError);
+            return sendApiErrorWithEvent(
+              reply,
+              multipleIssuesApiError,
+              context,
+              { event: "generation_rejected", status: "multiple_issues" },
+              options.writeGenerationEvent,
+            );
           }
 
+          writeSuccessEvent(context, options.writeGenerationEvent);
           return outcome.result;
         } finally {
           safeguardDecision.release();
         }
       } catch (error) {
-        if (error instanceof GenerationProviderUnavailableError) {
-          return sendApiError(reply, providerUnavailableApiError);
-        }
-
-        throw error;
+        return sendGenerationFailure(error, reply, context, options.writeGenerationEvent);
       } finally {
-        rateLimitDecision.release();
+        releaseRateLimit?.();
       }
     },
   );
