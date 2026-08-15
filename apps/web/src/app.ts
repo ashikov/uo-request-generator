@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import type { LlmGateway } from "@uo-request-generator/core";
 import { DisabledLlmGateway } from "@uo-request-generator/llm";
 import Fastify, { type FastifyInstance } from "fastify";
+import { type GenerationEventWriter, writeGenerationEventToStdout } from "./generation-log.js";
 import {
   createGenerationRateLimitConfig,
   type GenerationRateLimitConfig,
@@ -32,6 +33,7 @@ export type CreateAppOptions = {
   generationSafeguard?: GenerationSafeguard;
   smartCaptchaConfig?: SmartCaptchaConfig;
   smartCaptchaVerifier?: Pick<SmartCaptchaVerifier, "verify">;
+  writeGenerationEvent?: GenerationEventWriter;
 };
 
 const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
@@ -78,6 +80,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     (smartCaptchaConfig.mode === "required"
       ? new SmartCaptchaVerifier({ serverKey: smartCaptchaConfig.serverKey })
       : undefined);
+  const writeGenerationEvent = options.writeGenerationEvent ?? writeGenerationEventToStdout;
 
   app.register(fastifyCookie, {
     secret: generationRateLimitConfig.cookieSecret,
@@ -91,6 +94,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     generationSafeguard,
     generateClientId: options.generateGenerationClientId ?? randomUUID,
     smartCaptchaConfig,
+    writeGenerationEvent,
     ...(smartCaptchaVerifier === undefined ? {} : { smartCaptchaVerifier }),
   });
 
