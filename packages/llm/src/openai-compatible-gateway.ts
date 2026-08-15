@@ -540,7 +540,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
         status: "success",
         outcome: {
           status: "generated",
-          result: renderPrimaryRequestDraft(primaryRequestDraft),
+          result: renderPrimaryRequestDraft(primaryRequestDraft, input),
         },
         ...(usage === undefined ? {} : { usage }),
       };

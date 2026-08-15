@@ -376,6 +376,7 @@ describe("LLM benchmark", () => {
                 circumstances: null,
                 impact: null,
                 verification: null,
+                subject: null,
                 actionPlan: {
                   preliminaryCheck: null,
                   remedyActions: ["Проверить и восстановить освещение"],

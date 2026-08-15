@@ -2,22 +2,26 @@ import { z } from "zod";
 import {
   generateRequestLimits,
   generateRequestResultSchema,
+  type GenerateRequestInput,
   type GenerateRequestResult,
 } from "./contracts.js";
+import {
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_LEGAL_BASIS_BLOCK,
+  primaryRequestLegalBasisLimits,
+  primaryRequestSubjectSchema,
+  selectSpecificLegalBasisParagraphs,
+} from "./legal-basis.js";
 
 const REQUEST_BODY_SECTION_SEPARATOR = "\n\n";
-
-export const COMMON_LEGAL_BASIS_BLOCK = [
-  "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.",
-  "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.",
-].join(REQUEST_BODY_SECTION_SEPARATOR);
 
 export const primaryRequestDraftLimits = {
   title: {
     max: generateRequestLimits.result.titleMax,
   },
   problem: {
-    max: 1_950,
+    max:
+      1_950 - (primaryRequestLegalBasisLimits.maximumBlockLength - COMMON_LEGAL_BASIS_BLOCK.length),
   },
   circumstances: {
     max: 600,
@@ -108,13 +112,17 @@ function buildRequestBlock(actionPlan: PrimaryRequestActionPlan): string {
   ].join("\n");
 }
 
-function buildPrimaryRequestBody(draft: PrimaryRequestBodyParts): string {
+function buildPrimaryRequestBody(
+  draft: PrimaryRequestBodyParts,
+  specificLegalBasisParagraphs: readonly string[] = [],
+): string {
   return [
     normalizeSentenceEnding(draft.problem),
     draft.circumstances === null ? null : normalizeSentenceEnding(draft.circumstances),
     draft.impact === null ? null : normalizeSentenceEnding(draft.impact),
     draft.verification === null ? null : normalizeSentenceEnding(draft.verification),
     COMMON_LEGAL_BASIS_BLOCK,
+    ...specificLegalBasisParagraphs,
     buildRequestBlock(draft.actionPlan),
   ]
     .filter((block): block is string => block !== null)
@@ -128,6 +136,7 @@ export const primaryRequestDraftSchema = z
     circumstances: z.union([draftString(primaryRequestDraftLimits.circumstances.max), z.null()]),
     impact: z.union([draftString(primaryRequestDraftLimits.impact.max), z.null()]),
     verification: z.union([draftString(primaryRequestDraftLimits.verification.max), z.null()]),
+    subject: primaryRequestSubjectSchema,
     actionPlan: actionPlanSchema,
     warnings: z
       .array(draftString(primaryRequestDraftLimits.warning.max))
@@ -135,7 +144,10 @@ export const primaryRequestDraftSchema = z
   })
   .strict()
   .superRefine((draft, context) => {
-    if (buildPrimaryRequestBody(draft).length > primaryRequestDraftLimits.body.max) {
+    if (
+      buildPrimaryRequestBody(draft, COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs).length >
+      primaryRequestDraftLimits.body.max
+    ) {
       context.addIssue({
         code: "custom",
         message: "Сформированный текст заявки превышает допустимую длину",
@@ -145,12 +157,19 @@ export const primaryRequestDraftSchema = z
 
 export type PrimaryRequestDraft = z.infer<typeof primaryRequestDraftSchema>;
 
-export function renderPrimaryRequestDraft(draft: PrimaryRequestDraft): GenerateRequestResult {
+export function renderPrimaryRequestDraft(
+  draft: PrimaryRequestDraft,
+  input?: GenerateRequestInput,
+): GenerateRequestResult {
   const validDraft = primaryRequestDraftSchema.parse(draft);
+  const specificLegalBasisParagraphs = selectSpecificLegalBasisParagraphs(
+    validDraft.subject,
+    input,
+  );
 
   return generateRequestResultSchema.parse({
     title: validDraft.title,
-    body: buildPrimaryRequestBody(validDraft),
+    body: buildPrimaryRequestBody(validDraft, specificLegalBasisParagraphs),
     warnings: validDraft.warnings,
   });
 }
