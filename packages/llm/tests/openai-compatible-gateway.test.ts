@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createOpenAiCompatibleRequestBody,
+  GenerationInvalidResponseError,
+  GenerationNetworkError,
+  GenerationProviderUnavailableError,
+  GenerationTimeoutError,
   OpenAiCompatibleGateway,
   type OpenAiCompatibleGatewayConfig,
 } from "../src";
@@ -119,6 +123,23 @@ function createOpenAiResponsesBody(
 
 function createGateway(config: Partial<OpenAiCompatibleGatewayConfig> = {}) {
   return new OpenAiCompatibleGateway({ ...GATEWAY_CONFIG, ...config });
+}
+
+function rejectWhenSignalTimesOut(signal: AbortSignal): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    const rejectWithTimeoutReason = () => {
+      expect(signal.reason).toBeInstanceOf(DOMException);
+      expect(signal.reason).toHaveProperty("name", "TimeoutError");
+      reject(signal.reason);
+    };
+
+    if (signal.aborted) {
+      rejectWithTimeoutReason();
+      return;
+    }
+
+    signal.addEventListener("abort", rejectWithTimeoutReason, { once: true });
+  });
 }
 
 describe("OpenAiCompatibleGateway", () => {
@@ -348,6 +369,53 @@ describe("OpenAiCompatibleGateway", () => {
     });
   });
 
+  it("классифицирует реальный AbortSignal.timeout до HTTP-ответа", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (!(init?.signal instanceof AbortSignal)) {
+        throw new Error("Ожидался AbortSignal");
+      }
+
+      return await rejectWhenSignalTimesOut(init.signal);
+    });
+
+    const gateway = createGateway({ timeoutMs: 5 });
+
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+      GenerationTimeoutError,
+    );
+    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toEqual({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider unavailable",
+    });
+  });
+
+  it("классифицирует реальный AbortSignal.timeout при чтении body", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (!(init?.signal instanceof AbortSignal)) {
+        throw new Error("Ожидался AbortSignal");
+      }
+
+      const response = new Response(JSON.stringify({}), { status: 200 });
+      vi.spyOn(response, "json").mockImplementation(
+        async () => await rejectWhenSignalTimesOut(init.signal as AbortSignal),
+      );
+      return response;
+    });
+
+    const gateway = createGateway({ timeoutMs: 5 });
+
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+      GenerationTimeoutError,
+    );
+    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toEqual({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider unavailable",
+      statusCode: 200,
+    });
+  });
+
   it("бросает ошибку при пустом ответе", async () => {
     createMockFetch("");
 
@@ -507,47 +575,43 @@ describe("OpenAiCompatibleGateway", () => {
     expect(headers["x-folder-id"]).toBe("test-folder");
   });
 
-  it("бросает GenerationProviderUnavailableError при сетевой ошибке", async () => {
+  it("бросает GenerationNetworkError при сетевой ошибке", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
 
     const gateway = createGateway();
 
-    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-      "Generation provider is not configured",
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+      GenerationNetworkError,
     );
   });
 
-  it("бросает GenerationProviderUnavailableError при таймауте (AbortError)", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(
-      new DOMException("The operation was aborted", "AbortError"),
+  it("бросает GenerationInvalidResponseError при невалидном JSON от API", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response("not json", { status: 200 }),
     );
 
     const gateway = createGateway();
 
-    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-      "Generation provider is not configured",
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+      GenerationInvalidResponseError,
     );
+    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toEqual({
+      status: "failure",
+      failureKind: "request",
+      error: "request failed",
+      statusCode: 200,
+    });
   });
 
-  it("бросает GenerationProviderUnavailableError при невалидном JSON от API", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json", { status: 200 }));
-
-    const gateway = createGateway();
-
-    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-      "Generation provider is not configured",
-    );
-  });
-
-  it("бросает GenerationProviderUnavailableError при невалидной структуре ответа API", async () => {
+  it("бросает GenerationInvalidResponseError при невалидной структуре ответа API", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ wrong: "data" }), { status: 200 }),
     );
 
     const gateway = createGateway();
 
-    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-      "Generation provider is not configured",
+    await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+      GenerationInvalidResponseError,
     );
   });
 
@@ -766,8 +830,8 @@ describe("OpenAiCompatibleGateway", () => {
       });
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
       );
     });
 
@@ -811,8 +875,8 @@ describe("OpenAiCompatibleGateway", () => {
       createResponsesMockFetch(createOpenAiResponsesBody(VALID_LLM_TEXT, { status: "incomplete" }));
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
       );
     });
 
@@ -820,8 +884,8 @@ describe("OpenAiCompatibleGateway", () => {
       createResponsesMockFetch(createOpenAiResponsesBody(VALID_LLM_TEXT, { includeStatus: false }));
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
       );
     });
 
@@ -832,8 +896,8 @@ describe("OpenAiCompatibleGateway", () => {
       createResponsesMockFetch({ status, output_text: VALID_LLM_TEXT });
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
       );
     });
 
@@ -841,8 +905,8 @@ describe("OpenAiCompatibleGateway", () => {
       createResponsesMockFetch({ status: 42, output_text: VALID_LLM_TEXT });
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
       );
     });
 
@@ -969,8 +1033,8 @@ describe("OpenAiCompatibleGateway", () => {
       });
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
       );
     });
 
@@ -1104,8 +1168,8 @@ describe("OpenAiCompatibleGateway", () => {
       );
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
       );
     });
 
@@ -1113,8 +1177,8 @@ describe("OpenAiCompatibleGateway", () => {
       vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json", { status: 200 }));
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
       );
     });
 
@@ -1122,8 +1186,8 @@ describe("OpenAiCompatibleGateway", () => {
       createResponsesMockFetch({ output_text: "" }, 503);
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationProviderUnavailableError,
       );
     });
 
@@ -1131,22 +1195,8 @@ describe("OpenAiCompatibleGateway", () => {
       vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
       const gateway = createGateway(responsesConfig);
 
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
-      );
-    });
-
-    it("контролируемо обрабатывает таймаут", async () => {
-      vi.spyOn(globalThis, "fetch").mockRejectedValue(
-        new DOMException("The operation was aborted", "AbortError"),
-      );
-      const gateway = createGateway({
-        ...responsesConfig,
-        timeoutMs: 10,
-      });
-
-      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toThrow(
-        "Generation provider is not configured",
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationNetworkError,
       );
     });
 
