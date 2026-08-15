@@ -495,7 +495,7 @@ describe("provider-facing RequestDraft", () => {
     expect(parsed.actionPlan).toEqual(draft.actionPlan);
     const body = renderGeneratedDraft(parsed).body;
     expect(body).toContain(
-      "Прошу:\n1. Установить источник поступления воды\n2. Устранить причину протечки\n3. После работ проверить прекращение поступления воды",
+      "Прошу:\n1. Установить источник поступления воды.\n2. Устранить причину протечки.\n3. После работ проверить прекращение поступления воды.",
     );
     for (const inventedFact of [
       "крыша",
@@ -526,7 +526,7 @@ describe("provider-facing RequestDraft", () => {
 
     expect(parsed.actionPlan).toEqual(draft.actionPlan);
     expect(renderGeneratedDraft(parsed).body).toContain(
-      "1. Проверить механизм закрывания двери\n2. Отремонтировать дверь и восстановить полное закрывание\n3. После ремонта проверить полное закрывание двери",
+      "1. Проверить механизм закрывания двери.\n2. Отремонтировать дверь и восстановить полное закрывание.\n3. После ремонта проверить полное закрывание двери.",
     );
   });
 
@@ -549,7 +549,7 @@ describe("provider-facing RequestDraft", () => {
 
     expect(parsed.actionPlan.preliminaryCheck).toBeNull();
     expect(body).toContain(
-      "1. Устранить неисправность двери и восстановить её полное закрывание\n2. После работ проверить полное закрывание двери",
+      "1. Устранить неисправность двери и восстановить её полное закрывание.\n2. После работ проверить полное закрывание двери.",
     );
     for (const inventedComponent of ["доводчик", "петля", "замок", "ручка"]) {
       expect(body.toLocaleLowerCase("ru")).not.toContain(inventedComponent);
@@ -573,7 +573,7 @@ describe("provider-facing RequestDraft", () => {
 
     expect(parsed.actionPlan).toEqual(draft.actionPlan);
     expect(renderGeneratedDraft(parsed).body).toContain(
-      "1. Закрепить крышку почтового ящика\n2. После работ проверить надёжность крепления крышки",
+      "1. Закрепить крышку почтового ящика.\n2. После работ проверить надёжность крепления крышки.",
     );
   });
 
@@ -599,11 +599,12 @@ describe("provider-facing RequestDraft", () => {
     ["impact", "impact", primaryRequestDraftLimits.impact.max],
     ["verification", "verification", primaryRequestDraftLimits.verification.max],
   ] as const)("проверяет точную границу поля %s и превышение", (_caseName, field, max) => {
+    const exactValue = field === "title" ? "б".repeat(max) : `${"б".repeat(max - 1)}.`;
     const exactDraft = createDraft({
       problem: "а",
       impact: null,
-      actionPlan: { preliminaryCheck: null, remedyActions: ["в"], resultCheck: null },
-      [field]: "б".repeat(max),
+      actionPlan: { preliminaryCheck: null, remedyActions: ["."], resultCheck: null },
+      [field]: exactValue,
     });
     const tooLongDraft = createDraft({
       problem: "а",
