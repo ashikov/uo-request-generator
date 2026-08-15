@@ -100,7 +100,7 @@ describe("POST /api/generate", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(generatedRequest);
     expect(generateRequest).toHaveBeenCalledOnce();
-    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(generateRequest).toHaveBeenCalledWith(input, expect.any(String));
   });
 
   it("возвращает контролируемый HTTP 400 для multiple_issues", async () => {
@@ -133,7 +133,7 @@ describe("POST /api/generate", () => {
     const response = await injectGenerate(input, gateway);
 
     expect(generateRequest).toHaveBeenCalledOnce();
-    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(generateRequest).toHaveBeenCalledWith(input, expect.any(String));
     expect(response.statusCode).toBe(503);
     expectApiError(response.json(), {
       code: "generation_provider_unavailable",
@@ -193,7 +193,7 @@ describe("POST /api/generate", () => {
 
     const response = await injectGenerate(input, gateway);
 
-    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(generateRequest).toHaveBeenCalledWith(input, expect.any(String));
     expect(response.statusCode).toBe(503);
   });
 
@@ -217,7 +217,7 @@ describe("POST /api/generate", () => {
 
     const response = await injectGenerate(input, gateway);
 
-    expect(generateRequest).toHaveBeenCalledWith(input);
+    expect(generateRequest).toHaveBeenCalledWith(input, expect.any(String));
     expect(response.statusCode).toBe(503);
   });
 
