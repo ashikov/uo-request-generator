@@ -1,5 +1,9 @@
 import {
   COMMON_LEGAL_BASIS_BLOCK,
+  PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS,
+  PRIMARY_REQUEST_SUBJECT_KINDS,
+  primaryRequestLegalBasisLimits,
+  primaryRequestSubjectLimits,
   primaryRequestDraftLimits,
   primaryRequestDraftSchema,
 } from "@uo-request-generator/core";
@@ -11,7 +15,7 @@ export { COMMON_LEGAL_BASIS_BLOCK };
 export const REQUEST_DRAFT_RESPONSE_FORMAT_NAME = "request_draft";
 export const REQUEST_DRAFT_DYNAMIC_BODY_MAX =
   primaryRequestDraftLimits.body.max -
-  COMMON_LEGAL_BASIS_BLOCK.length -
+  primaryRequestLegalBasisLimits.maximumBlockLength -
   REQUEST_BODY_SECTION_SEPARATOR.length * 2;
 
 const draftStringJsonSchema = (maxLength: number) => ({
@@ -77,6 +81,43 @@ const generatedRequestDraftJsonSchema = {
     circumstances: nullableDraftStringJsonSchema(primaryRequestDraftLimits.circumstances.max),
     impact: nullableDraftStringJsonSchema(primaryRequestDraftLimits.impact.max),
     verification: nullableDraftStringJsonSchema(primaryRequestDraftLimits.verification.max),
+    subject: {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            kind: {
+              type: "string",
+              enum: [...PRIMARY_REQUEST_SUBJECT_KINDS],
+            },
+            evidence: {
+              type: "array",
+              minItems: primaryRequestSubjectLimits.evidence.min,
+              maxItems: primaryRequestSubjectLimits.evidence.max,
+              items: {
+                type: "object",
+                properties: {
+                  sourceField: {
+                    type: "string",
+                    enum: [...PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS],
+                  },
+                  quote: {
+                    type: "string",
+                    minLength: primaryRequestSubjectLimits.quote.min,
+                    maxLength: primaryRequestSubjectLimits.quote.max,
+                  },
+                },
+                required: ["sourceField", "quote"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["kind", "evidence"],
+          additionalProperties: false,
+        },
+        { type: "null" },
+      ],
+    },
     actionPlan: generatedActionPlanJsonSchema,
     warnings: {
       type: "array",
@@ -91,6 +132,7 @@ const generatedRequestDraftJsonSchema = {
     "circumstances",
     "impact",
     "verification",
+    "subject",
     "actionPlan",
     "warnings",
   ],
@@ -119,6 +161,9 @@ const multipleIssuesRequestDraftJsonSchema = {
     verification: {
       type: "null",
     },
+    subject: {
+      type: "null",
+    },
     actionPlan: {
       type: "null",
     },
@@ -137,6 +182,7 @@ const multipleIssuesRequestDraftJsonSchema = {
     "circumstances",
     "impact",
     "verification",
+    "subject",
     "actionPlan",
     "warnings",
   ],
@@ -168,6 +214,7 @@ const multipleIssuesRequestDraftSchema = z
     circumstances: z.null(),
     impact: z.null(),
     verification: z.null(),
+    subject: z.null(),
     actionPlan: z.null(),
     warnings: z.array(z.never()).length(0),
   })
@@ -215,6 +262,7 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   `- circumstances: непустая строка до ${primaryRequestDraftLimits.circumstances.max} символов или null`,
   `- impact: непустая строка до ${primaryRequestDraftLimits.impact.max} символов или null`,
   `- verification: непустая строка до ${primaryRequestDraftLimits.verification.max} символов или null`,
+  "- subject: проверяемый предмет проблемы с kind и evidence или null",
   "- actionPlan: объект с обязательными полями preliminaryCheck, remedyActions и resultCheck",
   `- actionPlan.preliminaryCheck: непустая строка до ${primaryRequestDraftLimits.action.max} символов или null`,
   `- actionPlan.remedyActions: массив из одной или нескольких непустых строк, каждая до ${primaryRequestDraftLimits.action.max} символов`,
@@ -229,6 +277,10 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "- circumstances содержит только переданные существенные условия проявления, временный способ эксплуатации и фактически предпринимаемые из-за проблемы действия; если их нет, укажи null",
   "- impact содержит явно переданные последствия и риски, а при безопасном непосредственном основании — самостоятельно выведенное практическое значение или потенциальный риск; если основания нет, укажи null",
   "- verification содержит только реальный предмет проверки: явно переданное предположение, прямо указанную необходимость установить неизвестную причину, обоснованную обстоятельствами проверку связанных элементов или неизвестное обстоятельство, которое требуется установить для относящегося к проблеме действия; иначе укажи null",
+  "- subject описывает только предмет проблемы и не является выбором нормативного акта: используй kind common_area_entrance_door, только если вход прямо указывает на входную дверь многоквартирного дома или дверь помещения общего пользования, обслуживающую более одного помещения",
+  "- subject.evidence содержит от одного до двух дословных непрерывных фрагментов исходных description, location, consequences или desiredActions; для каждого фрагмента укажи sourceField и quote, скопированный без перефразирования, изменения регистра или пунктуации",
+  "- evidence по отдельности или в совокупности должно подтверждать и дверь, и её принадлежность ко входу многоквартирного дома либо помещению общего пользования; не используй для evidence формулировки из созданных тобой problem, title или actionPlan",
+  "- если исходный ввод не содержит достаточных дословных фрагментов, укажи subject: null; не выводи принадлежность двери к общему имуществу только из собственной категории или перефразирования",
   "- actionPlan.preliminaryCheck содержит одно минимальное действие до устранения, которое устанавливает существенное неизвестное обстоятельство, необходимое для выбора или выполнения действия по устранению; это не обязательно визуальный осмотр; иначе укажи null",
   "- actionPlan.remedyActions содержит минимум одно непосредственно необходимое действие по устранению проблемы или восстановлению нормального состояния; это прямые корректирующие действия, которые изменяют проблемное состояние, устраняют дефект или восстанавливают нормальное состояние, а не самостоятельные диагностики или проверки; не дроби мелкие операции ради длины",
   "- actionPlan.resultCheck содержит отдельную проверку после работ только при выполнении правил ниже; иначе укажи null",
@@ -278,7 +330,7 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "Используй warnings только для фактической неоднозначности или противоречия, которое пользователь должен проверить перед подачей. Не добавляй warning для общих советов, отсутствующих необязательных сведений или неизвестной причины.",
   "Если предупреждений нет, укажи warnings: [].",
   "",
-  "Для нескольких самостоятельных несвязанных проблем верни outcome: multiple_issues, title: null, problem: null, circumstances: null, impact: null, verification: null, actionPlan: null и warnings: []. Не выбирай одну проблему и не формируй частичный черновик.",
+  "Для нескольких самостоятельных несвязанных проблем верни outcome: multiple_issues, title: null, problem: null, circumstances: null, impact: null, verification: null, subject: null, actionPlan: null и warnings: []. Не выбирай одну проблему и не формируй частичный черновик.",
 ].join("\n");
 
 function invalidResponseError(): GenerationInvalidResponseError {

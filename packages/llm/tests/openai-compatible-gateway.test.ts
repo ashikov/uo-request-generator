@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { COMMON_AREA_DOOR_LEGAL_BASIS_MODULE } from "@uo-request-generator/core";
 import {
   createOpenAiCompatibleRequestBody,
   GenerationInvalidResponseError,
@@ -39,6 +40,7 @@ const VALID_DRAFT = {
   circumstances: null,
   impact: null,
   verification: null,
+  subject: null,
   actionPlan: {
     preliminaryCheck: null,
     remedyActions: ["Проверить и восстановить освещение"],
@@ -76,6 +78,7 @@ const MULTIPLE_ISSUES_LLM_TEXT = createLlmText({
   circumstances: null,
   impact: null,
   verification: null,
+  subject: null,
   actionPlan: null,
   warnings: [],
 });
@@ -434,6 +437,7 @@ describe("OpenAiCompatibleGateway", () => {
       circumstances: null,
       impact: null,
       verification: null,
+      subject: null,
       actionPlan: {
         preliminaryCheck: null,
         remedyActions: ["Отремонтировать кран"],
@@ -466,6 +470,15 @@ describe("OpenAiCompatibleGateway", () => {
       impact:
         "Такой способ эксплуатации создаёт риск дополнительной нагрузки на доводчик и крепления.",
       verification: null,
+      subject: {
+        kind: "common_area_entrance_door",
+        evidence: [
+          {
+            sourceField: "description",
+            quote: "входной двери подъезда",
+          },
+        ],
+      },
       actionPlan: {
         preliminaryCheck: null,
         remedyActions: ["Установить ручку на входную дверь"],
@@ -475,7 +488,9 @@ describe("OpenAiCompatibleGateway", () => {
     };
     const mockFetch = createMockFetch(createLlmText(draft));
 
-    const result = await createGateway().generateRequest(VALID_INPUT);
+    const result = await createGateway().generateRequest({
+      description: "У входной двери подъезда полностью отсутствует ручка.",
+    });
 
     expect(result.status).toBe("generated");
     if (result.status !== "generated") {
@@ -485,10 +500,35 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.body).toContain(draft.circumstances);
     expect(result.result.body).toContain(draft.impact);
     expect(result.result.body).toContain("Прошу:\n1. Установить ручку на входную дверь");
+    expect(result.result.body).toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
     expect(result.result.body).not.toContain("\n2. ");
     expect(result.result.body).not.toContain("доводчик повреждён");
     expect(result.result.body).not.toContain("Устранить выявленные повреждения");
     expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("не подключает предметный нормативный текст по одной LLM-категории", async () => {
+    const draft = {
+      ...VALID_DRAFT,
+      subject: {
+        kind: "common_area_entrance_door",
+        evidence: [
+          {
+            sourceField: "description",
+            quote: "входной двери подъезда",
+          },
+        ],
+      },
+    };
+    createMockFetch(createLlmText(draft));
+
+    const result = await createGateway().generateRequest(VALID_INPUT);
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
   it("возвращает multiple_issues без заявки и нормативного блока", async () => {
@@ -517,6 +557,7 @@ describe("OpenAiCompatibleGateway", () => {
         circumstances: null,
         impact: null,
         verification: null,
+        subject: null,
         actionPlan: null,
         warnings: [],
       }),

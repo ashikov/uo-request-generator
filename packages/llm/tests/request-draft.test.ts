@@ -1,6 +1,8 @@
 import {
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
   generateRequestLimits,
+  primaryRequestLegalBasisLimits,
   primaryRequestDraftLimits,
   renderPrimaryRequestDraft,
   type PrimaryRequestDraft,
@@ -26,6 +28,7 @@ function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedR
     circumstances: null,
     impact: "В тёмное время суток проход по коридору затруднён.",
     verification: null,
+    subject: null,
     actionPlan: {
       preliminaryCheck: null,
       remedyActions: ["Проверить и восстановить освещение"],
@@ -44,6 +47,7 @@ function createMultipleIssuesDraft(): Extract<RequestDraft, { outcome: "multiple
     circumstances: null,
     impact: null,
     verification: null,
+    subject: null,
     actionPlan: null,
     warnings: [],
   };
@@ -162,12 +166,32 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(COMMON_LEGAL_BASIS_BLOCK);
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain("http://");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain("https://");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.id);
+    for (const source of COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.sources) {
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.officialUrl);
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.title);
+    }
   });
 
   it("передаёт модели динамический лимит body", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       `не более ${REQUEST_DRAFT_DYNAMIC_BODY_MAX} символов`,
     );
+    expect(REQUEST_DRAFT_DYNAMIC_BODY_MAX).toBe(
+      primaryRequestDraftLimits.body.max -
+        primaryRequestLegalBasisLimits.maximumBlockLength -
+        "\n\n".length * 2,
+    );
+  });
+
+  it("запрашивает только предметный факт с проверяемым evidence, а не выбор закона", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("subject описывает только предмет проблемы");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("дословных непрерывных фрагментов");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("subject: null");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не является выбором нормативного акта");
   });
 
   it.each([
@@ -191,6 +215,7 @@ describe("provider-facing RequestDraft", () => {
       "circumstances",
       "impact",
       "verification",
+      "subject",
       "actionPlan",
       "warnings",
     ]);
@@ -220,6 +245,36 @@ describe("provider-facing RequestDraft", () => {
         type: ["string", "null"],
         minLength: 1,
         maxLength: primaryRequestDraftLimits.verification.max,
+      },
+      subject: {
+        anyOf: [
+          {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: ["common_area_entrance_door"] },
+              evidence: {
+                type: "array",
+                minItems: 1,
+                maxItems: 2,
+                items: {
+                  type: "object",
+                  properties: {
+                    sourceField: {
+                      type: "string",
+                      enum: ["description", "location", "consequences", "desiredActions"],
+                    },
+                    quote: { type: "string", minLength: 10, maxLength: 300 },
+                  },
+                  required: ["sourceField", "quote"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["kind", "evidence"],
+            additionalProperties: false,
+          },
+          { type: "null" },
+        ],
       },
       actionPlan: {
         anyOf: expect.arrayContaining([
@@ -283,6 +338,7 @@ describe("provider-facing RequestDraft", () => {
       "circumstances",
       "impact",
       "verification",
+      "subject",
       "actionPlan",
       "warnings",
     ]);
@@ -293,6 +349,7 @@ describe("provider-facing RequestDraft", () => {
       circumstances: { type: "null" },
       impact: { type: "null" },
       verification: { type: "null" },
+      subject: { type: "null" },
       actionPlan: { type: "null" },
       warnings: { type: "array", maxItems: 0, items: { type: "string" } },
     });
@@ -689,12 +746,15 @@ describe("provider-facing RequestDraft", () => {
   });
 
   it("проверяет точный итоговый лимит body и превышение на один символ", () => {
-    const exactDraft = createDraftAtBodyLength(generateRequestLimits.result.bodyMax);
+    const maximumBodyWithoutSpecificLegalBasis =
+      generateRequestLimits.result.bodyMax -
+      (primaryRequestLegalBasisLimits.maximumBlockLength - COMMON_LEGAL_BASIS_BLOCK.length);
+    const exactDraft = createDraftAtBodyLength(maximumBodyWithoutSpecificLegalBasis);
     const parsed = parseRequestDraft(serializeDraft(exactDraft));
     expectGeneratedDraft(parsed);
 
-    expect(renderGeneratedDraft(parsed).body).toHaveLength(generateRequestLimits.result.bodyMax);
-    expectInvalidResponse(createDraftAtBodyLength(generateRequestLimits.result.bodyMax + 1));
+    expect(renderGeneratedDraft(parsed).body).toHaveLength(maximumBodyWithoutSpecificLegalBasis);
+    expectInvalidResponse(createDraftAtBodyLength(maximumBodyWithoutSpecificLegalBasis + 1));
   });
 
   it("отклоняет невалидный JSON, лишние поля и неверную ветку outcome", () => {
@@ -729,6 +789,7 @@ describe("provider-facing RequestDraft", () => {
       "circumstances",
       "impact",
       "verification",
+      "subject",
       "actionPlan",
       "warnings",
     ] as const) {

@@ -1,4 +1,8 @@
-import type { GenerateRequestInput, GenerateRequestOutcome } from "@uo-request-generator/core";
+import {
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  type GenerateRequestInput,
+  type GenerateRequestOutcome,
+} from "@uo-request-generator/core";
 import {
   COMMON_LEGAL_BASIS_BLOCK,
   DisabledLlmGateway,
@@ -15,6 +19,7 @@ const GENERATED_BODY = [
   COMMON_LEGAL_BASIS_BLOCK,
   "Прошу:\n1. Проверить проблему",
 ].join("\n\n");
+const DOOR_LEGAL_BASIS_PARAGRAPH = COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0];
 
 function generatedOutcome(warnings: string[] = []): GenerateRequestOutcome {
   return {
@@ -115,6 +120,28 @@ describe("runLlmSmokeCheck", () => {
     expect(exitCode).toBe(0);
   });
 
+  it("принимает предметное основание для двери после общих оснований", async () => {
+    const outcome = generatedOutcome();
+    if (outcome.status !== "generated") {
+      throw new Error("Ожидался generated outcome");
+    }
+    outcome.result.body = [
+      "Описанная проблема требует проверки.",
+      COMMON_LEGAL_BASIS_BLOCK,
+      DOOR_LEGAL_BASIS_PARAGRAPH,
+      "Прошу:\n1. Проверить проблему",
+    ].join("\n\n");
+    const writeLine = vi.fn();
+
+    const exitCode = await runLlmSmokeCheck(
+      { generateRequest: vi.fn().mockResolvedValue(outcome) },
+      writeLine,
+      [generatedScenario()],
+    );
+
+    expect(exitCode).toBe(0);
+  });
+
   it.each([
     ["без нормативного блока", GENERATED_REQUEST_BODY],
     [
@@ -131,6 +158,16 @@ describe("runLlmSmokeCheck", () => {
         "Описанная проблема требует проверки.",
         COMMON_LEGAL_BASIS_BLOCK,
         COMMON_LEGAL_BASIS_BLOCK,
+        "Прошу:\n1. Проверить проблему",
+      ].join("\n\n"),
+    ],
+    [
+      "с предметным нормативным основанием дважды",
+      [
+        "Описанная проблема требует проверки.",
+        COMMON_LEGAL_BASIS_BLOCK,
+        DOOR_LEGAL_BASIS_PARAGRAPH,
+        DOOR_LEGAL_BASIS_PARAGRAPH,
         "Прошу:\n1. Проверить проблему",
       ].join("\n\n"),
     ],

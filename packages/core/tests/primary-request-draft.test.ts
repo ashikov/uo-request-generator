@@ -22,6 +22,11 @@ const HOUSING_CODE_BASIS =
   "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.";
 const MANAGEMENT_RULES_BASIS =
   "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
+const BODY_LIMIT_INPUT = { description: "а".repeat(10) };
+const BODY_LIMIT_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
+  kind: "common_area_entrance_door",
+  evidence: [{ sourceField: "description", quote: BODY_LIMIT_INPUT.description }],
+};
 
 function createDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
   return {
@@ -30,6 +35,7 @@ function createDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryReque
     circumstances: null,
     impact: null,
     verification: null,
+    subject: null,
     actionPlan: {
       preliminaryCheck: null,
       remedyActions: ["Восстановить освещение"],
@@ -46,6 +52,7 @@ function buildDraftAtBodyLimit(): PrimaryRequestDraft {
     circumstances: "б",
     impact: "в",
     verification: "г",
+    subject: BODY_LIMIT_SUBJECT,
     actionPlan: {
       preliminaryCheck: "д",
       remedyActions: ["е", "ж", "з"],
@@ -53,7 +60,8 @@ function buildDraftAtBodyLimit(): PrimaryRequestDraft {
     },
   });
   let remaining =
-    generateRequestLimits.result.bodyMax - renderPrimaryRequestDraft(draft).body.length;
+    generateRequestLimits.result.bodyMax -
+    renderPrimaryRequestDraft(draft, BODY_LIMIT_INPUT).body.length;
   const stringFields = ["problem", "circumstances", "impact", "verification"] as const;
 
   for (const field of stringFields) {
@@ -96,6 +104,7 @@ describe("primaryRequestDraftSchema", () => {
       "circumstances",
       "impact",
       "verification",
+      "subject",
       "actionPlan",
       "warnings",
     ]);
@@ -307,7 +316,7 @@ describe("primaryRequestDraftSchema", () => {
       verification: `${exact.verification ?? ""}а`,
     };
 
-    expect(renderPrimaryRequestDraft(exact).body).toHaveLength(
+    expect(renderPrimaryRequestDraft(exact, BODY_LIMIT_INPUT).body).toHaveLength(
       generateRequestLimits.result.bodyMax,
     );
     expect(primaryRequestDraftSchema.safeParse(tooLong).success).toBe(false);
