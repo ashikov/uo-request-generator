@@ -4,8 +4,7 @@ import {
   primaryRequestDraftSchema,
 } from "@uo-request-generator/core";
 import { z } from "zod";
-
-const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
+import { GenerationInvalidResponseError } from "./generation-error.js";
 const REQUEST_BODY_SECTION_SEPARATOR = "\n\n";
 export { COMMON_LEGAL_BASIS_BLOCK };
 
@@ -282,8 +281,8 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "Для нескольких самостоятельных несвязанных проблем верни outcome: multiple_issues, title: null, problem: null, circumstances: null, impact: null, verification: null, actionPlan: null и warnings: []. Не выбирай одну проблему и не формируй частичный черновик.",
 ].join("\n");
 
-function invalidResponseError(): Error {
-  return new Error(INVALID_RESPONSE_MESSAGE);
+function invalidResponseError(): GenerationInvalidResponseError {
+  return new GenerationInvalidResponseError();
 }
 
 export function parseRequestDraft(responseText: string): RequestDraft {

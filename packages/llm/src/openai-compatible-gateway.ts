@@ -5,7 +5,12 @@ import {
   type LlmGateway,
 } from "@uo-request-generator/core";
 import { z } from "zod";
-import { GenerationProviderUnavailableError } from "./disabled-llm-gateway.js";
+import {
+  GenerationInvalidResponseError,
+  GenerationNetworkError,
+  GenerationProviderUnavailableError,
+  GenerationTimeoutError,
+} from "./generation-error.js";
 import {
   parseRequestDraft,
   REQUEST_DRAFT_JSON_SCHEMA,
@@ -245,11 +250,11 @@ function extractResponsesText(responseBody: unknown): string {
   const responseResult = openAiResponsesResponseSchema.safeParse(responseBody);
 
   if (!responseResult.success) {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   if (responseResult.data.status !== undefined && responseResult.data.status !== "completed") {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   const aggregatedText = responseResult.data.output_text;
@@ -259,7 +264,7 @@ function extractResponsesText(responseBody: unknown): string {
   }
 
   if (responseResult.data.status === undefined && responseResult.data.output !== undefined) {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   const textParts: string[] = [];
@@ -268,7 +273,7 @@ function extractResponsesText(responseBody: unknown): string {
     const outputItemResult = openAiResponsesOutputItemSchema.safeParse(outputItem);
 
     if (!outputItemResult.success) {
-      throw new GenerationProviderUnavailableError();
+      throw new GenerationInvalidResponseError();
     }
 
     if (outputItemResult.data.type !== "message") {
@@ -278,14 +283,14 @@ function extractResponsesText(responseBody: unknown): string {
     const messageResult = openAiResponsesMessageSchema.safeParse(outputItem);
 
     if (!messageResult.success) {
-      throw new GenerationProviderUnavailableError();
+      throw new GenerationInvalidResponseError();
     }
 
     for (const contentItem of messageResult.data.content) {
       const contentItemResult = openAiResponsesContentItemSchema.safeParse(contentItem);
 
       if (!contentItemResult.success) {
-        throw new GenerationProviderUnavailableError();
+        throw new GenerationInvalidResponseError();
       }
 
       if (contentItemResult.data.type !== "output_text") {
@@ -295,7 +300,7 @@ function extractResponsesText(responseBody: unknown): string {
       const outputTextResult = openAiResponsesOutputTextSchema.safeParse(contentItem);
 
       if (!outputTextResult.success) {
-        throw new GenerationProviderUnavailableError();
+        throw new GenerationInvalidResponseError();
       }
 
       textParts.push(outputTextResult.data.text);
@@ -362,13 +367,13 @@ function extractResponseText(apiProtocol: LlmApiProtocol, responseBody: unknown)
   const apiResult = openAiChatCompletionResponseSchema.safeParse(responseBody);
 
   if (!apiResult.success) {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   const firstChoice = apiResult.data.choices[0];
 
   if (firstChoice === undefined) {
-    throw new GenerationProviderUnavailableError();
+    throw new GenerationInvalidResponseError();
   }
 
   return firstChoice.message.content;
@@ -439,10 +444,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       input,
     );
 
+    const signal = AbortSignal.timeout(this.timeoutMs);
     let response: Response;
 
     try {
-      const signal = AbortSignal.timeout(this.timeoutMs);
       response = await fetch(this.apiUrl, {
         method: "POST",
         headers: {
@@ -453,11 +458,11 @@ export class OpenAiCompatibleGateway implements LlmGateway {
         body: JSON.stringify(requestBody),
         signal,
       });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return createGenerationFailure("provider", new GenerationProviderUnavailableError());
+    } catch {
+      if (signal.aborted) {
+        return createGenerationFailure("provider", new GenerationTimeoutError());
       }
-      return createGenerationFailure("provider", new GenerationProviderUnavailableError());
+      return createGenerationFailure("provider", new GenerationNetworkError());
     }
 
     let data: unknown;
@@ -465,8 +470,17 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     try {
       data = await response.json();
     } catch {
+      if (signal.aborted) {
+        return createGenerationFailure("provider", new GenerationTimeoutError(), {
+          statusCode: response.status,
+        });
+      }
+
       const failureKind = response.ok ? "request" : classifyHttpFailure(response.status);
-      return createGenerationFailure(failureKind, new GenerationProviderUnavailableError(), {
+      const productionError = response.ok
+        ? new GenerationInvalidResponseError()
+        : new GenerationProviderUnavailableError();
+      return createGenerationFailure(failureKind, productionError, {
         statusCode: response.status,
       });
     }
@@ -491,7 +505,9 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     } catch (error) {
       return createGenerationFailure(
         "request",
-        error instanceof Error ? error : new GenerationProviderUnavailableError(),
+        error instanceof GenerationInvalidResponseError
+          ? error
+          : new GenerationInvalidResponseError(),
         usage === undefined ? {} : { usage },
       );
     }
@@ -499,7 +515,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     if (!content || content.trim().length === 0) {
       return createGenerationFailure(
         "request",
-        new Error("LLM API вернул пустой ответ"),
+        new GenerationInvalidResponseError("LLM API вернул пустой ответ"),
         usage === undefined ? {} : { usage },
       );
     }
@@ -528,7 +544,9 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     } catch (error) {
       return createGenerationFailure(
         "request",
-        error instanceof Error ? error : new Error("LLM вернул некорректный формат заявки"),
+        error instanceof GenerationInvalidResponseError
+          ? error
+          : new GenerationInvalidResponseError(),
         usage === undefined ? {} : { usage },
       );
     }
