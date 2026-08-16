@@ -16,6 +16,56 @@ type NamedLocator = {
 
 const geometryTolerance = 1;
 
+export async function expectVisibleFocusIndication(locator: Locator): Promise<void> {
+  await expect(locator).toBeFocused();
+  const { focusStyle, unfocusedBoxShadow } = await locator.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("Focus indication можно проверить только у HTMLElement");
+    }
+
+    const inlineTransition = element.style.getPropertyValue("transition");
+    const inlineTransitionPriority = element.style.getPropertyPriority("transition");
+    element.style.setProperty("transition", "none", "important");
+
+    try {
+      const style = getComputedStyle(element);
+      const focused = {
+        outlineColor: style.outlineColor,
+        outlineStyle: style.outlineStyle,
+        outlineWidth: Number.parseFloat(style.outlineWidth),
+        boxShadow: style.boxShadow,
+      };
+      element.blur();
+
+      return {
+        focusStyle: focused,
+        unfocusedBoxShadow: getComputedStyle(element).boxShadow,
+      };
+    } finally {
+      element.focus();
+      if (inlineTransition === "") {
+        element.style.removeProperty("transition");
+      } else {
+        element.style.setProperty("transition", inlineTransition, inlineTransitionPriority);
+      }
+    }
+  });
+  await expect(locator).toBeFocused();
+
+  const hasVisibleOutline =
+    focusStyle.outlineWidth > 0 &&
+    focusStyle.outlineStyle !== "none" &&
+    focusStyle.outlineColor !== "transparent" &&
+    focusStyle.outlineColor !== "rgba(0, 0, 0, 0)";
+  const hasFocusBoxShadow =
+    focusStyle.boxShadow !== "none" && focusStyle.boxShadow !== unfocusedBoxShadow;
+
+  expect(
+    hasVisibleOutline || hasFocusBoxShadow,
+    "focused элемент должен иметь видимую focus-индикацию",
+  ).toBe(true);
+}
+
 async function rectangles(locator: Locator): Promise<Rectangle[]> {
   return locator.evaluateAll((elements) =>
     elements.map((element) => {

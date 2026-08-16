@@ -16,17 +16,52 @@ import {
 
 const generateUrlPattern = "**/api/generate";
 
+async function waitForScrollToSettle(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        let previousScrollY = window.scrollY;
+        let stableFrameCount = 0;
+
+        const checkScrollPosition = () => {
+          if (window.scrollY === previousScrollY) {
+            stableFrameCount++;
+          } else {
+            stableFrameCount = 0;
+            previousScrollY = window.scrollY;
+          }
+
+          if (stableFrameCount >= 2) {
+            resolve();
+            return;
+          }
+
+          requestAnimationFrame(checkScrollPosition);
+        };
+
+        requestAnimationFrame(checkScrollPosition);
+      }),
+  );
+}
+
 async function expectCoreLayout(page: Page): Promise<void> {
+  await waitForScrollToSettle(page);
   await expectNoHorizontalDocumentOverflow(page);
   await expectWithinViewportHorizontally(page, [
-    { name: "основной container", locator: page.locator(".request-card") },
+    { name: "основной container", locator: page.locator("main") },
     { name: "форма", locator: page.locator("#request-form") },
-    { name: "labels", locator: page.locator(".field-group > label") },
-    { name: "поля", locator: page.locator(".field-group input, .field-group textarea") },
-    { name: "подсказки и счётчики", locator: page.locator(".field-meta > *") },
+    { name: "labels", locator: page.locator("#request-form label") },
+    { name: "поля", locator: page.locator("#request-form input, select, textarea") },
+    {
+      name: "подсказки и счётчики",
+      locator: page.locator('#request-form [id$="-hint"], #request-form [id$="-count"]'),
+    },
     { name: "основная кнопка", locator: page.locator("#submit-button") },
     { name: "область результата", locator: page.locator("#result-area") },
-    { name: "служебное сообщение", locator: page.locator(".service-note") },
+    {
+      name: "служебное сообщение",
+      locator: page.getByText("Проверьте готовую заявку перед отправкой", { exact: false }),
+    },
   ]);
   await expectFormFieldPartsDoNotOverlap(page);
 }
@@ -97,24 +132,21 @@ test("сохраняет layout-инварианты от формы до дли
   await expectCoreLayout(page);
   if (testInfo.project.name === "desktop-1280x800") {
     const viewport = page.viewportSize();
-    const cardRectangle = await page.locator(".request-card").boundingBox();
-    if (viewport === null || cardRectangle === null) {
+    const containerRectangle = await page.locator("main").boundingBox();
+    if (viewport === null || containerRectangle === null) {
       throw new Error("Desktop container должен иметь измеримый viewport");
     }
-    const configuredContentWidth = await page.evaluate(() => {
-      const rootStyle = getComputedStyle(document.documentElement);
-      const contentWidth = rootStyle.getPropertyValue("--content-width").trim();
-      return Number.parseFloat(contentWidth) * Number.parseFloat(rootStyle.fontSize);
-    });
-    expect(cardRectangle.width).toBeLessThanOrEqual(configuredContentWidth + 1);
-    expect(cardRectangle.x).toBeCloseTo((viewport.width - cardRectangle.width) / 2, 0);
+    expect(containerRectangle.width).toBeLessThan(viewport.width);
+    expect(containerRectangle.x).toBeCloseTo((viewport.width - containerRectangle.width) / 2, 0);
   }
   await expectWithinViewportHorizontally(page, [
     { name: "начальное сообщение", locator: page.locator("#result-placeholder") },
   ]);
   await expectTextWraps({
     name: "длинные подсказки",
-    locator: page.locator(".field-meta > :first-child"),
+    locator: page.locator(
+      "#description-hint, #location-hint, #consequences-hint, #desired-actions-hint",
+    ),
   });
   await expectReachableByScrolling(page, {
     name: "поле желаемых действий",

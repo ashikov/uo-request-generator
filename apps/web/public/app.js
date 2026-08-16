@@ -163,6 +163,7 @@ export function initializeCaptcha() {
 
   function setDescriptionValidationError() {
     description.setAttribute("aria-invalid", "true");
+    description.classList.add("is-invalid");
     description.setAttribute(
       "aria-describedby",
       `${descriptionDescribedBy ?? ""} error-area`.trim(),
@@ -171,6 +172,7 @@ export function initializeCaptcha() {
 
   function clearDescriptionValidationError() {
     description.removeAttribute("aria-invalid");
+    description.classList.remove("is-invalid");
     if (descriptionDescribedBy === null) {
       description.removeAttribute("aria-describedby");
       return;
@@ -201,8 +203,8 @@ export function initializeCaptcha() {
       existing.remove();
     }
 
-    const status = document.createElement("span");
-    status.className = `copy-status copy-status--${type}`;
+    const status = document.createElement("div");
+    status.className = `copy-status alert ${type === "success" ? "alert-success" : "alert-danger"} mt-3 mb-0 py-2`;
     status.role = "status";
     status.textContent = message;
     resultArea.append(status);
@@ -228,14 +230,16 @@ export function initializeCaptcha() {
     currentResult = result;
 
     const title = document.createElement("h3");
+    title.className = "h4 mt-3 mb-0 text-break";
     title.textContent = result.title;
 
     const body = document.createElement("p");
+    body.className = "mt-3 mb-0 text-break";
     body.textContent = result.body;
 
     const copyButton = document.createElement("button");
     copyButton.type = "button";
-    copyButton.className = "copy-button";
+    copyButton.className = "btn btn-outline-primary w-100 mt-4";
     copyButton.textContent = "Скопировать заявку";
     copyButton.addEventListener("click", handleCopy);
 
@@ -243,6 +247,7 @@ export function initializeCaptcha() {
 
     if (result.warnings.length > 0) {
       const warnings = document.createElement("ul");
+      warnings.className = "alert alert-warning mt-4 mb-0 ps-5";
       for (const warning of result.warnings) {
         const item = document.createElement("li");
         item.textContent = warning;

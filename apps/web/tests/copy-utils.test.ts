@@ -115,6 +115,14 @@ function setupFormDOM() {
   `;
 }
 
+function getCopyButton(): HTMLButtonElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "Скопировать заявку",
+    ) ?? null
+  );
+}
+
 describe("copy button in app", () => {
   beforeAll(async () => {
     setupFormDOM();
@@ -176,14 +184,15 @@ describe("copy button in app", () => {
     document.getElementById("request-form")?.dispatchEvent(new Event("submit"));
 
     await vi.waitFor(() => {
-      expect(document.querySelector(".copy-button")).not.toBeNull();
+      expect(getCopyButton()).not.toBeNull();
     });
 
-    (document.querySelector(".copy-button") as HTMLButtonElement).click();
+    (getCopyButton() as HTMLButtonElement).click();
 
     await vi.waitFor(() => {
       const status = document.querySelector(".copy-status");
       expect(status).not.toBeNull();
+      expect(status?.tagName).toBe("DIV");
       expect(status?.getAttribute("role")).toBe("status");
     });
   });
@@ -193,14 +202,14 @@ describe("copy button in app", () => {
     form.dispatchEvent(new Event("submit"));
 
     await vi.waitFor(() => {
-      expect(document.querySelector(".copy-button")).not.toBeNull();
+      expect(getCopyButton()).not.toBeNull();
     });
 
-    (document.querySelector(".copy-button") as HTMLButtonElement).click();
+    (getCopyButton() as HTMLButtonElement).click();
     form.dispatchEvent(new Event("submit"));
 
     await vi.waitFor(() => {
-      expect(document.querySelector(".copy-button")).not.toBeNull();
+      expect(getCopyButton()).not.toBeNull();
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));

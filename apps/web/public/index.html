@@ -8,152 +8,215 @@
       content="Подготовка заявки для управляющей организации по описанию жителя"
     />
     <title>Заявка в УО</title>
+    <link rel="stylesheet" href="/vendor/bootstrap/bootstrap.min.css" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" type="module"></script>
   </head>
-  <body>
-    <main class="page-shell">
-      <section class="request-card" aria-labelledby="page-title">
-        <header class="page-header">
-          <h1 id="page-title">Заявка в УО</h1>
-          <p>Опишите одну проблему обычными словами — получите готовый текст заявки</p>
-        </header>
+  <body class="bg-body-tertiary">
+    <main class="container-xl py-3 py-sm-4 py-lg-5">
+      <section class="card border-0 shadow-sm" aria-labelledby="page-title">
+        <div class="card-body p-3 p-sm-4 p-lg-5">
+          <header class="mb-5">
+            <h1 id="page-title" class="display-5 fw-semibold">Заявка в УО</h1>
+            <p class="lead text-body-secondary mb-0">
+              Опишите одну проблему обычными словами — получите готовый текст заявки
+            </p>
+          </header>
 
-        <div class="page-content">
-          <div class="form-column">
-            <form id="request-form" class="request-form" novalidate>
-              <div class="field-group field-group--primary">
-                <label for="description">
-                  <span>Описание проблемы</span>
-                  <span class="field-requirement">Обязательное поле</span>
-                </label>
-                <textarea
-                  id="description"
-                  name="description"
-                  minlength="10"
-                  maxlength="2000"
-                  rows="7"
-                  required
-                  aria-describedby="description-hint description-count"
-                ></textarea>
-                <div class="field-meta">
-                  <span id="description-hint">Опишите одну проблему обычными словами</span>
-                  <span id="description-count" aria-live="polite">0 / 2000</span>
-                </div>
-              </div>
-
-              <section class="optional-fields" aria-labelledby="optional-fields-title">
-                <header class="optional-fields-header">
-                  <div>
-                    <h2 id="optional-fields-title">Дополнительные сведения</h2>
-                    <p>Заполните только то, что уже известно</p>
-                  </div>
-                  <span class="optional-marker">Необязательно</span>
-                </header>
-
-                <div class="field-group">
-                  <label for="location">Где это произошло</label>
-                  <input
-                    id="location"
-                    name="location"
-                    type="text"
-                    maxlength="120"
-                    aria-describedby="location-hint location-count"
-                  />
-                  <div class="field-meta">
-                    <span id="location-hint">Необязательно, например: подъезд или этаж</span>
-                    <span id="location-count" aria-live="polite">0 / 120</span>
-                  </div>
-                </div>
-
-                <div class="field-group">
-                  <label for="consequences">Известные последствия</label>
-                  <textarea
-                    id="consequences"
-                    name="consequences"
-                    maxlength="500"
-                    rows="3"
-                    aria-describedby="consequences-hint consequences-count"
-                  ></textarea>
-                  <div class="field-meta">
-                    <span id="consequences-hint"
-                      >Необязательно. Укажите только уже известные последствия проблемы</span
-                    >
-                    <span id="consequences-count" aria-live="polite">0 / 500</span>
-                  </div>
-                </div>
-
-                <div class="field-group">
-                  <label for="desired-actions">Желаемые действия</label>
-                  <textarea
-                    id="desired-actions"
-                    name="desiredActions"
-                    maxlength="500"
-                    rows="3"
-                    aria-describedby="desired-actions-hint desired-actions-count"
-                  ></textarea>
-                  <div class="field-meta">
-                    <span id="desired-actions-hint"
-                      >Необязательно. Укажите, что должна сделать УО, если это известно</span
-                    >
-                    <span id="desired-actions-count" aria-live="polite">0 / 500</span>
-                  </div>
-                </div>
-
-                <div class="field-group">
-                  <label for="confirmed-problem-subject">Предмет проблемы (необязательно)</label>
-                  <select
-                    id="confirmed-problem-subject"
-                    name="confirmedProblemSubject"
-                    aria-describedby="confirmed-problem-subject-hint"
+          <div class="row g-5 align-items-start">
+            <div class="col-12 col-lg-7">
+              <form id="request-form" class="vstack gap-4" novalidate>
+                <div>
+                  <label
+                    for="description"
+                    class="form-label d-flex flex-wrap align-items-baseline justify-content-between gap-2 fw-semibold"
                   >
-                    <option value="">Не выбрано</option>
-                    <option value="common_area_entrance_door">
-                      Входная дверь МКД и дверь помещения общего пользования, обслуживающая более одного
-                      помещения
-                    </option>
-                    <option value="common_area_premises_lighting">
-                      Освещение помещения общего пользования МКД
-                    </option>
-                  </select>
-                  <span id="confirmed-problem-subject-hint">
-                    Выберите только точный предмет проблемы. Дверной вариант — не дверь квартиры и
-                    не дверь частного помещения. Вариант освещения — не освещение внутри квартиры и
-                    не придомовое, уличное или фасадное освещение.
-                  </span>
-                </div>
-              </section>
-
-              <div class="captcha-area">
-                <div id="captcha-container"></div>
-                <p id="captcha-notice" class="captcha-notice" hidden>
-                  Этот сайт защищён Yandex SmartCaptcha.
-                  <a href="https://yandex.ru/legal/smartcaptcha_notice/ru/"
-                    >Уведомление об условиях обработки данных сервисом</a
+                    <span>Описание проблемы</span>
+                    <span class="badge text-bg-secondary">Обязательное поле</span>
+                  </label>
+                  <textarea
+                    id="description"
+                    class="form-control form-control-lg"
+                    name="description"
+                    minlength="10"
+                    maxlength="2000"
+                    rows="7"
+                    required
+                    aria-describedby="description-hint description-count"
+                  ></textarea>
+                  <div
+                    class="form-text d-flex flex-column flex-sm-row justify-content-between gap-1"
                   >
+                    <span id="description-hint">Опишите одну проблему обычными словами</span>
+                    <span id="description-count" class="text-nowrap" aria-live="polite"
+                      >0 / 2000</span
+                    >
+                  </div>
+                </div>
+
+                <section
+                  class="card border-0 bg-body-tertiary"
+                  aria-labelledby="optional-fields-title"
+                >
+                  <div class="card-body p-3 p-sm-4">
+                    <header
+                      class="d-flex flex-column flex-sm-row align-items-sm-start justify-content-between gap-2 mb-4"
+                    >
+                      <div>
+                        <h2 id="optional-fields-title" class="h5 mb-1">
+                          Дополнительные сведения
+                        </h2>
+                        <p class="text-body-secondary small mb-0">
+                          Заполните только то, что уже известно
+                        </p>
+                      </div>
+                      <span class="badge text-bg-light border text-body-secondary">Необязательно</span>
+                    </header>
+
+                    <div class="mb-4">
+                      <label for="location" class="form-label fw-semibold"
+                        >Где это произошло</label
+                      >
+                      <input
+                        id="location"
+                        class="form-control"
+                        name="location"
+                        type="text"
+                        maxlength="120"
+                        aria-describedby="location-hint location-count"
+                      />
+                      <div
+                        class="form-text d-flex flex-column flex-sm-row justify-content-between gap-1"
+                      >
+                        <span id="location-hint">Необязательно, например: подъезд или этаж</span>
+                        <span id="location-count" class="text-nowrap" aria-live="polite"
+                          >0 / 120</span
+                        >
+                      </div>
+                    </div>
+
+                    <div class="mb-4">
+                      <label for="consequences" class="form-label fw-semibold"
+                        >Известные последствия</label
+                      >
+                      <textarea
+                        id="consequences"
+                        class="form-control"
+                        name="consequences"
+                        maxlength="500"
+                        rows="3"
+                        aria-describedby="consequences-hint consequences-count"
+                      ></textarea>
+                      <div
+                        class="form-text d-flex flex-column flex-sm-row justify-content-between gap-1"
+                      >
+                        <span id="consequences-hint"
+                          >Необязательно. Укажите только уже известные последствия проблемы</span
+                        >
+                        <span id="consequences-count" class="text-nowrap" aria-live="polite"
+                          >0 / 500</span
+                        >
+                      </div>
+                    </div>
+
+                    <div class="mb-4">
+                      <label for="desired-actions" class="form-label fw-semibold"
+                        >Желаемые действия</label
+                      >
+                      <textarea
+                        id="desired-actions"
+                        class="form-control"
+                        name="desiredActions"
+                        maxlength="500"
+                        rows="3"
+                        aria-describedby="desired-actions-hint desired-actions-count"
+                      ></textarea>
+                      <div
+                        class="form-text d-flex flex-column flex-sm-row justify-content-between gap-1"
+                      >
+                        <span id="desired-actions-hint"
+                          >Необязательно. Укажите, что должна сделать УО, если это известно</span
+                        >
+                        <span id="desired-actions-count" class="text-nowrap" aria-live="polite"
+                          >0 / 500</span
+                        >
+                      </div>
+                    </div>
+
+                    <div>
+                      <label
+                        for="confirmed-problem-subject"
+                        class="form-label fw-semibold"
+                        >Предмет проблемы (необязательно)</label
+                      >
+                      <select
+                        id="confirmed-problem-subject"
+                        class="form-select"
+                        name="confirmedProblemSubject"
+                        aria-describedby="confirmed-problem-subject-hint"
+                      >
+                        <option value="">Не выбрано</option>
+                        <option value="common_area_entrance_door">
+                          Входная дверь МКД и дверь помещения общего пользования, обслуживающая более
+                          одного помещения
+                        </option>
+                        <option value="common_area_premises_lighting">
+                          Освещение помещения общего пользования МКД
+                        </option>
+                      </select>
+                      <div id="confirmed-problem-subject-hint" class="form-text">
+                        Выберите только точный предмет проблемы. Дверной вариант — не дверь квартиры и
+                        не дверь частного помещения. Вариант освещения — не освещение внутри квартиры и
+                        не придомовое, уличное или фасадное освещение.
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <div class="vstack gap-2">
+                  <div id="captcha-container"></div>
+                  <p id="captcha-notice" class="form-text mb-0" hidden>
+                    Этот сайт защищён Yandex SmartCaptcha.
+                    <a href="https://yandex.ru/legal/smartcaptcha_notice/ru/"
+                      >Уведомление об условиях обработки данных сервисом</a
+                    >
+                  </p>
+                </div>
+                <button id="submit-button" class="btn btn-primary btn-lg w-100" type="submit">
+                  Составить заявку
+                </button>
+              </form>
+
+              <div
+                id="error-area"
+                class="alert alert-danger focus-ring mt-4 mb-0"
+                aria-live="assertive"
+                tabindex="-1"
+                hidden
+              ></div>
+            </div>
+
+            <div class="col-12 col-lg-5">
+              <div class="vstack gap-3">
+                <section
+                  id="result-area"
+                  class="card card-body border-0 bg-body-tertiary sticky-lg-top"
+                  aria-labelledby="result-title"
+                >
+                  <h2 id="result-title" class="h6 text-uppercase text-body-secondary mb-0">
+                    Готовая заявка
+                  </h2>
+                  <p id="result-placeholder" class="mt-3 mb-0">
+                    Здесь появится результат после успешной генерации.
+                  </p>
+                </section>
+
+                <p class="small text-body-secondary border-top pt-3 mb-0">
+                  Проверьте готовую заявку перед отправкой. Текст сформирован автоматически и может
+                  требовать уточнения.
                 </p>
               </div>
-              <button id="submit-button" type="submit">Составить заявку</button>
-            </form>
-
-            <div
-              id="error-area"
-              class="message-area"
-              aria-live="assertive"
-              tabindex="-1"
-              hidden
-            ></div>
-          </div>
-
-          <div class="result-column">
-            <section id="result-area" class="result-area" aria-labelledby="result-title">
-              <h2 id="result-title">Готовая заявка</h2>
-              <p id="result-placeholder">Здесь появится результат после успешной генерации.</p>
-            </section>
-
-            <p class="service-note">
-              Проверьте готовую заявку перед отправкой. Текст сформирован автоматически и может требовать уточнения.
-            </p>
+            </div>
           </div>
         </div>
       </section>
