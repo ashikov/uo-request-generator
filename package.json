@@ -16,12 +16,13 @@
     "benchmark:llm": "pnpm --filter @uo-request-generator/web benchmark:llm",
     "test:production-runtime": "bash scripts/test-production-runtime.sh",
     "lint": "biome lint .",
-    "lint:md": "markdownlint-cli2 && node scripts/check-file-endings.mjs",
+    "lint:md": "markdownlint-cli2",
+    "check:file-endings": "node scripts/check-file-endings.mjs",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "typecheck": "pnpm --recursive --if-present typecheck && tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "check:quality": "pnpm format:check && pnpm lint && pnpm lint:md && pnpm typecheck",
+    "check:quality": "pnpm format:check && pnpm lint && pnpm lint:md && pnpm check:file-endings && pnpm typecheck",
     "check": "pnpm check:quality && pnpm test && pnpm build"
   },
   "devDependencies": {
