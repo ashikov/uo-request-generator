@@ -49,4 +49,18 @@ describe("публичная страница", () => {
     expect(html).toContain('id="optional-fields-title"');
     expect(html).toContain("Дополнительные сведения");
   });
+
+  it("содержит необязательный выбор предмета проблемы с понятным пояснением", async () => {
+    const html = await readFile(join(publicDirectory, "index.html"), "utf8");
+
+    expect(html).toContain(
+      '<label for="confirmed-problem-subject">Предмет проблемы (необязательно)</label>',
+    );
+    expect(html).toContain('id="confirmed-problem-subject"');
+    expect(html).toContain('aria-describedby="confirmed-problem-subject-hint"');
+    expect(html).toContain("Входная дверь МКД и дверь помещения общего пользования");
+    expect(html).toContain('id="confirmed-problem-subject-hint"');
+    expect(html).toContain("дверь квартиры");
+    expect(html).toContain("не дверь частного помещения");
+  });
 });

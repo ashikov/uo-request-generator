@@ -53,7 +53,7 @@ test("загружает начальное состояние и отправл
   await expect(page.locator("#location")).toBeEditable();
   await expect(page.locator("#consequences")).toBeEditable();
   await expect(page.locator("#desired-actions")).toBeEditable();
-  await expect(page.locator("#common-area-door")).toBeEnabled();
+  await expect(page.locator("#confirmed-problem-subject")).toBeEnabled();
 
   await page.locator("#description").fill(requiredDescription);
   await page.locator("#submit-button").click();
@@ -62,7 +62,7 @@ test("загружает начальное состояние и отправл
   expect(submittedPayload).toEqual({ description: requiredDescription });
 });
 
-test("отправляет явное подтверждение двери общего пользования", async ({ page }) => {
+test("отправляет явное подтверждение предмета для дверного сценария", async ({ page }) => {
   let submittedPayload: unknown;
   await page.route(generateUrlPattern, async (route) => {
     submittedPayload = route.request().postDataJSON();
@@ -71,13 +71,13 @@ test("отправляет явное подтверждение двери об
   await page.goto("/");
 
   await page.locator("#description").fill("Входная дверь подъезда не закрывается.");
-  await page.locator("#common-area-door").check();
+  await page.locator("#confirmed-problem-subject").selectOption("common_area_entrance_door");
   await page.locator("#submit-button").click();
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
   expect(submittedPayload).toEqual({
     description: "Входная дверь подъезда не закрывается.",
-    isCommonAreaDoor: true,
+    confirmedProblemSubject: "common_area_entrance_door",
   });
 });
 
@@ -275,7 +275,7 @@ test("проходит по интерактивным элементам кла
     "#location",
     "#consequences",
     "#desired-actions",
-    "#common-area-door",
+    "#confirmed-problem-subject",
     "#submit-button",
   ]) {
     await page.keyboard.press("Tab");

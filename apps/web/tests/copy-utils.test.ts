@@ -94,7 +94,12 @@ function setupFormDOM() {
       <input id="location" maxlength="200" aria-describedby="location-count" />
       <textarea id="consequences" maxlength="500" aria-describedby="consequences-count"></textarea>
       <textarea id="desired-actions" maxlength="500" aria-describedby="desired-actions-count"></textarea>
-      <input id="common-area-door" type="checkbox" />
+      <select id="confirmed-problem-subject">
+        <option value="">Не выбрано</option>
+        <option value="common_area_entrance_door">
+          Входная дверь МКД и дверь помещения общего пользования
+        </option>
+      </select>
       <div id="captcha-container"></div>
       <button id="submit-button" type="submit">Составить заявку</button>
     </form>
@@ -130,7 +135,7 @@ describe("copy button in app", () => {
     (document.getElementById("location") as HTMLInputElement).value = "";
     (document.getElementById("consequences") as HTMLTextAreaElement).value = "";
     (document.getElementById("desired-actions") as HTMLTextAreaElement).value = "";
-    (document.getElementById("common-area-door") as HTMLInputElement).checked = false;
+    (document.getElementById("confirmed-problem-subject") as HTMLSelectElement).value = "";
     const submitBtn = document.getElementById("submit-button") as HTMLButtonElement;
     submitBtn.disabled = false;
     submitBtn.textContent = "Составить заявку";

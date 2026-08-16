@@ -13,7 +13,7 @@ export function initializeCaptcha() {
   const location = document.querySelector("#location");
   const consequences = document.querySelector("#consequences");
   const desiredActions = document.querySelector("#desired-actions");
-  const commonAreaDoor = document.querySelector("#common-area-door");
+  const confirmedProblemSubject = document.querySelector("#confirmed-problem-subject");
   const descriptionCount = document.querySelector("#description-count");
   const locationCount = document.querySelector("#location-count");
   const consequencesCount = document.querySelector("#consequences-count");
@@ -55,13 +55,17 @@ export function initializeCaptcha() {
     const normalizedLocation = location.value.trim();
     const normalizedConsequences = consequences.value.trim();
     const normalizedDesiredActions = desiredActions.value.trim();
+    const normalizedConfirmedProblemSubject =
+      confirmedProblemSubject.value === "" ? undefined : confirmedProblemSubject.value;
 
     return {
       description: description.value,
       ...(normalizedLocation === "" ? {} : { location: normalizedLocation }),
       ...(normalizedConsequences === "" ? {} : { consequences: normalizedConsequences }),
       ...(normalizedDesiredActions === "" ? {} : { desiredActions: normalizedDesiredActions }),
-      ...(commonAreaDoor.checked ? { isCommonAreaDoor: true } : {}),
+      ...(normalizedConfirmedProblemSubject === undefined
+        ? {}
+        : { confirmedProblemSubject: normalizedConfirmedProblemSubject }),
     };
   }
 

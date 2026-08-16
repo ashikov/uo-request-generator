@@ -100,23 +100,23 @@
                   </div>
                 </div>
 
-                <div class="checkbox-field">
-                  <label class="checkbox-label" for="common-area-door">
-                    <input
-                      id="common-area-door"
-                      name="isCommonAreaDoor"
-                      type="checkbox"
-                      aria-describedby="common-area-door-hint"
-                    />
-                    <span
-                      >Это входная дверь многоквартирного дома или дверь
-                      помещения общего пользования, обслуживающая более одного
-                      помещения</span
-                    >
-                  </label>
-                  <p id="common-area-door-hint" class="checkbox-hint">
-                    Не отмечайте для двери квартиры или двери внутри частного помещения
-                  </p>
+                <div class="field-group">
+                  <label for="confirmed-problem-subject">Предмет проблемы (необязательно)</label>
+                  <select
+                    id="confirmed-problem-subject"
+                    name="confirmedProblemSubject"
+                    aria-describedby="confirmed-problem-subject-hint"
+                  >
+                    <option value="">Не выбрано</option>
+                    <option value="common_area_entrance_door">
+                      Входная дверь МКД и дверь помещения общего пользования, обслуживающая более одного
+                      помещения
+                    </option>
+                  </select>
+                  <span id="confirmed-problem-subject-hint">
+                    Выберите только если речь о входной двери МКД или двери общего пользования.
+                    Это не дверь квартиры и не дверь частного помещения.
+                  </span>
                 </div>
               </section>
 

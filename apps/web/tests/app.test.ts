@@ -80,7 +80,20 @@ async function initializeApp(
         maxlength="${contextMaxLength}"
         aria-describedby="desired-actions-hint desired-actions-count"
       >${desiredActionsValue}</textarea>
-      <input id="common-area-door" name="isCommonAreaDoor" type="checkbox" />
+      <select
+        id="confirmed-problem-subject"
+        name="confirmedProblemSubject"
+        aria-describedby="confirmed-problem-subject-hint"
+      >
+        <option value="">Не выбрано</option>
+        <option value="common_area_entrance_door">
+          Входная дверь МКД и дверь помещения общего пользования, обслуживающая более одного помещения
+        </option>
+      </select>
+      <span id="confirmed-problem-subject-hint">
+        Выберите только если речь о входной двери МКД или двери общего пользования.
+        Это не дверь квартиры и не дверь частного помещения.
+      </span>
       <div id="captcha-container"></div>
       <p id="captcha-notice" hidden>
         Этот сайт защищён Yandex SmartCaptcha.
@@ -135,8 +148,12 @@ function getDesiredActions(): HTMLTextAreaElement {
   return document.getElementById("desired-actions") as HTMLTextAreaElement;
 }
 
-function getCommonAreaDoor(): HTMLInputElement {
-  return document.getElementById("common-area-door") as HTMLInputElement;
+function getConfirmedProblemSubject(): HTMLSelectElement {
+  return document.getElementById("confirmed-problem-subject") as HTMLSelectElement;
+}
+
+function getConfirmedProblemSubjectHint(): HTMLElement {
+  return document.getElementById("confirmed-problem-subject-hint") as HTMLElement;
 }
 
 function getErrorArea(): HTMLElement {
@@ -305,6 +322,23 @@ describe("обработка ответа генерации в приложен
     expect(getDesiredActionsCount().textContent).toBe("9 / 77");
   });
 
+  it("содержит предметный выбор с пояснением и доступностью для двери", () => {
+    expect(getConfirmedProblemSubject().getAttribute("aria-describedby")).toBe(
+      "confirmed-problem-subject-hint",
+    );
+    expect(getConfirmedProblemSubject().value).toBe("");
+    expect(
+      Array.from(getConfirmedProblemSubject().options).map((option) => option.textContent?.trim()),
+    ).toEqual([
+      "Не выбрано",
+      "Входная дверь МКД и дверь помещения общего пользования, обслуживающая более одного помещения",
+    ]);
+    const hint = getConfirmedProblemSubjectHint().textContent ?? "";
+    expect(hint).toContain("Выберите");
+    expect(hint).toContain("дверь квартиры");
+    expect(hint).toContain("частного помещения");
+  });
+
   it("не отправляет пустые дополнительные поля", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -312,6 +346,26 @@ describe("обработка ответа генерации в приложен
     });
     vi.stubGlobal("fetch", fetchMock);
     setFormValues(initialDescription, initialLocation, "   ", "");
+
+    submitForm();
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      description: initialDescription,
+      location: initialLocation,
+    });
+  });
+
+  it("не отправляет подтверждение предмета при отсутствии выбора", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues(initialDescription, initialLocation);
+    getConfirmedProblemSubject().value = "";
 
     submitForm();
 
@@ -364,14 +418,14 @@ describe("обработка ответа генерации в приложен
     });
     vi.stubGlobal("fetch", fetchMock);
     setFormValues("Входная дверь подъезда не закрывается", "");
-    getCommonAreaDoor().checked = true;
+    getConfirmedProblemSubject().value = "common_area_entrance_door";
 
     submitForm();
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
       description: "Входная дверь подъезда не закрывается",
-      isCommonAreaDoor: true,
+      confirmedProblemSubject: "common_area_entrance_door",
     });
   });
 

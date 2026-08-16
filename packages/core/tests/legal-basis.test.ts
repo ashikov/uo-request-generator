@@ -14,7 +14,7 @@ const DOOR_INPUT = {
 } satisfies GenerateRequestInput;
 const CONFIRMED_DOOR_INPUT = {
   ...DOOR_INPUT,
-  isCommonAreaDoor: true,
+  confirmedProblemSubject: "common_area_entrance_door",
 } satisfies GenerateRequestInput;
 
 const DOOR_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
@@ -89,7 +89,7 @@ describe("нормативный модуль двери общего польз
   it("не подключает модуль без совпавшего с исходным вводом evidence", () => {
     const result = renderPrimaryRequestDraft(createDraft(), {
       description: "На лестничной площадке не работает освещение.",
-      isCommonAreaDoor: true,
+      confirmedProblemSubject: "common_area_entrance_door",
     });
 
     expect(result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
@@ -137,32 +137,32 @@ describe("нормативный модуль двери общего польз
   it.each([
     {
       description: "Дверь квартиры не закрывается.",
-      isCommonAreaDoor: undefined,
+      confirmedProblemSubject: undefined,
       expected: false,
     },
     {
       description: "Дверь шкафа сломана.",
-      isCommonAreaDoor: undefined,
+      confirmedProblemSubject: undefined,
       expected: false,
     },
     {
       description: "aaaaaaaaaa",
-      isCommonAreaDoor: undefined,
+      confirmedProblemSubject: undefined,
       expected: false,
     },
     {
       description: "Входная дверь подъезда не закрывается.",
-      isCommonAreaDoor: true,
+      confirmedProblemSubject: "common_area_entrance_door",
       expected: true,
     },
     {
       description: "Дверь помещения общего пользования не закрывается.",
-      isCommonAreaDoor: true,
+      confirmedProblemSubject: "common_area_entrance_door",
       expected: true,
     },
-  ] as const)("adversarial gate: $description, explicit confirmation=$isCommonAreaDoor", ({
+  ] as const)("adversarial gate: $description, explicit confirmation=$confirmedProblemSubject", ({
     description,
-    isCommonAreaDoor,
+    confirmedProblemSubject,
     expected,
   }) => {
     const result = renderPrimaryRequestDraft(
@@ -174,7 +174,7 @@ describe("нормативный модуль двери общего польз
       }),
       {
         description,
-        ...(isCommonAreaDoor === true ? { isCommonAreaDoor } : {}),
+        ...(confirmedProblemSubject === undefined ? {} : { confirmedProblemSubject }),
       },
     );
 

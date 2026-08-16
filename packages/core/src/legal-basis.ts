@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { GenerateRequestInput } from "./contracts.js";
+import type { ConfirmedProblemSubject, GenerateRequestInput } from "./contracts.js";
 
 const LEGAL_BASIS_PARAGRAPH_SEPARATOR = "\n\n";
 
@@ -19,7 +19,9 @@ export const primaryRequestSubjectLimits = {
   },
 } as const;
 
-export const PRIMARY_REQUEST_SUBJECT_KINDS = ["common_area_entrance_door"] as const;
+export const COMMON_AREA_DOOR_CONFIRMED_SUBJECT: ConfirmedProblemSubject =
+  "common_area_entrance_door";
+export const PRIMARY_REQUEST_SUBJECT_KINDS = [COMMON_AREA_DOOR_CONFIRMED_SUBJECT] as const;
 export const PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS = [
   "description",
   "location",
@@ -44,7 +46,7 @@ const primaryRequestSubjectEvidenceSchema = z
 export const primaryRequestSubjectSchema = z.union([
   z
     .object({
-      kind: z.literal(PRIMARY_REQUEST_SUBJECT_KINDS[0]),
+      kind: z.literal(COMMON_AREA_DOOR_CONFIRMED_SUBJECT),
       evidence: z
         .array(primaryRequestSubjectEvidenceSchema)
         .min(primaryRequestSubjectLimits.evidence.min)
@@ -81,7 +83,7 @@ type LegalBasisModule = {
 export const COMMON_AREA_DOOR_LEGAL_BASIS_MODULE = {
   id: "common-area-door",
   applicability: {
-    subject: "common_area_entrance_door",
+    subject: COMMON_AREA_DOOR_CONFIRMED_SUBJECT,
     requiresExplicitUserConfirmation: true,
     requiresVerifiedInputEvidence: true,
     limitation:
@@ -129,9 +131,9 @@ export function selectSpecificLegalBasisParagraphs(
 ): readonly string[] {
   if (
     input === undefined ||
-    input.isCommonAreaDoor !== true ||
+    input.confirmedProblemSubject !== COMMON_AREA_DOOR_CONFIRMED_SUBJECT ||
     subject === null ||
-    subject.kind !== COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.applicability.subject ||
+    subject.kind !== COMMON_AREA_DOOR_CONFIRMED_SUBJECT ||
     !inputEvidenceMatches(input, subject)
   ) {
     return [];

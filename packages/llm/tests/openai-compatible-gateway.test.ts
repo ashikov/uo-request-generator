@@ -264,7 +264,10 @@ describe("OpenAiCompatibleGateway", () => {
   it("передаёт Chat Completions исходные поля как JSON с явными null", async () => {
     const mockFetch = createMockFetch(VALID_LLM_TEXT);
 
-    await createGateway().generateRequest({ ...VALID_INPUT, isCommonAreaDoor: true });
+    await createGateway().generateRequest({
+      ...VALID_INPUT,
+      confirmedProblemSubject: "common_area_entrance_door",
+    });
 
     const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     const userContent = callBody.messages[1]?.content as string;
@@ -277,6 +280,7 @@ describe("OpenAiCompatibleGateway", () => {
       desiredActions: null,
     });
     expect(userContent).not.toContain("isCommonAreaDoor");
+    expect(userContent).not.toContain("confirmedProblemSubject");
   });
 
   it("сохраняет свободный description внутри JSON и нормализует опциональные поля", async () => {
@@ -491,7 +495,7 @@ describe("OpenAiCompatibleGateway", () => {
 
     const result = await createGateway().generateRequest({
       description: "У входной двери подъезда полностью отсутствует ручка.",
-      isCommonAreaDoor: true,
+      confirmedProblemSubject: "common_area_entrance_door",
     });
 
     expect(result.status).toBe("generated");

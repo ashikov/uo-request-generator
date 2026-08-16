@@ -89,20 +89,47 @@ describe("generateRequestInputSchema", () => {
     expect(generateRequestInputSchema.safeParse(tooLongInput).success).toBe(false);
   });
 
-  it.each([true, false])("принимает boolean isCommonAreaDoor: %s", (isCommonAreaDoor) => {
+  it("принимает отсутствие подтверждения предмета", () => {
     const result = generateRequestInputSchema.safeParse({
       description: "Входная дверь подъезда не закрывается",
-      isCommonAreaDoor,
     });
 
     expect(result.success).toBe(true);
-    expect(result.success ? result.data.isCommonAreaDoor : undefined).toBe(isCommonAreaDoor);
+    expect(result.success ? result.data.confirmedProblemSubject : "unexpected").toBeUndefined();
   });
 
-  it.each(["true", 1, null])("отклоняет не boolean isCommonAreaDoor: %j", (value) => {
+  it.each([
+    ["common_area_entrance_door", "common_area_entrance_door" as const],
+  ])("принимает поддержанный подтверждённый предмет: %s", (confirmedProblemSubject) => {
     const result = generateRequestInputSchema.safeParse({
       description: "Входная дверь подъезда не закрывается",
-      isCommonAreaDoor: value,
+      confirmedProblemSubject,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.success ? result.data.confirmedProblemSubject : undefined).toBe(
+      confirmedProblemSubject,
+    );
+  });
+
+  it.each([
+    "true",
+    1,
+    null,
+    false,
+  ])("отклоняет некорректное подтверждение предмета: %j", (value) => {
+    const result = generateRequestInputSchema.safeParse({
+      description: "Входная дверь подъезда не закрывается",
+      confirmedProblemSubject: value as never,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("отклоняет legacy-поле isCommonAreaDoor в строгом HTTP-контракте", () => {
+    const result = generateRequestInputSchema.safeParse({
+      description: "Входная дверь подъезда не закрывается",
+      isCommonAreaDoor: true,
     });
 
     expect(result.success).toBe(false);
