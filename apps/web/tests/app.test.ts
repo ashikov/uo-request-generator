@@ -89,6 +89,9 @@ async function initializeApp(
         <option value="common_area_entrance_door">
           Входная дверь МКД и дверь помещения общего пользования, обслуживающая более одного помещения
         </option>
+        <option value="common_area_premises_lighting">
+          Освещение помещения общего пользования МКД
+        </option>
       </select>
       <span id="confirmed-problem-subject-hint">
         Выберите только если речь о входной двери МКД или двери общего пользования.
@@ -332,6 +335,7 @@ describe("обработка ответа генерации в приложен
     ).toEqual([
       "Не выбрано",
       "Входная дверь МКД и дверь помещения общего пользования, обслуживающая более одного помещения",
+      "Освещение помещения общего пользования МКД",
     ]);
     const hint = getConfirmedProblemSubjectHint().textContent ?? "";
     expect(hint).toContain("Выберите");
@@ -426,6 +430,24 @@ describe("обработка ответа генерации в приложен
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
       description: "Входная дверь подъезда не закрывается",
       confirmedProblemSubject: "common_area_entrance_door",
+    });
+  });
+
+  it("отправляет явное подтверждение освещения помещения общего пользования", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues("В общем коридоре многоквартирного дома не работает освещение", "");
+    getConfirmedProblemSubject().value = "common_area_premises_lighting";
+
+    submitForm();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      description: "В общем коридоре многоквартирного дома не работает освещение",
+      confirmedProblemSubject: "common_area_premises_lighting",
     });
   });
 

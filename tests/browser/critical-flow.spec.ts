@@ -81,6 +81,27 @@ test("отправляет явное подтверждение предмет�
   });
 });
 
+test("отправляет явное подтверждение освещения помещения общего пользования", async ({ page }) => {
+  let submittedPayload: unknown;
+  await page.route(generateUrlPattern, async (route) => {
+    submittedPayload = route.request().postDataJSON();
+    await fulfillJson(route, 200, standardGenerationResult);
+  });
+  await page.goto("/");
+
+  await page
+    .locator("#description")
+    .fill("В общем коридоре многоквартирного дома не работает освещение.");
+  await page.locator("#confirmed-problem-subject").selectOption("common_area_premises_lighting");
+  await page.locator("#submit-button").click();
+
+  await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
+  expect(submittedPayload).toEqual({
+    description: "В общем коридоре многоквартирного дома не работает освещение.",
+    confirmedProblemSubject: "common_area_premises_lighting",
+  });
+});
+
 test("показывает локальную ошибку до запроса и переводит на неё focus", async ({ page }) => {
   let generationRequestCount = 0;
   await page.route(generateUrlPattern, async (route) => {

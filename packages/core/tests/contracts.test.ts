@@ -99,8 +99,9 @@ describe("generateRequestInputSchema", () => {
   });
 
   it.each([
-    ["common_area_entrance_door", "common_area_entrance_door" as const],
-  ])("принимает поддержанный подтверждённый предмет: %s", (confirmedProblemSubject) => {
+    "common_area_entrance_door",
+    "common_area_premises_lighting",
+  ] as const)("принимает поддержанный подтверждённый предмет: %s", (confirmedProblemSubject) => {
     const result = generateRequestInputSchema.safeParse({
       description: "Входная дверь подъезда не закрывается",
       confirmedProblemSubject,

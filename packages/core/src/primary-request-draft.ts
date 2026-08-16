@@ -6,7 +6,6 @@ import {
   type GenerateRequestResult,
 } from "./contracts.js";
 import {
-  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
   primaryRequestLegalBasisLimits,
   primaryRequestSubjectSchema,
@@ -145,7 +144,8 @@ export const primaryRequestDraftSchema = z
   .strict()
   .superRefine((draft, context) => {
     if (
-      buildPrimaryRequestBody(draft, COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs).length >
+      buildPrimaryRequestBody(draft).length +
+        (primaryRequestLegalBasisLimits.maximumBlockLength - COMMON_LEGAL_BASIS_BLOCK.length) >
       primaryRequestDraftLimits.body.max
     ) {
       context.addIssue({
