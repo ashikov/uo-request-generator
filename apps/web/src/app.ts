@@ -37,6 +37,9 @@ export type CreateAppOptions = {
 };
 
 const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
+const bootstrapStylesDirectory = fileURLToPath(
+  new URL("../node_modules/bootstrap/dist/css", import.meta.url),
+);
 
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const llmGateway = options.llmGateway ?? new DisabledLlmGateway();
@@ -101,6 +104,12 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   app.register(fastifyStatic, {
     root: publicDirectory,
     wildcard: false,
+  });
+  app.register(fastifyStatic, {
+    root: bootstrapStylesDirectory,
+    prefix: "/vendor/bootstrap/",
+    wildcard: false,
+    decorateReply: false,
   });
 
   return app;

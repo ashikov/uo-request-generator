@@ -168,6 +168,14 @@ function getSubmitButton(): HTMLButtonElement {
   return document.getElementById("submit-button") as HTMLButtonElement;
 }
 
+function getCopyButton(): HTMLButtonElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "Скопировать заявку",
+    ) ?? null
+  );
+}
+
 function getCaptchaNotice(): HTMLElement {
   return document.getElementById("captcha-notice") as HTMLElement;
 }
@@ -642,7 +650,7 @@ describe("обработка ответа генерации в приложен
     );
     expect(document.querySelector("#result-area h3")).toBeNull();
     expect(document.querySelector("#result-area p")?.id).toBe("result-placeholder");
-    expect(document.querySelector(".copy-button")).toBeNull();
+    expect(getCopyButton()).toBeNull();
     expect(getErrorArea().textContent).not.toContain("multiple_issues");
     expect(getErrorArea().textContent).not.toContain("test-multiple-issues-request-id");
 
@@ -656,7 +664,7 @@ describe("обработка ответа генерации в приложен
 
     await vi.waitFor(() => {
       expect(document.querySelector("#result-area h3")?.textContent).toBe("Исправленная заявка");
-      expect(document.querySelector(".copy-button")).not.toBeNull();
+      expect(getCopyButton()).not.toBeNull();
       expect(getSubmitButton().disabled).toBe(false);
       expect(getForm().getAttribute("aria-busy")).toBe("false");
     });
@@ -789,7 +797,7 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Сервис вернул некорректный результат");
     expect(document.querySelector("#result-area h3")).toBeNull();
-    expect(document.querySelector(".copy-button")).toBeNull();
+    expect(getCopyButton()).toBeNull();
     expectFormValues(
       initialDescription,
       initialLocation,
@@ -825,7 +833,7 @@ describe("обработка ответа генерации в приложен
     );
     expect(getErrorArea().hidden).toBe(true);
 
-    (document.querySelector(".copy-button") as HTMLButtonElement).click();
+    (getCopyButton() as HTMLButtonElement).click();
 
     await vi.waitFor(() => {
       expect(writeText).toHaveBeenCalledWith(
@@ -889,9 +897,9 @@ describe("обработка ответа генерации в приложен
 
     submitForm();
     await vi.waitFor(() => {
-      expect(document.querySelector(".copy-button")).not.toBeNull();
+      expect(getCopyButton()).not.toBeNull();
     });
-    (document.querySelector(".copy-button") as HTMLButtonElement).click();
+    (getCopyButton() as HTMLButtonElement).click();
     await vi.waitFor(() => {
       expect(document.querySelector(".copy-status")).not.toBeNull();
     });
@@ -899,7 +907,7 @@ describe("обработка ответа генерации в приложен
     submitForm();
 
     expect(document.querySelector("#result-area h3")).toBeNull();
-    expect(document.querySelector(".copy-button")).toBeNull();
+    expect(getCopyButton()).toBeNull();
     expect(document.querySelector(".copy-status")).toBeNull();
     expect(getSubmitButton().disabled).toBe(true);
 

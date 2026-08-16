@@ -240,6 +240,8 @@ fi
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
   -e "fetch('http://web:3000/api/health').then(async response => { if (!response.ok || (await response.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
+  -e "fetch('http://web:3000/vendor/bootstrap/bootstrap.min.css').then(async response => { const body = await response.text(); if (!response.ok || !response.headers.get('content-type')?.includes('text/css') || !/Bootstrap\\s+v5\\.3\\.8/.test(body)) process.exit(1) }).catch(() => process.exit(1))"
+docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
   -e "fetch('http://web:3000/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description: 'Тестовое описание неисправности без персональных данных' }) }).then(async response => { const body = await response.json(); if (response.status !== 503 || body.error?.code !== 'generation_provider_unavailable') process.exit(1) }).catch(() => process.exit(1))"
 
 printf 'Checking graceful SIGTERM and restart...\n'

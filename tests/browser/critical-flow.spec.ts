@@ -1,7 +1,8 @@
-import { expect, type Page, type Route, test } from "@playwright/test";
+import { expect, type Locator, type Page, type Route, test } from "@playwright/test";
 import {
   expectNoHorizontalDocumentOverflow,
   expectReachableByScrolling,
+  expectVisibleFocusIndication,
   expectWithinViewportHorizontally,
 } from "./layout-assertions.js";
 import {
@@ -115,9 +116,30 @@ test("показывает локальную ошибку до запроса �
 
   const errorArea = page.locator("#error-area");
   await expect(errorArea).toHaveText("Описание должно содержать не менее 10 символов");
-  await expect(errorArea).toBeFocused();
+  await expectVisibleFocusIndication(errorArea);
   await expect(page.locator("#description")).toHaveAttribute("aria-invalid", "true");
   expect(generationRequestCount).toBe(0);
+});
+
+test("не считает постоянный box-shadow видимой focus-индикацией", async ({ page }) => {
+  await page.goto("/");
+  const control = page.locator("#description");
+  await control.evaluate((element) => {
+    const htmlElement = element as HTMLElement;
+    htmlElement.style.outline = "none";
+    htmlElement.style.boxShadow = "inset 0 0 0 1px currentColor";
+  });
+  await control.focus();
+
+  let assertionError: unknown;
+  try {
+    await expectVisibleFocusIndication(control);
+  } catch (error) {
+    assertionError = error;
+  }
+
+  expect(assertionError).toBeInstanceOf(Error);
+  await expect(control).toBeFocused();
 });
 
 test("сохраняет все введённые значения после контролируемой серверной ошибки", async ({ page }) => {
@@ -261,26 +283,13 @@ test("проходит по интерактивным элементам кла
   });
   await page.goto("/");
 
-  const expectKeyboardFocus = async (selector: string): Promise<void> => {
-    const focusedElement = page.locator(selector);
-    await expect(focusedElement).toBeFocused();
-    const focusStyle = await focusedElement.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        color: style.outlineColor,
-        style: style.outlineStyle,
-        width: Number.parseFloat(style.outlineWidth),
-      };
-    });
-    expect(focusStyle.width).toBeGreaterThan(0);
-    expect(focusStyle.style).not.toBe("none");
-    expect(focusStyle.color).not.toBe("transparent");
-    expect(focusStyle.color).not.toBe("rgba(0, 0, 0, 0)");
-
+  const expectKeyboardFocus = async (focusedElement: Locator, name: string): Promise<void> => {
+    await expectVisibleFocusIndication(focusedElement);
     const viewport = page.viewportSize();
+    await expect(focusedElement).toBeInViewport();
     const rectangle = await focusedElement.boundingBox();
     if (viewport === null || rectangle === null) {
-      throw new Error(`${selector}: focus должен иметь измеримую геометрию`);
+      throw new Error(`${name}: focus должен иметь измеримую геометрию`);
     }
     expect(rectangle.x).toBeGreaterThanOrEqual(-1);
     expect(rectangle.x + rectangle.width).toBeLessThanOrEqual(viewport.width + 1);
@@ -289,7 +298,7 @@ test("проходит по интерактивным элементам кла
   };
 
   await page.keyboard.press("Tab");
-  await expectKeyboardFocus("#description");
+  await expectKeyboardFocus(page.locator("#description"), "#description");
   await page.keyboard.type(requiredDescription);
 
   for (const selector of [
@@ -300,14 +309,15 @@ test("проходит по интерактивным элементам кла
     "#submit-button",
   ]) {
     await page.keyboard.press("Tab");
-    await expectKeyboardFocus(selector);
+    await expectKeyboardFocus(page.locator(selector), selector);
   }
 
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("button", { name: "Скопировать заявку" })).toBeVisible();
+  const copyButton = page.getByRole("button", { name: "Скопировать заявку" });
+  await expect(copyButton).toBeVisible();
   await page.keyboard.press("Tab");
-  await expectKeyboardFocus(".copy-button");
+  await expectKeyboardFocus(copyButton, "кнопка копирования");
 
   await page.keyboard.press("Shift+Tab");
-  await expectKeyboardFocus("#submit-button");
+  await expectKeyboardFocus(page.locator("#submit-button"), "#submit-button");
 });
