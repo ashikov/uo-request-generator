@@ -94,8 +94,9 @@ async function initializeApp(
         </option>
       </select>
       <span id="confirmed-problem-subject-hint">
-        Выберите только если речь о входной двери МКД или двери общего пользования.
-        Это не дверь квартиры и не дверь частного помещения.
+        Выберите только точный предмет проблемы. Дверной вариант — не дверь квартиры и
+        не дверь частного помещения. Вариант освещения — не освещение внутри квартиры и
+        не придомовое, уличное или фасадное освещение.
       </span>
       <div id="captcha-container"></div>
       <p id="captcha-notice" hidden>
@@ -325,7 +326,7 @@ describe("обработка ответа генерации в приложен
     expect(getDesiredActionsCount().textContent).toBe("9 / 77");
   });
 
-  it("содержит предметный выбор с пояснением и доступностью для двери", () => {
+  it("содержит предметный выбор с актуальным пояснением и доступностью", () => {
     expect(getConfirmedProblemSubject().getAttribute("aria-describedby")).toBe(
       "confirmed-problem-subject-hint",
     );
@@ -341,6 +342,8 @@ describe("обработка ответа генерации в приложен
     expect(hint).toContain("Выберите");
     expect(hint).toContain("дверь квартиры");
     expect(hint).toContain("частного помещения");
+    expect(hint).toContain("освещение внутри квартиры");
+    expect(hint).toContain("придомовое, уличное или фасадное освещение");
   });
 
   it("не отправляет пустые дополнительные поля", async () => {

@@ -203,16 +203,26 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не является выбором нормативного акта");
   });
 
-  it("ограничивает lighting subject помещениями общего пользования", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("common_area_premises_lighting");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "осветительную установку внутри помещения общего пользования",
+  it("разделяет evidence rules по kind и ограничивает lighting subject", () => {
+    const promptRules = REQUEST_DRAFT_SYSTEM_PROMPT.split("\n");
+    const doorEvidenceRule = promptRules.find((rule) =>
+      rule.includes("подтверждать и дверь, и её принадлежность"),
     );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("внутри квартиры");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("придомовой территории");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("уличного или фасадного освещения");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "подтверждать и осветительную установку, и помещение общего пользования",
+    const lightingEvidenceRule = promptRules.find((rule) =>
+      rule.includes("для kind common_area_premises_lighting evidence"),
+    );
+    const lightingSubjectRule = promptRules.find((rule) =>
+      rule.includes("неисправную или неработающую осветительную установку"),
+    );
+
+    expect(doorEvidenceRule).toBe(
+      "- для kind common_area_entrance_door evidence по отдельности или в совокупности должно подтверждать и дверь, и её принадлежность ко входу многоквартирного дома либо помещению общего пользования; не используй для evidence формулировки из созданных тобой problem, title или actionPlan",
+    );
+    expect(lightingEvidenceRule).toBe(
+      "- для kind common_area_premises_lighting evidence по отдельности или в совокупности должно подтверждать и осветительную установку или освещение, и помещение общего пользования многоквартирного дома",
+    );
+    expect(lightingSubjectRule).toBe(
+      "- используй kind common_area_premises_lighting, только если вход прямо указывает на неисправную или неработающую осветительную установку либо освещение внутри помещения общего пользования многоквартирного дома. Не используй его для освещения внутри квартиры, придомовой территории, уличного или фасадного освещения, жалоб на дизайн или предпочтительную яркость",
     );
   });
 
