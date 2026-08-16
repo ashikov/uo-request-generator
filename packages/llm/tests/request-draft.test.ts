@@ -1,5 +1,6 @@
 import {
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
   generateRequestLimits,
   primaryRequestLegalBasisLimits,
@@ -174,6 +175,14 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.officialUrl);
       expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.title);
     }
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(
+      COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.id);
+    for (const source of COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.sources) {
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.officialUrl);
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.title);
+    }
   });
 
   it("передаёт модели динамический лимит body", () => {
@@ -192,6 +201,19 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("дословных непрерывных фрагментов");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("subject: null");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не является выбором нормативного акта");
+  });
+
+  it("ограничивает lighting subject помещениями общего пользования", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("common_area_premises_lighting");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "осветительную установку внутри помещения общего пользования",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("внутри квартиры");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("придомовой территории");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("уличного или фасадного освещения");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "подтверждать и осветительную установку, и помещение общего пользования",
+    );
   });
 
   it.each([
@@ -251,7 +273,10 @@ describe("provider-facing RequestDraft", () => {
           {
             type: "object",
             properties: {
-              kind: { type: "string", enum: ["common_area_entrance_door"] },
+              kind: {
+                type: "string",
+                enum: ["common_area_entrance_door", "common_area_premises_lighting"],
+              },
               evidence: {
                 type: "array",
                 minItems: 1,

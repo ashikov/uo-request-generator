@@ -223,12 +223,18 @@ describe("POST /api/generate", () => {
     });
   });
 
-  it("передаёт gateway явный выбранный предмет проблемы", async () => {
+  it.each([
+    ["common_area_entrance_door", "Входная дверь подъезда не закрывается"],
+    [
+      "common_area_premises_lighting",
+      "В общем коридоре многоквартирного дома не работает освещение",
+    ],
+  ] as const)("передаёт gateway явный выбранный предмет проблемы: %s", async (confirmedProblemSubject, description) => {
     const gateway = new DisabledLlmGateway();
     const generateRequest = vi.spyOn(gateway, "generateRequest");
     const input = {
-      description: "Входная дверь подъезда не закрывается",
-      confirmedProblemSubject: "common_area_entrance_door",
+      description,
+      confirmedProblemSubject,
     };
 
     const response = await injectGenerate(input, gateway);

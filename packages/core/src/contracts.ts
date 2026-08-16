@@ -22,7 +22,10 @@ export const generateRequestLimits = {
   },
 } as const;
 
-export const CONFIRMED_PROBLEM_SUBJECT_KINDS = ["common_area_entrance_door"] as const;
+export const CONFIRMED_PROBLEM_SUBJECT_KINDS = [
+  "common_area_entrance_door",
+  "common_area_premises_lighting",
+] as const;
 
 export const confirmedProblemSubjectSchema = z.enum(CONFIRMED_PROBLEM_SUBJECT_KINDS);
 export type ConfirmedProblemSubject = z.infer<typeof confirmedProblemSubjectSchema>;
