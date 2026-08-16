@@ -32,6 +32,10 @@ export type TestScenario =
       expectedOutcome: "multiple_issues";
     });
 
+const commonDoorConfirm: Partial<GenerateRequestInput> = {
+  confirmedProblemSubject: "common_area_entrance_door",
+};
+
 export const scenarios: TestScenario[] = [
   {
     id: "only-description",
@@ -74,7 +78,7 @@ export const scenarios: TestScenario[] = [
     input: {
       description: "Дверь помещения общего пользования не закрывается полностью.",
       consequences: "Существует риск утраты имущества из помещения.",
-      isCommonAreaDoor: true,
+      ...commonDoorConfirm,
     },
     mustPreserveFacts: [
       "дверь помещения общего пользования не закрывается полностью",
@@ -165,7 +169,7 @@ export const scenarios: TestScenario[] = [
     expectedOutcome: "generated",
     input: {
       description: "дверь в помещение общего пользования не закрывается до конца надо исправить",
-      isCommonAreaDoor: true,
+      ...commonDoorConfirm,
     },
     mustPreserveFacts: [
       "дверь в помещении общего пользования не закрывается полностью",
@@ -229,7 +233,7 @@ export const scenarios: TestScenario[] = [
     input: {
       description: "Дверь в помещении общего пользования не закрывается полностью.",
       location: "подъезд 3, этаж 4",
-      isCommonAreaDoor: true,
+      ...commonDoorConfirm,
     },
     mustPreserveFacts: ["дверь не закрывается полностью", "подъезд 3", "этаж 4"],
     mustNotInvent: [
@@ -248,7 +252,7 @@ export const scenarios: TestScenario[] = [
       description:
         "Дверь в помещении общего пользования во втором подъезде не закрывается полностью.",
       location: "подъезд 3, этаж 4",
-      isCommonAreaDoor: true,
+      ...commonDoorConfirm,
     },
     mustPreserveFacts: [
       "дверь не закрывается полностью",
@@ -266,7 +270,7 @@ export const scenarios: TestScenario[] = [
     input: {
       description: "В третьем подъезде дверь не закрывается полностью.",
       location: "подъезд 3, этаж 4",
-      isCommonAreaDoor: true,
+      ...commonDoorConfirm,
     },
     mustPreserveFacts: ["дверь не закрывается полностью", "подъезд 3", "этаж 4"],
     mustNotInvent: ["конфликт места", "другой подъезд", "причина неисправности"],

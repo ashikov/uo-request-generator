@@ -22,7 +22,10 @@ const HOUSING_CODE_BASIS =
   "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.";
 const MANAGEMENT_RULES_BASIS =
   "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
-const BODY_LIMIT_INPUT = { description: "а".repeat(10), isCommonAreaDoor: true };
+const BODY_LIMIT_INPUT = {
+  description: "а".repeat(10),
+  confirmedProblemSubject: "common_area_entrance_door" as const,
+} as const;
 const BODY_LIMIT_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
   kind: "common_area_entrance_door",
   evidence: [{ sourceField: "description", quote: BODY_LIMIT_INPUT.description }],

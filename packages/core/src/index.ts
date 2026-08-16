@@ -1,5 +1,9 @@
 export {
   generateRequestInputSchema,
+  generateRequestInputConfirmedProblemSubjectSchema,
+  confirmedProblemSubjectSchema,
+  CONFIRMED_PROBLEM_SUBJECT_KINDS,
+  type ConfirmedProblemSubject,
   generateRequestLimits,
   generateRequestResultSchema,
   type GenerateRequestInput,

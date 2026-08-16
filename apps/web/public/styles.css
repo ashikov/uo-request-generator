@@ -145,6 +145,7 @@ textarea {
 }
 
 .field-group input,
+.field-group select,
 .field-group textarea {
   width: 100%;
   min-width: 0;
@@ -178,11 +179,13 @@ textarea {
 }
 
 .field-group input:hover,
+.field-group select:hover,
 .field-group textarea:hover {
   border-color: var(--color-accent);
 }
 
 .field-group input:focus-visible,
+.field-group select:focus-visible,
 .field-group textarea:focus-visible,
 button:focus-visible {
   outline: 3px solid var(--color-focus);
@@ -201,38 +204,6 @@ button:focus-visible {
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
-}
-
-.checkbox-field {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.checkbox-label {
-  display: grid;
-  grid-template-columns: 1.25rem minmax(0, 1fr);
-  gap: var(--space-3);
-  align-items: start;
-  font-weight: 680;
-  cursor: pointer;
-}
-
-.checkbox-label input {
-  width: 1.25rem;
-  height: 1.25rem;
-  margin: 0.15rem 0 0;
-  accent-color: var(--color-accent);
-}
-
-.checkbox-label input:focus-visible {
-  outline: 3px solid var(--color-focus);
-  outline-offset: 3px;
-}
-
-.checkbox-hint {
-  margin: 0 0 0 calc(1.25rem + var(--space-3));
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
 }
 
 .optional-fields {

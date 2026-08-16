@@ -197,12 +197,38 @@ describe("POST /api/generate", () => {
     expect(response.statusCode).toBe(503);
   });
 
-  it("передаёт gateway явное пользовательское подтверждение двери общего пользования", async () => {
+  it("не передаёт подтверждение предмета по умолчанию в gateway", async () => {
     const gateway = new DisabledLlmGateway();
     const generateRequest = vi.spyOn(gateway, "generateRequest");
     const input = {
       description: "Входная дверь подъезда не закрывается",
-      isCommonAreaDoor: true,
+    };
+
+    const response = await injectGenerate(input, gateway);
+
+    expect(generateRequest).toHaveBeenCalledWith(input, expect.any(String));
+    expect(response.statusCode).toBe(503);
+  });
+
+  it("отклоняет неподдерживаемое значение подтверждённого предмета", async () => {
+    const response = await injectGenerate({
+      description: "Входная дверь подъезда не закрывается",
+      confirmedProblemSubject: "door",
+    } as never);
+
+    expect(response.statusCode).toBe(400);
+    expectApiError(response.json(), {
+      code: "validation_error",
+      message: "Проверьте формат и содержание запроса",
+    });
+  });
+
+  it("передаёт gateway явный выбранный предмет проблемы", async () => {
+    const gateway = new DisabledLlmGateway();
+    const generateRequest = vi.spyOn(gateway, "generateRequest");
+    const input = {
+      description: "Входная дверь подъезда не закрывается",
+      confirmedProblemSubject: "common_area_entrance_door",
     };
 
     const response = await injectGenerate(input, gateway);

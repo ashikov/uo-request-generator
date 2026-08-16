@@ -22,6 +22,14 @@ export const generateRequestLimits = {
   },
 } as const;
 
+export const CONFIRMED_PROBLEM_SUBJECT_KINDS = ["common_area_entrance_door"] as const;
+
+export const confirmedProblemSubjectSchema = z.enum(CONFIRMED_PROBLEM_SUBJECT_KINDS);
+export type ConfirmedProblemSubject = z.infer<typeof confirmedProblemSubjectSchema>;
+
+export const generateRequestInputConfirmedProblemSubjectSchema =
+  confirmedProblemSubjectSchema.optional();
+
 export const generateRequestInputSchema = z
   .object({
     description: z
@@ -59,7 +67,7 @@ export const generateRequestInputSchema = z
         `Желаемые действия должны содержать не более ${generateRequestLimits.desiredActions.max} символов`,
       )
       .optional(),
-    isCommonAreaDoor: z.boolean().optional(),
+    confirmedProblemSubject: generateRequestInputConfirmedProblemSubjectSchema,
   })
   .strict();
 
