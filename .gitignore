@@ -20,3 +20,4 @@ playwright-report/
 start-server.bat
 server.log
 .omo/
+.omx/
