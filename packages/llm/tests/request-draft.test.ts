@@ -285,6 +285,22 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(prompt).not.toContain(CLEANING_SUBJECT_RULE);
   });
 
+  it("требует subject: null при противоречивых сведениях об источнике воды", () => {
+    const prompt = createRequestDraftSystemPrompt("common_area_roof");
+
+    expect(prompt).toContain("прямо и непротиворечиво сообщает");
+    expect(prompt).toContain(
+      "внутридомовой трубопровод, стояк, инженерную систему, квартиру или помещение выше",
+    );
+    expect(prompt).toContain("в любом исходном поле");
+    expect(prompt).toContain("укажи subject: null");
+    expect(prompt).toContain("Не разрешай противоречие в пользу выбранного kind");
+    expect(prompt).toContain(
+      "Желаемое действие проверить, осмотреть или отремонтировать кровлю само по себе не является фактом",
+    );
+    expect(prompt).toContain("не может быть evidence");
+  });
+
   it.each([
     [
       undefined,
