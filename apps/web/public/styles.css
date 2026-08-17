@@ -8,6 +8,6 @@
   overflow-wrap: anywhere;
 }
 
-#result-area > p {
+#result-area > p:not(#result-placeholder) {
   white-space: pre-wrap;
 }

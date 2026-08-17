@@ -63,6 +63,36 @@ test("загружает начальное состояние и отправл
   expect(submittedPayload).toEqual({ description: requiredDescription });
 });
 
+test("сохраняет переводы строк только в сгенерированной заявке", async ({ page }) => {
+  const generatedResult = {
+    title: "Проверка освещения",
+    body: "Первая строка заявки.\nВторая строка заявки.",
+    warnings: [],
+  };
+  await page.route(generateUrlPattern, async (route) => {
+    await fulfillJson(route, 200, generatedResult);
+  });
+  await page.goto("/");
+
+  const placeholder = page.locator("#result-placeholder");
+  await expect(placeholder).toHaveJSProperty(
+    "innerText",
+    "Здесь появится результат после успешной генерации.",
+  );
+  expect(await placeholder.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe(
+    "normal",
+  );
+
+  await page.locator("#description").fill(requiredDescription);
+  await page.locator("#submit-button").click();
+
+  const resultBody = page.locator("#result-area > p");
+  await expect(resultBody).toHaveText(generatedResult.body);
+  expect(await resultBody.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe(
+    "pre-wrap",
+  );
+});
+
 test("отправляет явное подтверждение предмета для дверного сценария", async ({ page }) => {
   let submittedPayload: unknown;
   await page.route(generateUrlPattern, async (route) => {
