@@ -91,6 +91,14 @@ describe("публичная страница", () => {
     );
     expect(html).toContain("протечки, мокрого потолка или пятна");
     expect(html).toContain("источник воды не установлен");
+    expect(html).toContain('value="common_area_ventilation"');
+    expect(html).toContain("Общедомовая вентиляция");
+    expect(html).toContain(
+      'data-subject-hint="Подходит только для явно известной проблемы с системой вентиляции',
+    );
+    expect(html).toContain("обслуживающими более одного помещения");
+    expect(html).toContain("Духота, жара, запах или влажность сами по себе");
+    expect(html).toContain("вентиляции внутри одной квартиры");
     expect(html).toContain('id="confirmed-problem-subject-hint"');
     expect(html).toContain("Выберите только точный предмет проблемы.");
     expect(html).toContain(

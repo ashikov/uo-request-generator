@@ -103,6 +103,7 @@ describe("generateRequestInputSchema", () => {
     "common_area_premises_lighting",
     "common_area_premises_cleaning",
     "common_area_roof",
+    "common_area_ventilation",
   ] as const)("принимает поддержанный подтверждённый предмет: %s", (confirmedProblemSubject) => {
     const result = generateRequestInputSchema.safeParse({
       description: "Входная дверь подъезда не закрывается",
