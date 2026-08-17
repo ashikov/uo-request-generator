@@ -392,6 +392,16 @@ browser layout. Отдельный набор Playwright Test запускает
 Chromium и проверяет реальные размеры, переполнение, пересечения, прокрутку,
 клавиатурный focus и критический путь пользователя.
 
+Для локального отчёта о покрытии Vitest запустите:
+
+```bash
+pnpm test:coverage
+```
+
+Команда выводит summary в терминал, создаёт HTML-отчёт в `coverage/index.html`
+и машиночитаемый LCOV-файл в `coverage/lcov.info`. Обычный `pnpm test` coverage
+не собирает.
+
 Полный browser-level набор запускается одной командой:
 
 ```bash
