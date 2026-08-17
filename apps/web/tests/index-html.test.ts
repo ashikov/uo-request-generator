@@ -84,6 +84,13 @@ describe("публичная страница", () => {
     );
     expect(html).toContain("Не относится к квартире, придомовой территории");
     expect(html).toContain("контейнерной площадке или вывозу ТКО");
+    expect(html).toContain('value="common_area_roof"');
+    expect(html).toContain("Кровля многоквартирного дома");
+    expect(html).toContain(
+      'data-subject-hint="Подходит только если известно, что проблема относится именно к кровле МКД',
+    );
+    expect(html).toContain("протечки, мокрого потолка или пятна");
+    expect(html).toContain("источник воды не установлен");
     expect(html).toContain('id="confirmed-problem-subject-hint"');
     expect(html).toContain("Выберите только точный предмет проблемы.");
     expect(html).toContain(

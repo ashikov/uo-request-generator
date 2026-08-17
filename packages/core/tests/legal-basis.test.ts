@@ -3,6 +3,7 @@ import {
   COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
   generateRequestLimits,
   primaryRequestLegalBasisLimits,
@@ -62,6 +63,15 @@ const CLEANING_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
       quote: CLEANING_INPUT.description,
     },
   ],
+};
+
+const ROOF_INPUT = {
+  description: "На кровле многоквартирного дома обнаружена протечка.",
+  confirmedProblemSubject: "common_area_roof",
+} satisfies GenerateRequestInput;
+const ROOF_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
+  kind: "common_area_roof",
+  evidence: [{ sourceField: "description", quote: ROOF_INPUT.description }],
 };
 
 function createDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
@@ -609,5 +619,136 @@ describe("нормативный модуль уборки помещений о
       renderPrimaryRequestDraft(draftFittingWithoutModule, CONFIRMED_CLEANING_INPUT),
     ).toThrow();
     expect(draftFittingWithoutModule.problem).toHaveLength(maximumProblemWithoutSpecificBasis);
+  });
+});
+
+describe("нормативный модуль кровли многоквартирного дома", () => {
+  const paragraph =
+    "Крыша многоквартирного дома относится к общему имуществу. По постановлению Правительства РФ от 13.08.2006 № 491 общее имущество должно содержаться в состоянии, обеспечивающем соблюдение характеристик надёжности и безопасности многоквартирного дома и безопасность для жизни и здоровья граждан.";
+
+  function createRoofDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
+    return createDraft({
+      title: "Проблема с кровлей дома",
+      problem: ROOF_INPUT.description,
+      subject: ROOF_SUBJECT,
+      actionPlan: {
+        preliminaryCheck: "Проверить состояние кровли",
+        remedyActions: ["Устранить выявленное нарушение"],
+        resultCheck: null,
+      },
+      ...overrides,
+    });
+  }
+
+  it("хранит стабильный id, точный текст, применимость и metadata первичного источника", () => {
+    expect(COMMON_AREA_ROOF_LEGAL_BASIS_MODULE).toEqual({
+      id: "common-area-roof",
+      applicability: {
+        subject: "common_area_roof",
+        requiresExplicitUserConfirmation: true,
+        requiresVerifiedInputEvidence: true,
+        limitation:
+          "Только явно подтверждённая проблема крыши или кровли многоквартирного дома. Протечка, мокрый потолок, пятно или сырость без установленного пользователем источника воды не подтверждают применимость модуля.",
+      },
+      paragraphs: [paragraph],
+      sources: [
+        {
+          id: "ru-government-decree-491-common-property-rules",
+          title: "Постановление Правительства Российской Федерации от 13.08.2006 № 491",
+          officialUrl: "https://government.ru/docs/all/57158/",
+          provisions: ["подпункт «б» пункта 2", "подпункты «а» и «б» пункта 10"],
+          edition: "с изменениями от 07.03.2025 № 293",
+          validThrough: "2027-12-31",
+        },
+      ],
+      verifiedAt: "2026-08-17",
+    });
+  });
+
+  it("добавляет специальный абзац ровно один раз между общими основаниями и просьбой", () => {
+    const result = renderPrimaryRequestDraft(createRoofDraft(), ROOF_INPUT);
+
+    expect(result.body.split(paragraph)).toHaveLength(2);
+    expect(result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK)).toBeLessThan(
+      result.body.indexOf(paragraph),
+    );
+    expect(result.body.indexOf(paragraph)).toBeLessThan(result.body.indexOf("Прошу:"));
+  });
+
+  it.each([
+    ["без явного подтверждения", { description: ROOF_INPUT.description }],
+    [
+      "при несовпадении подтверждения",
+      {
+        description: ROOF_INPUT.description,
+        confirmedProblemSubject: "common_area_premises_cleaning" as const,
+      },
+    ],
+    [
+      "при несовпавшей дословной цитате",
+      {
+        description: "На крыше многоквартирного дома требуется проверка.",
+        confirmedProblemSubject: "common_area_roof" as const,
+      },
+    ],
+  ])("не подключает модуль %s", (_caseName, input) => {
+    const result = renderPrimaryRequestDraft(createRoofDraft(), input);
+
+    expect(result.body).not.toContain(paragraph);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it.each([
+    "На потолке мокрое пятно.",
+    "С потолка капает вода.",
+    "После дождя появилась сырость.",
+  ])("не подключает модуль при неподтверждённом источнике воды: %s", (description) => {
+    const result = renderPrimaryRequestDraft(
+      createRoofDraft({ problem: description, subject: null }),
+      { description, confirmedProblemSubject: "common_area_roof" },
+    );
+
+    expect(result.body).not.toContain(paragraph);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it("не считает LLM subject достаточным без подтверждения пользователя", () => {
+    const result = renderPrimaryRequestDraft(createRoofDraft());
+
+    expect(result.body).not.toContain(paragraph);
+  });
+
+  it("не выводит URL, metadata, причины протечки и процедурные действия из модуля", () => {
+    const result = renderPrimaryRequestDraft(createRoofDraft(), ROOF_INPUT);
+    const serializedModule = JSON.stringify(COMMON_AREA_ROOF_LEGAL_BASIS_MODULE);
+
+    expect(result.body).not.toContain("government.ru");
+    expect(result.body).not.toContain("2026-08-17");
+    expect(result.body).not.toContain("common-area-roof");
+    expect(paragraph).not.toContain("повреждение кровельного покрытия");
+    expect(paragraph).not.toContain("водосток");
+    expect(paragraph).not.toContain("способ ремонта");
+    expect(serializedModule).not.toContain("actionPlan");
+    expect(serializedModule).not.toContain("remedyActions");
+    expect(serializedModule).not.toContain("03.04.2013 № 290");
+  });
+
+  it("учитывает roof module в максимальном legal basis budget без изменения bodyMax", () => {
+    const specificModules = [
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+      COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+      COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+    ];
+    const expectedMaximumSpecificLength = Math.max(
+      ...specificModules.map((module) => module.paragraphs.join("\n\n").length),
+    );
+
+    expect(primaryRequestLegalBasisLimits.maximumBlockLength).toBe(
+      COMMON_LEGAL_BASIS_BLOCK.length + "\n\n".length + expectedMaximumSpecificLength,
+    );
+    expect(
+      renderPrimaryRequestDraft(createRoofDraft(), ROOF_INPUT).body.length,
+    ).toBeLessThanOrEqual(generateRequestLimits.result.bodyMax);
   });
 });
