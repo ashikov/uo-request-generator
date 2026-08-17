@@ -1,11 +1,11 @@
 import {
   COMMON_LEGAL_BASIS_BLOCK,
   PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS,
-  PRIMARY_REQUEST_SUBJECT_KINDS,
   primaryRequestLegalBasisLimits,
   primaryRequestSubjectLimits,
   primaryRequestDraftLimits,
   primaryRequestDraftSchema,
+  type ConfirmedProblemSubject,
 } from "@uo-request-generator/core";
 import { z } from "zod";
 import { GenerationInvalidResponseError } from "./generation-error.js";
@@ -69,75 +69,89 @@ const generatedActionPlanJsonSchema = {
   ],
 } as const;
 
-const generatedRequestDraftJsonSchema = {
-  type: "object",
-  properties: {
-    outcome: {
-      type: "string",
-      enum: ["generated"],
-    },
-    title: draftStringJsonSchema(primaryRequestDraftLimits.title.max),
-    problem: draftStringJsonSchema(primaryRequestDraftLimits.problem.max),
-    circumstances: nullableDraftStringJsonSchema(primaryRequestDraftLimits.circumstances.max),
-    impact: nullableDraftStringJsonSchema(primaryRequestDraftLimits.impact.max),
-    verification: nullableDraftStringJsonSchema(primaryRequestDraftLimits.verification.max),
-    subject: {
-      anyOf: [
-        {
-          type: "object",
-          properties: {
-            kind: {
-              type: "string",
-              enum: [...PRIMARY_REQUEST_SUBJECT_KINDS],
-            },
-            evidence: {
-              type: "array",
-              minItems: primaryRequestSubjectLimits.evidence.min,
-              maxItems: primaryRequestSubjectLimits.evidence.max,
-              items: {
-                type: "object",
-                properties: {
-                  sourceField: {
-                    type: "string",
-                    enum: [...PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS],
-                  },
-                  quote: {
-                    type: "string",
-                    minLength: primaryRequestSubjectLimits.quote.min,
-                    maxLength: primaryRequestSubjectLimits.quote.max,
-                  },
+function createRequestDraftSubjectJsonSchema(
+  confirmedProblemSubject: ConfirmedProblemSubject | undefined,
+) {
+  if (confirmedProblemSubject === undefined) {
+    return { type: "null" } as const;
+  }
+
+  return {
+    anyOf: [
+      {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: [confirmedProblemSubject],
+          },
+          evidence: {
+            type: "array",
+            minItems: primaryRequestSubjectLimits.evidence.min,
+            maxItems: primaryRequestSubjectLimits.evidence.max,
+            items: {
+              type: "object",
+              properties: {
+                sourceField: {
+                  type: "string",
+                  enum: [...PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS],
                 },
-                required: ["sourceField", "quote"],
-                additionalProperties: false,
+                quote: {
+                  type: "string",
+                  minLength: primaryRequestSubjectLimits.quote.min,
+                  maxLength: primaryRequestSubjectLimits.quote.max,
+                },
               },
+              required: ["sourceField", "quote"],
+              additionalProperties: false,
             },
           },
-          required: ["kind", "evidence"],
-          additionalProperties: false,
         },
-        { type: "null" },
-      ],
+        required: ["kind", "evidence"],
+        additionalProperties: false,
+      },
+      { type: "null" },
+    ],
+  } as const;
+}
+
+function createGeneratedRequestDraftJsonSchema(
+  confirmedProblemSubject: ConfirmedProblemSubject | undefined,
+) {
+  return {
+    type: "object",
+    properties: {
+      outcome: {
+        type: "string",
+        enum: ["generated"],
+      },
+      title: draftStringJsonSchema(primaryRequestDraftLimits.title.max),
+      problem: draftStringJsonSchema(primaryRequestDraftLimits.problem.max),
+      circumstances: nullableDraftStringJsonSchema(primaryRequestDraftLimits.circumstances.max),
+      impact: nullableDraftStringJsonSchema(primaryRequestDraftLimits.impact.max),
+      verification: nullableDraftStringJsonSchema(primaryRequestDraftLimits.verification.max),
+      subject: createRequestDraftSubjectJsonSchema(confirmedProblemSubject),
+      actionPlan: generatedActionPlanJsonSchema,
+      warnings: {
+        type: "array",
+        maxItems: primaryRequestDraftLimits.warnings.max,
+        items: draftStringJsonSchema(primaryRequestDraftLimits.warning.max),
+      },
     },
-    actionPlan: generatedActionPlanJsonSchema,
-    warnings: {
-      type: "array",
-      maxItems: primaryRequestDraftLimits.warnings.max,
-      items: draftStringJsonSchema(primaryRequestDraftLimits.warning.max),
-    },
-  },
-  required: [
-    "outcome",
-    "title",
-    "problem",
-    "circumstances",
-    "impact",
-    "verification",
-    "subject",
-    "actionPlan",
-    "warnings",
-  ],
-  additionalProperties: false,
-} as const;
+    required: [
+      "outcome",
+      "title",
+      "problem",
+      "circumstances",
+      "impact",
+      "verification",
+      "subject",
+      "actionPlan",
+      "warnings",
+    ],
+    additionalProperties: false,
+  } as const;
+}
 
 const multipleIssuesRequestDraftJsonSchema = {
   type: "object",
@@ -191,16 +205,25 @@ const multipleIssuesRequestDraftJsonSchema = {
 
 // Корневой объект нужен для совместимого Structured Outputs. Вложенный anyOf
 // сохраняет строгие ветки, а локальная Zod-схема остаётся окончательной проверкой.
-export const REQUEST_DRAFT_JSON_SCHEMA = {
-  type: "object",
-  properties: {
-    draft: {
-      anyOf: [generatedRequestDraftJsonSchema, multipleIssuesRequestDraftJsonSchema],
+export function createRequestDraftJsonSchema(
+  confirmedProblemSubject: ConfirmedProblemSubject | undefined,
+) {
+  return {
+    type: "object",
+    properties: {
+      draft: {
+        anyOf: [
+          createGeneratedRequestDraftJsonSchema(confirmedProblemSubject),
+          multipleIssuesRequestDraftJsonSchema,
+        ],
+      },
     },
-  },
-  required: ["draft"],
-  additionalProperties: false,
-} as const;
+    required: ["draft"],
+    additionalProperties: false,
+  } as const;
+}
+
+export const REQUEST_DRAFT_JSON_SCHEMA = createRequestDraftJsonSchema(undefined);
 
 const generatedRequestDraftSchema = primaryRequestDraftSchema.safeExtend({
   outcome: z.literal("generated"),
@@ -234,7 +257,49 @@ const requestDraftResponseSchema = z
 export type RequestDraft = z.infer<typeof requestDraftSchema>;
 export type GeneratedRequestDraft = z.infer<typeof generatedRequestDraftSchema>;
 
-export const REQUEST_DRAFT_SYSTEM_PROMPT = [
+const commonAreaEntranceDoorPromptRules = [
+  "- используй kind common_area_entrance_door, только если вход прямо указывает на входную дверь многоквартирного дома или дверь помещения общего пользования, обслуживающую более одного помещения",
+  "- для kind common_area_entrance_door evidence по отдельности или в совокупности должно подтверждать и дверь, и её принадлежность ко входу многоквартирного дома либо помещению общего пользования; не используй для evidence формулировки из созданных тобой problem, title или actionPlan",
+] as const;
+
+const commonAreaPremisesLightingPromptRules = [
+  "- используй kind common_area_premises_lighting, только если вход прямо указывает на неисправную или неработающую осветительную установку либо освещение внутри помещения общего пользования многоквартирного дома. Не используй его для освещения внутри квартиры, придомовой территории, уличного или фасадного освещения, жалоб на дизайн или предпочтительную яркость",
+  "- для kind common_area_premises_lighting evidence по отдельности или в совокупности должно подтверждать и осветительную установку или освещение, и помещение общего пользования многоквартирного дома",
+] as const;
+
+function createRequestDraftSubjectPromptRules(
+  confirmedProblemSubject: ConfirmedProblemSubject | undefined,
+): readonly string[] {
+  if (confirmedProblemSubject === undefined) {
+    return ["- subject: укажи null"];
+  }
+
+  let subjectRules: readonly [string, string];
+  switch (confirmedProblemSubject) {
+    case "common_area_entrance_door":
+      subjectRules = commonAreaEntranceDoorPromptRules;
+      break;
+    case "common_area_premises_lighting":
+      subjectRules = commonAreaPremisesLightingPromptRules;
+      break;
+    default: {
+      const unsupportedSubject: never = confirmedProblemSubject;
+      return unsupportedSubject;
+    }
+  }
+
+  return [
+    "- subject описывает только предмет проблемы и не является выбором нормативного акта",
+    subjectRules[0],
+    "- subject.evidence содержит от одного до двух дословных непрерывных фрагментов исходных description, location, consequences или desiredActions; для каждого фрагмента укажи sourceField и quote, скопированный без перефразирования, изменения регистра или пунктуации",
+    subjectRules[1],
+    "- если исходный ввод не содержит достаточных дословных фрагментов для выбранного kind, укажи subject: null; не выводи принадлежность предмета к общему имуществу только из собственной категории или перефразирования",
+  ];
+}
+
+const requestDraftSubjectRulesPlaceholder = Symbol("requestDraftSubjectRules");
+
+const requestDraftSystemPromptParts = [
   "Ты — помощник жителя многоквартирного дома. Определи, описывает ли ввод одну связанную проблему или несколько самостоятельных несвязанных проблем.",
   "Верни только один валидный JSON-объект с единственным полем draft, без Markdown и пояснений.",
   "Не возвращай готовый body и не используй старые текстовые маркеры.",
@@ -277,12 +342,7 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "- circumstances содержит только переданные существенные условия проявления, временный способ эксплуатации и фактически предпринимаемые из-за проблемы действия; если их нет, укажи null",
   "- impact содержит явно переданные последствия и риски, а при безопасном непосредственном основании — самостоятельно выведенное практическое значение или потенциальный риск; если основания нет, укажи null",
   "- verification содержит только реальный предмет проверки: явно переданное предположение, прямо указанную необходимость установить неизвестную причину, обоснованную обстоятельствами проверку связанных элементов или неизвестное обстоятельство, которое требуется установить для относящегося к проблеме действия; иначе укажи null",
-  "- subject описывает только предмет проблемы и не является выбором нормативного акта: используй kind common_area_entrance_door, только если вход прямо указывает на входную дверь многоквартирного дома или дверь помещения общего пользования, обслуживающую более одного помещения",
-  "- используй kind common_area_premises_lighting, только если вход прямо указывает на неисправную или неработающую осветительную установку либо освещение внутри помещения общего пользования многоквартирного дома. Не используй его для освещения внутри квартиры, придомовой территории, уличного или фасадного освещения, жалоб на дизайн или предпочтительную яркость",
-  "- subject.evidence содержит от одного до двух дословных непрерывных фрагментов исходных description, location, consequences или desiredActions; для каждого фрагмента укажи sourceField и quote, скопированный без перефразирования, изменения регистра или пунктуации",
-  "- для kind common_area_entrance_door evidence по отдельности или в совокупности должно подтверждать и дверь, и её принадлежность ко входу многоквартирного дома либо помещению общего пользования; не используй для evidence формулировки из созданных тобой problem, title или actionPlan",
-  "- для kind common_area_premises_lighting evidence по отдельности или в совокупности должно подтверждать и осветительную установку или освещение, и помещение общего пользования многоквартирного дома",
-  "- если исходный ввод не содержит достаточных дословных фрагментов для выбранного kind, укажи subject: null; не выводи принадлежность предмета к общему имуществу только из собственной категории или перефразирования",
+  requestDraftSubjectRulesPlaceholder,
   "- actionPlan.preliminaryCheck содержит одно минимальное действие до устранения, которое устанавливает существенное неизвестное обстоятельство, необходимое для выбора или выполнения действия по устранению; это не обязательно визуальный осмотр; иначе укажи null",
   "- actionPlan.remedyActions содержит минимум одно непосредственно необходимое действие по устранению проблемы или восстановлению нормального состояния; это прямые корректирующие действия, которые изменяют проблемное состояние, устраняют дефект или восстанавливают нормальное состояние, а не самостоятельные диагностики или проверки; не дроби мелкие операции ради длины",
   "- actionPlan.resultCheck содержит отдельную проверку после работ только при выполнении правил ниже; иначе укажи null",
@@ -333,7 +393,21 @@ export const REQUEST_DRAFT_SYSTEM_PROMPT = [
   "Если предупреждений нет, укажи warnings: [].",
   "",
   "Для нескольких самостоятельных несвязанных проблем верни outcome: multiple_issues, title: null, problem: null, circumstances: null, impact: null, verification: null, subject: null, actionPlan: null и warnings: []. Не выбирай одну проблему и не формируй частичный черновик.",
-].join("\n");
+];
+
+export function createRequestDraftSystemPrompt(
+  confirmedProblemSubject: ConfirmedProblemSubject | undefined,
+): string {
+  return requestDraftSystemPromptParts
+    .flatMap((part) =>
+      part === requestDraftSubjectRulesPlaceholder
+        ? createRequestDraftSubjectPromptRules(confirmedProblemSubject)
+        : part,
+    )
+    .join("\n");
+}
+
+export const REQUEST_DRAFT_SYSTEM_PROMPT = createRequestDraftSystemPrompt(undefined);
 
 function invalidResponseError(): GenerationInvalidResponseError {
   return new GenerationInvalidResponseError();

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { COMMON_AREA_DOOR_LEGAL_BASIS_MODULE } from "@uo-request-generator/core";
+import {
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+} from "@uo-request-generator/core";
 import {
   createOpenAiCompatibleRequestBody,
   GenerationInvalidResponseError,
@@ -11,6 +14,8 @@ import {
 } from "../src";
 import {
   COMMON_LEGAL_BASIS_BLOCK,
+  createRequestDraftJsonSchema,
+  createRequestDraftSystemPrompt,
   REQUEST_DRAFT_JSON_SCHEMA,
   REQUEST_DRAFT_SYSTEM_PROMPT,
 } from "../src/request-draft.js";
@@ -231,6 +236,71 @@ describe("OpenAiCompatibleGateway", () => {
         json_schema: { schema: REQUEST_DRAFT_JSON_SCHEMA },
       },
     });
+  });
+
+  it("передаёт дверной contract в Chat Completions без другого subject", () => {
+    const input = {
+      ...VALID_INPUT,
+      confirmedProblemSubject: "common_area_entrance_door" as const,
+    };
+    const requestBody = createOpenAiCompatibleRequestBody(
+      {
+        apiProtocol: "chat-completions",
+        model: "benchmark-model",
+        maxOutputTokens: 1200,
+      },
+      input,
+    );
+
+    expect(requestBody).toMatchObject({
+      messages: [
+        {
+          role: "system",
+          content: createRequestDraftSystemPrompt(input.confirmedProblemSubject),
+        },
+        { role: "user", content: expect.any(String) },
+      ],
+      response_format: {
+        json_schema: {
+          schema: createRequestDraftJsonSchema(input.confirmedProblemSubject),
+        },
+      },
+    });
+    expect(JSON.stringify(requestBody)).not.toContain("common_area_premises_lighting");
+    if (!("messages" in requestBody)) {
+      throw new Error("Ожидался Chat Completions request");
+    }
+    expect(requestBody.messages[1]?.content).not.toContain("confirmedProblemSubject");
+  });
+
+  it("передаёт lighting contract в Responses API без другого subject", () => {
+    const input = {
+      ...VALID_INPUT,
+      confirmedProblemSubject: "common_area_premises_lighting" as const,
+    };
+    const requestBody = createOpenAiCompatibleRequestBody(
+      {
+        apiProtocol: "responses",
+        model: "benchmark-model",
+        maxOutputTokens: 1200,
+      },
+      input,
+    );
+
+    expect(requestBody).toMatchObject({
+      instructions: createRequestDraftSystemPrompt(input.confirmedProblemSubject),
+      input: expect.any(String),
+      text: {
+        format: {
+          schema: createRequestDraftJsonSchema(input.confirmedProblemSubject),
+        },
+      },
+    });
+    expect(JSON.stringify(requestBody)).not.toContain("common_area_entrance_door");
+    if (!("input" in requestBody)) {
+      throw new Error("Ожидался Responses request");
+    }
+    expect(requestBody.input).not.toContain("confirmedProblemSubject");
   });
 
   it("возвращает optional usage из Chat Completions без изменения LlmGateway outcome", async () => {
@@ -510,6 +580,85 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.body).not.toContain("\n2. ");
     expect(result.result.body).not.toContain("доводчик повреждён");
     expect(result.result.body).not.toContain("Устранить выявленные повреждения");
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("подключает модуль освещения только для matching subject с подтверждаемым evidence", async () => {
+    const description =
+      "В общем коридоре многоквартирного дома не работает освещение несколько дней.";
+    const draft = {
+      ...VALID_DRAFT,
+      subject: {
+        kind: "common_area_premises_lighting",
+        evidence: [{ sourceField: "description", quote: description }],
+      },
+    };
+    const mockFetch = createMockFetch(createLlmText(draft));
+
+    const result = await createGateway().generateRequest({
+      description,
+      confirmedProblemSubject: "common_area_premises_lighting",
+    });
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body).toContain(COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("оставляет mismatch выбранного и provider subject fail closed", async () => {
+    const description = "У входной двери подъезда отсутствует ручка.";
+    const draft = {
+      ...VALID_DRAFT,
+      subject: {
+        kind: "common_area_entrance_door",
+        evidence: [{ sourceField: "description", quote: description }],
+      },
+    };
+    const mockFetch = createMockFetch(createLlmText(draft));
+
+    const result = await createGateway().generateRequest({
+      description,
+      confirmedProblemSubject: "common_area_premises_lighting",
+    });
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.result.body).not.toContain(COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("оставляет неподтверждаемое evidence fail closed", async () => {
+    const draft = {
+      ...VALID_DRAFT,
+      subject: {
+        kind: "common_area_entrance_door",
+        evidence: [
+          {
+            sourceField: "description",
+            quote: "Входная дверь другого подъезда не закрывается.",
+          },
+        ],
+      },
+    };
+    const mockFetch = createMockFetch(createLlmText(draft));
+
+    const result = await createGateway().generateRequest({
+      description: "У входной двери подъезда отсутствует ручка.",
+      confirmedProblemSubject: "common_area_entrance_door",
+    });
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
