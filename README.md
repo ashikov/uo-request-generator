@@ -502,3 +502,8 @@ docker compose logs --tail=100 web
 - [Локальный benchmark LLM-моделей](docs/LLM_BENCHMARK.md)
 - [Правила составления заявок](docs/REQUEST_RULES.md)
 - [Архитектурные решения](docs/adr/README.md)
+
+## Лицензия
+
+Проект распространяется на условиях GNU Affero General Public License v3.0
+(`AGPL-3.0-only`). Полный текст лицензии находится в [`LICENSE`](LICENSE).
