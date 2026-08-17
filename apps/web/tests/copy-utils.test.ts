@@ -100,6 +100,8 @@ function setupFormDOM() {
           Входная дверь МКД и дверь помещения общего пользования
         </option>
       </select>
+      <div id="confirmed-problem-subject-hint">Выберите только точный предмет проблемы.</div>
+      <div id="confirmed-problem-subject-context" hidden></div>
       <div id="captcha-container"></div>
       <button id="submit-button" type="submit">Составить заявку</button>
     </form>

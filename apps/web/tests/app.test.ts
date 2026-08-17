@@ -83,21 +83,26 @@ async function initializeApp(
       <select
         id="confirmed-problem-subject"
         name="confirmedProblemSubject"
-        aria-describedby="confirmed-problem-subject-hint"
+        aria-describedby="confirmed-problem-subject-hint confirmed-problem-subject-context"
       >
         <option value="">Не выбрано</option>
-        <option value="common_area_entrance_door">
+        <option
+          value="common_area_entrance_door"
+          data-subject-hint="Подходит для входной двери МКД или двери помещения общего пользования. Не относится к двери квартиры или частного помещения."
+        >
           Входная дверь МКД или помещения общего пользования
         </option>
-        <option value="common_area_premises_lighting">
+        <option
+          value="common_area_premises_lighting"
+          data-subject-hint="Подходит для освещения помещений общего пользования МКД. Не относится к освещению внутри квартиры, придомовому, уличному или фасадному освещению."
+        >
           Освещение помещения общего пользования МКД
         </option>
       </select>
       <span id="confirmed-problem-subject-hint">
-        Выберите только точный предмет проблемы. Дверной вариант — не дверь квартиры и
-        не дверь частного помещения. Вариант освещения — не освещение внутри квартиры и
-        не придомовое, уличное или фасадное освещение.
+        Выберите только точный предмет проблемы.
       </span>
+      <span id="confirmed-problem-subject-context" role="status" aria-live="polite" hidden></span>
       <div id="captcha-container"></div>
       <p id="captcha-notice" hidden>
         Этот сайт защищён Yandex SmartCaptcha.
@@ -158,6 +163,10 @@ function getConfirmedProblemSubject(): HTMLSelectElement {
 
 function getConfirmedProblemSubjectHint(): HTMLElement {
   return document.getElementById("confirmed-problem-subject-hint") as HTMLElement;
+}
+
+function getConfirmedProblemSubjectContext(): HTMLElement {
+  return document.getElementById("confirmed-problem-subject-context") as HTMLElement;
 }
 
 function getErrorArea(): HTMLElement {
@@ -336,7 +345,7 @@ describe("обработка ответа генерации в приложен
 
   it("содержит предметный выбор с актуальным пояснением и доступностью", () => {
     expect(getConfirmedProblemSubject().getAttribute("aria-describedby")).toBe(
-      "confirmed-problem-subject-hint",
+      "confirmed-problem-subject-hint confirmed-problem-subject-context",
     );
     expect(getConfirmedProblemSubject().value).toBe("");
     expect(
@@ -346,12 +355,39 @@ describe("обработка ответа генерации в приложен
       "Входная дверь МКД или помещения общего пользования",
       "Освещение помещения общего пользования МКД",
     ]);
-    const hint = getConfirmedProblemSubjectHint().textContent ?? "";
-    expect(hint).toContain("Выберите");
-    expect(hint).toContain("дверь квартиры");
-    expect(hint).toContain("частного помещения");
-    expect(hint).toContain("освещение внутри квартиры");
-    expect(hint).toContain("придомовое, уличное или фасадное освещение");
+    expect(getConfirmedProblemSubjectHint().textContent?.trim()).toBe(
+      "Выберите только точный предмет проблемы.",
+    );
+  });
+
+  it("показывает пояснение только для выбранного предмета проблемы", () => {
+    const subjectSelect = getConfirmedProblemSubject();
+    const contextHint = getConfirmedProblemSubjectContext();
+
+    expect(subjectSelect.value).toBe("");
+    expect(getConfirmedProblemSubjectHint().textContent?.trim()).toBe(
+      "Выберите только точный предмет проблемы.",
+    );
+    expect(contextHint.hidden).toBe(true);
+
+    subjectSelect.value = "common_area_entrance_door";
+    subjectSelect.dispatchEvent(new Event("change"));
+    expect(contextHint.hidden).toBe(false);
+    expect(contextHint.textContent).toContain("входной двери МКД");
+    expect(contextHint.textContent).toContain("двери квартиры");
+    expect(contextHint.textContent).toContain("частного помещения");
+
+    subjectSelect.value = "common_area_premises_lighting";
+    subjectSelect.dispatchEvent(new Event("change"));
+    expect(contextHint.textContent).toContain("освещения помещений общего пользования МКД");
+    expect(contextHint.textContent).toContain("освещению внутри квартиры");
+    expect(contextHint.textContent).toContain("придомовому, уличному или фасадному освещению");
+    expect(contextHint.textContent).not.toContain("входной двери МКД");
+
+    subjectSelect.value = "";
+    subjectSelect.dispatchEvent(new Event("change"));
+    expect(contextHint.hidden).toBe(true);
+    expect(contextHint.textContent).toBe("");
   });
 
   it("не отправляет пустые дополнительные поля", async () => {
