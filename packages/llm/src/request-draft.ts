@@ -267,6 +267,11 @@ const commonAreaPremisesLightingPromptRules = [
   "- для kind common_area_premises_lighting evidence по отдельности или в совокупности должно подтверждать и осветительную установку или освещение, и помещение общего пользования многоквартирного дома",
 ] as const;
 
+const commonAreaPremisesCleaningPromptRules = [
+  "- используй kind common_area_premises_cleaning, только если вход прямо указывает на уборку помещения общего пользования многоквартирного дома, например подъезда, лестничной площадки, коридора или холла. Не используй его для уборки внутри квартиры, придомовой территории, контейнерной площадки или вывоза ТКО",
+  "- для kind common_area_premises_cleaning evidence по отдельности или в совокупности должно подтверждать и проблему уборки, и помещение общего пользования многоквартирного дома; не утверждай антисанитарное состояние, вред здоровью, наличие вредителей, запахи или другие последствия, которых нет во входе",
+] as const;
+
 function createRequestDraftSubjectPromptRules(
   confirmedProblemSubject: ConfirmedProblemSubject | undefined,
 ): readonly string[] {
@@ -281,6 +286,9 @@ function createRequestDraftSubjectPromptRules(
       break;
     case "common_area_premises_lighting":
       subjectRules = commonAreaPremisesLightingPromptRules;
+      break;
+    case "common_area_premises_cleaning":
+      subjectRules = commonAreaPremisesCleaningPromptRules;
       break;
     default: {
       const unsupportedSubject: never = confirmedProblemSubject;

@@ -77,6 +77,13 @@ describe("публичная страница", () => {
     expect(html).toContain(
       'data-subject-hint="Подходит для освещения помещений общего пользования МКД',
     );
+    expect(html).toContain('value="common_area_premises_cleaning"');
+    expect(html).toContain("Уборка помещения общего пользования МКД");
+    expect(html).toContain(
+      'data-subject-hint="Подходит для уборки подъезда, лестничной площадки, коридора, холла',
+    );
+    expect(html).toContain("Не относится к квартире, придомовой территории");
+    expect(html).toContain("контейнерной площадке или вывозу ТКО");
     expect(html).toContain('id="confirmed-problem-subject-hint"');
     expect(html).toContain("Выберите только точный предмет проблемы.");
     expect(html).toContain(

@@ -98,6 +98,12 @@ async function initializeApp(
         >
           Освещение помещения общего пользования МКД
         </option>
+        <option
+          value="common_area_premises_cleaning"
+          data-subject-hint="Подходит для уборки подъезда, лестничной площадки, коридора, холла и других помещений общего пользования МКД. Не относится к квартире, придомовой территории, контейнерной площадке или вывозу ТКО."
+        >
+          Уборка помещения общего пользования МКД
+        </option>
       </select>
       <span id="confirmed-problem-subject-hint">
         Выберите только точный предмет проблемы.
@@ -354,6 +360,7 @@ describe("обработка ответа генерации в приложен
       "Не выбрано",
       "Входная дверь МКД или помещения общего пользования",
       "Освещение помещения общего пользования МКД",
+      "Уборка помещения общего пользования МКД",
     ]);
     expect(getConfirmedProblemSubjectHint().textContent?.trim()).toBe(
       "Выберите только точный предмет проблемы.",
@@ -383,6 +390,15 @@ describe("обработка ответа генерации в приложен
     expect(contextHint.textContent).toContain("освещению внутри квартиры");
     expect(contextHint.textContent).toContain("придомовому, уличному или фасадному освещению");
     expect(contextHint.textContent).not.toContain("входной двери МКД");
+
+    subjectSelect.value = "common_area_premises_cleaning";
+    subjectSelect.dispatchEvent(new Event("change"));
+    expect(contextHint.textContent).toContain("уборки подъезда");
+    expect(contextHint.textContent).toContain("лестничной площадки");
+    expect(contextHint.textContent).toContain("коридора, холла");
+    expect(contextHint.textContent).toContain("придомовой территории");
+    expect(contextHint.textContent).toContain("контейнерной площадке или вывозу ТКО");
+    expect(contextHint.textContent).not.toContain("освещения помещений");
 
     subjectSelect.value = "";
     subjectSelect.dispatchEvent(new Event("change"));
@@ -495,6 +511,24 @@ describe("обработка ответа генерации в приложен
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
       description: "В общем коридоре многоквартирного дома не работает освещение",
       confirmedProblemSubject: "common_area_premises_lighting",
+    });
+  });
+
+  it("отправляет явное подтверждение уборки помещения общего пользования", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues("В подъезде многоквартирного дома не выполнена уборка", "");
+    getConfirmedProblemSubject().value = "common_area_premises_cleaning";
+
+    submitForm();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      description: "В подъезде многоквартирного дома не выполнена уборка",
+      confirmedProblemSubject: "common_area_premises_cleaning",
     });
   });
 

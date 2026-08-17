@@ -23,9 +23,12 @@ export const COMMON_AREA_DOOR_CONFIRMED_SUBJECT: ConfirmedProblemSubject =
   "common_area_entrance_door";
 export const COMMON_AREA_LIGHTING_CONFIRMED_SUBJECT: ConfirmedProblemSubject =
   "common_area_premises_lighting";
+export const COMMON_AREA_CLEANING_CONFIRMED_SUBJECT: ConfirmedProblemSubject =
+  "common_area_premises_cleaning";
 export const PRIMARY_REQUEST_SUBJECT_KINDS = [
   COMMON_AREA_DOOR_CONFIRMED_SUBJECT,
   COMMON_AREA_LIGHTING_CONFIRMED_SUBJECT,
+  COMMON_AREA_CLEANING_CONFIRMED_SUBJECT,
 ] as const;
 export const PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS = [
   "description",
@@ -61,6 +64,15 @@ export const primaryRequestSubjectSchema = z.union([
   z
     .object({
       kind: z.literal(COMMON_AREA_LIGHTING_CONFIRMED_SUBJECT),
+      evidence: z
+        .array(primaryRequestSubjectEvidenceSchema)
+        .min(primaryRequestSubjectLimits.evidence.min)
+        .max(primaryRequestSubjectLimits.evidence.max),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal(COMMON_AREA_CLEANING_CONFIRMED_SUBJECT),
       evidence: z
         .array(primaryRequestSubjectEvidenceSchema)
         .min(primaryRequestSubjectLimits.evidence.min)
@@ -144,11 +156,41 @@ export const COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE = {
   verifiedAt: "2026-08-16",
 } as const satisfies LegalBasisModule;
 
-const MAXIMUM_SPECIFIC_LEGAL_BASIS_PARAGRAPHS =
-  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs.join(LEGAL_BASIS_PARAGRAPH_SEPARATOR).length >=
-  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs.join(LEGAL_BASIS_PARAGRAPH_SEPARATOR).length
-    ? COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs
-    : COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs;
+export const COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE = {
+  id: "common-area-cleaning",
+  applicability: {
+    subject: COMMON_AREA_CLEANING_CONFIRMED_SUBJECT,
+    requiresExplicitUserConfirmation: true,
+    requiresVerifiedInputEvidence: true,
+    limitation:
+      "Только уборка помещений общего пользования многоквартирного дома. Не применяется к уборке внутри квартиры, придомовой территории, контейнерной площадки или вывозу твёрдых коммунальных отходов.",
+  },
+  paragraphs: [
+    "Согласно подпункту «а» пункта 2 и подпункту «г» пункта 11 Правил содержания общего имущества в многоквартирном доме, утверждённых постановлением Правительства РФ от 13.08.2006 № 491, помещения, не являющиеся частями квартир и предназначенные для обслуживания более одного помещения, относятся к помещениям общего пользования, а содержание общего имущества включает уборку и санитарно-гигиеническую очистку таких помещений.",
+  ],
+  sources: [
+    {
+      id: "ru-government-decree-491-common-property-rules",
+      title: "Постановление Правительства Российской Федерации от 13.08.2006 № 491",
+      officialUrl: "https://government.ru/docs/all/57158/",
+      provisions: ["подпункт «а» пункта 2", "подпункт «г» пункта 11"],
+      edition: "с изменениями от 07.03.2025 № 293",
+      validThrough: "2027-12-31",
+    },
+  ],
+  verifiedAt: "2026-08-17",
+} as const satisfies LegalBasisModule;
+
+const MAXIMUM_SPECIFIC_LEGAL_BASIS_PARAGRAPHS = [
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+].reduce<readonly string[]>((maximumParagraphs, module) => {
+  const maximumLength = maximumParagraphs.join(LEGAL_BASIS_PARAGRAPH_SEPARATOR).length;
+  const moduleLength = module.paragraphs.join(LEGAL_BASIS_PARAGRAPH_SEPARATOR).length;
+
+  return moduleLength > maximumLength ? module.paragraphs : maximumParagraphs;
+}, []);
 
 const MAXIMUM_LEGAL_BASIS_BLOCK = [
   COMMON_LEGAL_BASIS_BLOCK,
@@ -188,6 +230,8 @@ export function selectSpecificLegalBasisParagraphs(
       return COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs;
     case COMMON_AREA_LIGHTING_CONFIRMED_SUBJECT:
       return COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs;
+    case COMMON_AREA_CLEANING_CONFIRMED_SUBJECT:
+      return COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.paragraphs;
   }
 
   return [];

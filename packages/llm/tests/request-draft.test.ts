@@ -1,4 +1,5 @@
 import {
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
@@ -24,6 +25,7 @@ import {
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
 const DOOR_SUBJECT_RULE = "входную дверь многоквартирного дома";
 const LIGHTING_SUBJECT_RULE = "неисправную или неработающую осветительную установку";
+const CLEANING_SUBJECT_RULE = "уборку помещения общего пользования многоквартирного дома";
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -187,6 +189,14 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.officialUrl);
       expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.title);
     }
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.id);
+    for (const source of COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.sources) {
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.officialUrl);
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.title);
+    }
   });
 
   it("передаёт модели динамический лимит body", () => {
@@ -237,10 +247,37 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(lightingPromptRules.join("\n")).not.toContain(DOOR_SUBJECT_RULE);
   });
 
+  it("ограничивает cleaning subject уборкой только внутри помещений общего пользования", () => {
+    const prompt = createRequestDraftSystemPrompt("common_area_premises_cleaning");
+
+    expect(prompt).toContain(CLEANING_SUBJECT_RULE);
+    expect(prompt).toContain("подъезда, лестничной площадки, коридора или холла");
+    expect(prompt).toContain("внутри квартиры");
+    expect(prompt).toContain("придомовой территории");
+    expect(prompt).toContain("контейнерной площадки");
+    expect(prompt).toContain("вывоза ТКО");
+    expect(prompt).toContain("не утверждай антисанитарное состояние");
+    expect(prompt).not.toContain(DOOR_SUBJECT_RULE);
+    expect(prompt).not.toContain(LIGHTING_SUBJECT_RULE);
+  });
+
   it.each([
-    [undefined, [], [DOOR_SUBJECT_RULE, LIGHTING_SUBJECT_RULE]],
-    ["common_area_entrance_door" as const, [DOOR_SUBJECT_RULE], [LIGHTING_SUBJECT_RULE]],
-    ["common_area_premises_lighting" as const, [LIGHTING_SUBJECT_RULE], [DOOR_SUBJECT_RULE]],
+    [undefined, [], [DOOR_SUBJECT_RULE, LIGHTING_SUBJECT_RULE, CLEANING_SUBJECT_RULE]],
+    [
+      "common_area_entrance_door" as const,
+      [DOOR_SUBJECT_RULE],
+      [LIGHTING_SUBJECT_RULE, CLEANING_SUBJECT_RULE],
+    ],
+    [
+      "common_area_premises_lighting" as const,
+      [LIGHTING_SUBJECT_RULE],
+      [DOOR_SUBJECT_RULE, CLEANING_SUBJECT_RULE],
+    ],
+    [
+      "common_area_premises_cleaning" as const,
+      [CLEANING_SUBJECT_RULE],
+      [DOOR_SUBJECT_RULE, LIGHTING_SUBJECT_RULE],
+    ],
   ])("не включает subject-specific данные других контрактов: %s", (confirmedProblemSubject, includedFragments, excludedFragments) => {
     const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
     const schemaText = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
@@ -253,9 +290,11 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     }
 
     const includedKinds = confirmedProblemSubject === undefined ? [] : [confirmedProblemSubject];
-    const excludedKinds = ["common_area_entrance_door", "common_area_premises_lighting"].filter(
-      (kind) => kind !== confirmedProblemSubject,
-    );
+    const excludedKinds = [
+      "common_area_entrance_door",
+      "common_area_premises_lighting",
+      "common_area_premises_cleaning",
+    ].filter((kind) => kind !== confirmedProblemSubject);
     for (const kind of includedKinds) {
       expect(prompt).toContain(kind);
       expect(schemaText).toContain(kind);
@@ -343,9 +382,19 @@ describe("provider-facing RequestDraft", () => {
   });
 
   it.each([
-    ["common_area_entrance_door" as const, "common_area_premises_lighting"],
-    ["common_area_premises_lighting" as const, "common_area_entrance_door"],
-  ])("ограничивает subject выбранным kind или null: %s", (selectedKind, excludedKind) => {
+    [
+      "common_area_entrance_door" as const,
+      ["common_area_premises_lighting", "common_area_premises_cleaning"],
+    ],
+    [
+      "common_area_premises_lighting" as const,
+      ["common_area_entrance_door", "common_area_premises_cleaning"],
+    ],
+    [
+      "common_area_premises_cleaning" as const,
+      ["common_area_entrance_door", "common_area_premises_lighting"],
+    ],
+  ])("ограничивает subject выбранным kind или null: %s", (selectedKind, excludedKinds) => {
     const subjectSchema =
       createRequestDraftJsonSchema(selectedKind).properties.draft.anyOf[0].properties.subject;
 
@@ -379,7 +428,9 @@ describe("provider-facing RequestDraft", () => {
         { type: "null" },
       ],
     });
-    expect(JSON.stringify(subjectSchema)).not.toContain(excludedKind);
+    for (const excludedKind of excludedKinds) {
+      expect(JSON.stringify(subjectSchema)).not.toContain(excludedKind);
+    }
   });
 
   it("ограничивает общий размер procedural plan средствами provider JSON Schema", () => {
