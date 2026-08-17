@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
@@ -82,6 +83,15 @@ const VENTILATION_INPUT = {
 const VENTILATION_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
   kind: "common_area_ventilation",
   evidence: [{ sourceField: "description", quote: VENTILATION_INPUT.description }],
+};
+
+const ELEVATOR_INPUT = {
+  description: "Лифт в многоквартирном доме не реагирует на вызов с первого этажа.",
+  confirmedProblemSubject: "common_area_elevator",
+} satisfies GenerateRequestInput;
+const ELEVATOR_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
+  kind: "common_area_elevator",
+  evidence: [{ sourceField: "description", quote: ELEVATOR_INPUT.description }],
 };
 
 function createDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
@@ -911,6 +921,142 @@ describe("нормативный модуль вентиляции общего 
     expect(result.body.length).toBeLessThanOrEqual(generateRequestLimits.result.bodyMax);
     expect(specificModules.filter((module) => result.body.includes(module.paragraphs[0]))).toEqual([
       COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+    ]);
+  });
+});
+
+describe("нормативный модуль лифта общего имущества", () => {
+  const paragraph =
+    "Лифты и лифтовые шахты входят в состав общего имущества многоквартирного дома. Такое имущество должно содержаться в состоянии, обеспечивающем надёжность и безопасность дома и безопасность для жизни и здоровья граждан.";
+
+  function createElevatorDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
+    return createDraft({
+      title: "Лифт не реагирует на вызов",
+      problem: ELEVATOR_INPUT.description,
+      subject: ELEVATOR_SUBJECT,
+      actionPlan: {
+        preliminaryCheck: "Проверить работу лифта",
+        remedyActions: ["Восстановить работоспособность лифта"],
+        resultCheck: null,
+      },
+      ...overrides,
+    });
+  }
+
+  it("хранит стабильный id, точный текст, применимость и metadata первичного источника", () => {
+    expect(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE).toEqual({
+      id: "common-area-elevator",
+      applicability: {
+        subject: "common_area_elevator",
+        requiresExplicitUserConfirmation: true,
+        requiresVerifiedInputEvidence: true,
+        limitation:
+          "Только явно подтверждённая пользователем проблема лифта, лифтовой шахты или лифтового оборудования, относящегося к общему имуществу МКД. Не устанавливает техническую причину, неисправность, аварийность, необходимость работ или их исполнителя.",
+      },
+      paragraphs: [paragraph],
+      sources: [
+        {
+          id: "ru-government-decree-491-common-property-rules",
+          title: "Постановление Правительства Российской Федерации от 13.08.2006 № 491",
+          officialUrl: "https://government.ru/docs/all/57158/",
+          provisions: ["подпункт «а» пункта 2", "подпункты «а» и «б» пункта 10"],
+          edition: "с изменениями от 07.03.2025 № 293",
+          validThrough: "2027-12-31",
+        },
+      ],
+      verifiedAt: "2026-08-17",
+    });
+  });
+
+  it("добавляет специальный абзац ровно один раз между общими основаниями и просьбой", () => {
+    const result = renderPrimaryRequestDraft(createElevatorDraft(), ELEVATOR_INPUT);
+
+    expect(result.body.split(paragraph)).toHaveLength(2);
+    expect(result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK)).toBeLessThan(
+      result.body.indexOf(paragraph),
+    );
+    expect(result.body.indexOf(paragraph)).toBeLessThan(result.body.indexOf("Прошу:"));
+  });
+
+  it.each([
+    ["без явного подтверждения", { description: ELEVATOR_INPUT.description }],
+    [
+      "при несовпадении подтверждения",
+      {
+        description: ELEVATOR_INPUT.description,
+        confirmedProblemSubject: "common_area_roof" as const,
+      },
+    ],
+    [
+      "при несовпавшей дословной цитате",
+      {
+        description: "Лифт в подъезде остановился между этажами.",
+        confirmedProblemSubject: "common_area_elevator" as const,
+      },
+    ],
+  ])("не подключает модуль %s", (_caseName, input) => {
+    const result = renderPrimaryRequestDraft(createElevatorDraft(), input);
+
+    expect(result.body).not.toContain(paragraph);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it("не подключает модуль, когда provider вернул null", () => {
+    const result = renderPrimaryRequestDraft(
+      createElevatorDraft({ subject: null }),
+      ELEVATOR_INPUT,
+    );
+
+    expect(result.body).not.toContain(paragraph);
+  });
+
+  it.each([
+    "В подъезде слышен скрежет.",
+    "В лифтовом холле не работает освещение.",
+    "На лестничной площадке слышен шум.",
+  ])("не подключает модуль по косвенному или несвязанному признаку: %s", (description) => {
+    const result = renderPrimaryRequestDraft(
+      createElevatorDraft({ problem: description, subject: null }),
+      { description, confirmedProblemSubject: "common_area_elevator" },
+    );
+
+    expect(result.body).not.toContain(paragraph);
+  });
+
+  it("не выводит URL, metadata, диагностику или процедурные действия из модуля", () => {
+    const result = renderPrimaryRequestDraft(createElevatorDraft(), ELEVATOR_INPUT);
+    const serializedModule = JSON.stringify(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE);
+
+    expect(result.body).not.toContain("government.ru");
+    expect(result.body).not.toContain("2026-08-17");
+    expect(result.body).not.toContain("common-area-elevator");
+    expect(paragraph).not.toContain("неисправность");
+    expect(paragraph).not.toContain("аварийность");
+    expect(paragraph).not.toContain("ремонт");
+    expect(serializedModule).not.toContain("actionPlan");
+    expect(serializedModule).not.toContain("29.12.2025 № 564-ФЗ");
+  });
+
+  it("учитывает elevator module в максимальном budget и применяет не более одного модуля", () => {
+    const specificModules = [
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+      COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+      COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+      COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
+    ];
+    const expectedMaximumSpecificLength = Math.max(
+      ...specificModules.map((module) => module.paragraphs.join("\n\n").length),
+    );
+    const result = renderPrimaryRequestDraft(createElevatorDraft(), ELEVATOR_INPUT);
+
+    expect(primaryRequestLegalBasisLimits.maximumBlockLength).toBe(
+      COMMON_LEGAL_BASIS_BLOCK.length + "\n\n".length + expectedMaximumSpecificLength,
+    );
+    expect(result.body.length).toBeLessThanOrEqual(generateRequestLimits.result.bodyMax);
+    expect(specificModules.filter((module) => result.body.includes(module.paragraphs[0]))).toEqual([
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
     ]);
   });
 });

@@ -28,12 +28,15 @@ export const COMMON_AREA_CLEANING_CONFIRMED_SUBJECT: ConfirmedProblemSubject =
 export const COMMON_AREA_ROOF_CONFIRMED_SUBJECT: ConfirmedProblemSubject = "common_area_roof";
 export const COMMON_AREA_VENTILATION_CONFIRMED_SUBJECT: ConfirmedProblemSubject =
   "common_area_ventilation";
+export const COMMON_AREA_ELEVATOR_CONFIRMED_SUBJECT: ConfirmedProblemSubject =
+  "common_area_elevator";
 export const PRIMARY_REQUEST_SUBJECT_KINDS = [
   COMMON_AREA_DOOR_CONFIRMED_SUBJECT,
   COMMON_AREA_LIGHTING_CONFIRMED_SUBJECT,
   COMMON_AREA_CLEANING_CONFIRMED_SUBJECT,
   COMMON_AREA_ROOF_CONFIRMED_SUBJECT,
   COMMON_AREA_VENTILATION_CONFIRMED_SUBJECT,
+  COMMON_AREA_ELEVATOR_CONFIRMED_SUBJECT,
 ] as const;
 export const PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS = [
   "description",
@@ -96,6 +99,15 @@ export const primaryRequestSubjectSchema = z.union([
   z
     .object({
       kind: z.literal(COMMON_AREA_VENTILATION_CONFIRMED_SUBJECT),
+      evidence: z
+        .array(primaryRequestSubjectEvidenceSchema)
+        .min(primaryRequestSubjectLimits.evidence.min)
+        .max(primaryRequestSubjectLimits.evidence.max),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal(COMMON_AREA_ELEVATOR_CONFIRMED_SUBJECT),
       evidence: z
         .array(primaryRequestSubjectEvidenceSchema)
         .min(primaryRequestSubjectLimits.evidence.min)
@@ -254,12 +266,38 @@ export const COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE = {
   verifiedAt: "2026-08-17",
 } as const satisfies LegalBasisModule;
 
+export const COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE = {
+  id: "common-area-elevator",
+  applicability: {
+    subject: COMMON_AREA_ELEVATOR_CONFIRMED_SUBJECT,
+    requiresExplicitUserConfirmation: true,
+    requiresVerifiedInputEvidence: true,
+    limitation:
+      "Только явно подтверждённая пользователем проблема лифта, лифтовой шахты или лифтового оборудования, относящегося к общему имуществу МКД. Не устанавливает техническую причину, неисправность, аварийность, необходимость работ или их исполнителя.",
+  },
+  paragraphs: [
+    "Лифты и лифтовые шахты входят в состав общего имущества многоквартирного дома. Такое имущество должно содержаться в состоянии, обеспечивающем надёжность и безопасность дома и безопасность для жизни и здоровья граждан.",
+  ],
+  sources: [
+    {
+      id: "ru-government-decree-491-common-property-rules",
+      title: "Постановление Правительства Российской Федерации от 13.08.2006 № 491",
+      officialUrl: "https://government.ru/docs/all/57158/",
+      provisions: ["подпункт «а» пункта 2", "подпункты «а» и «б» пункта 10"],
+      edition: "с изменениями от 07.03.2025 № 293",
+      validThrough: "2027-12-31",
+    },
+  ],
+  verifiedAt: "2026-08-17",
+} as const satisfies LegalBasisModule;
+
 const MAXIMUM_SPECIFIC_LEGAL_BASIS_PARAGRAPHS = [
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
 ].reduce<readonly string[]>((maximumParagraphs, module) => {
   const maximumLength = maximumParagraphs.join(LEGAL_BASIS_PARAGRAPH_SEPARATOR).length;
   const moduleLength = module.paragraphs.join(LEGAL_BASIS_PARAGRAPH_SEPARATOR).length;
@@ -311,6 +349,8 @@ export function selectSpecificLegalBasisParagraphs(
       return COMMON_AREA_ROOF_LEGAL_BASIS_MODULE.paragraphs;
     case COMMON_AREA_VENTILATION_CONFIRMED_SUBJECT:
       return COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE.paragraphs;
+    case COMMON_AREA_ELEVATOR_CONFIRMED_SUBJECT:
+      return COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs;
   }
 
   return [];

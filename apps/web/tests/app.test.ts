@@ -116,6 +116,12 @@ async function initializeApp(
         >
           Вентиляция
         </option>
+        <option
+          value="common_area_elevator"
+          data-subject-hint="Подходит, когда проблема явно относится к лифту, лифтовой шахте или лифтовому оборудованию МКД. Косвенные признаки сами по себе не подтверждают проблему с лифтом; сервис не определяет техническую причину или аварийность."
+        >
+          Лифт
+        </option>
       </select>
       <span id="confirmed-problem-subject-hint">
         Выберите только точный предмет проблемы.
@@ -368,7 +374,15 @@ describe("обработка ответа генерации в приложен
     expect(getConfirmedProblemSubject().value).toBe("");
     expect(
       Array.from(getConfirmedProblemSubject().options).map((option) => option.textContent?.trim()),
-    ).toEqual(["Не выбрано", "Входная дверь", "Освещение", "Уборка", "Кровля", "Вентиляция"]);
+    ).toEqual([
+      "Не выбрано",
+      "Входная дверь",
+      "Освещение",
+      "Уборка",
+      "Кровля",
+      "Вентиляция",
+      "Лифт",
+    ]);
     expect(getConfirmedProblemSubjectHint().textContent?.trim()).toBe(
       "Выберите только точный предмет проблемы.",
     );
@@ -422,6 +436,13 @@ describe("обработка ответа генерации в приложен
     expect(contextHint.textContent).toContain("Духота, жара, запах или влажность");
     expect(contextHint.textContent).toContain("вентиляции внутри одной квартиры");
     expect(contextHint.textContent).not.toContain("именно к кровле МКД");
+
+    subjectSelect.value = "common_area_elevator";
+    subjectSelect.dispatchEvent(new Event("change"));
+    expect(contextHint.textContent).toContain("явно относится к лифту");
+    expect(contextHint.textContent).toContain("Косвенные признаки");
+    expect(contextHint.textContent).toContain("не определяет техническую причину или аварийность");
+    expect(contextHint.textContent).not.toContain("системой вентиляции");
 
     subjectSelect.value = "";
     subjectSelect.dispatchEvent(new Event("change"));
@@ -570,6 +591,24 @@ describe("обработка ответа генерации в приложен
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
       description: "На кровле многоквартирного дома обнаружена протечка",
       confirmedProblemSubject: "common_area_roof",
+    });
+  });
+
+  it("отправляет явное подтверждение лифта общего имущества", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues("Лифт в многоквартирном доме не реагирует на вызов", "");
+    getConfirmedProblemSubject().value = "common_area_elevator";
+
+    submitForm();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      description: "Лифт в многоквартирном доме не реагирует на вызов",
+      confirmedProblemSubject: "common_area_elevator",
     });
   });
 
