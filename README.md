@@ -3,6 +3,7 @@
 [![CI](https://github.com/ashikov/uo-request-generator/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ashikov/uo-request-generator/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ashikov/uo-request-generator)](https://github.com/ashikov/uo-request-generator/releases)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+[![Coverage](https://codecov.io/gh/ashikov/uo-request-generator/branch/main/graph/badge.svg)](https://app.codecov.io/gh/ashikov/uo-request-generator)
 
 Небольшое веб-приложение превращает обычное сообщение жителя многоквартирного
 дома в компактную, но достаточную заявку для управляющей организации.
