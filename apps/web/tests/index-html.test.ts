@@ -70,29 +70,31 @@ describe("публичная страница", () => {
     expect(html).toContain(
       'aria-describedby="confirmed-problem-subject-hint confirmed-problem-subject-context"',
     );
-    expect(html).toContain("Входная дверь МКД или помещения общего пользования");
+    expect(html).toContain('<option value="">Не выбрано</option>');
+    expect(html).toContain('value="common_area_entrance_door"');
+    expect(html).toContain("Входная дверь");
     expect(html).toContain('data-subject-hint="Подходит для входной двери МКД');
     expect(html).toContain('value="common_area_premises_lighting"');
-    expect(html).toContain("Освещение помещения общего пользования МКД");
+    expect(html).toContain("Освещение");
     expect(html).toContain(
       'data-subject-hint="Подходит для освещения помещений общего пользования МКД',
     );
     expect(html).toContain('value="common_area_premises_cleaning"');
-    expect(html).toContain("Уборка помещения общего пользования МКД");
+    expect(html).toContain("Уборка");
     expect(html).toContain(
       'data-subject-hint="Подходит для уборки подъезда, лестничной площадки, коридора, холла',
     );
     expect(html).toContain("Не относится к квартире, придомовой территории");
     expect(html).toContain("контейнерной площадке или вывозу ТКО");
     expect(html).toContain('value="common_area_roof"');
-    expect(html).toContain("Кровля многоквартирного дома");
+    expect(html).toContain("Кровля");
     expect(html).toContain(
       'data-subject-hint="Подходит только если известно, что проблема относится именно к кровле МКД',
     );
     expect(html).toContain("протечки, мокрого потолка или пятна");
     expect(html).toContain("источник воды не установлен");
     expect(html).toContain('value="common_area_ventilation"');
-    expect(html).toContain("Общедомовая вентиляция");
+    expect(html).toContain("Вентиляция");
     expect(html).toContain(
       'data-subject-hint="Подходит только для явно известной проблемы с системой вентиляции',
     );
