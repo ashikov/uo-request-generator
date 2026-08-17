@@ -64,7 +64,7 @@ describe("публичная страница", () => {
     const html = await readFile(join(publicDirectory, "index.html"), "utf8");
 
     expect(html).toMatch(
-      /for="confirmed-problem-subject"[\s\S]*Предмет проблемы \(необязательно\)/,
+      /<label\s+for="confirmed-problem-subject"[^>]*>\s*Предмет проблемы\s*<\/label\s*>/,
     );
     expect(html).toContain('id="confirmed-problem-subject"');
     expect(html).toContain(
