@@ -1,5 +1,6 @@
 # Генератор заявок для УО
 
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 [![CI](https://github.com/ashikov/uo-request-generator/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ashikov/uo-request-generator/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ashikov/uo-request-generator)](https://github.com/ashikov/uo-request-generator/releases)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
