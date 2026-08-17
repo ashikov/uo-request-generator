@@ -68,7 +68,7 @@ describe("публичная страница", () => {
     );
     expect(html).toContain('id="confirmed-problem-subject"');
     expect(html).toContain('aria-describedby="confirmed-problem-subject-hint"');
-    expect(html).toContain("Входная дверь МКД и дверь помещения общего пользования");
+    expect(html).toContain("Входная дверь МКД или помещения общего пользования");
     expect(html).toContain('value="common_area_premises_lighting"');
     expect(html).toContain("Освещение помещения общего пользования МКД");
     expect(html).toContain('id="confirmed-problem-subject-hint"');
