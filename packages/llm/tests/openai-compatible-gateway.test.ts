@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
@@ -361,6 +362,7 @@ describe("OpenAiCompatibleGateway", () => {
     expect(serializedRequest).not.toContain("common_area_premises_lighting");
     expect(serializedRequest).not.toContain("common_area_premises_cleaning");
     expect(serializedRequest).not.toContain("common_area_ventilation");
+    expect(serializedRequest).not.toContain("common_area_elevator");
     expect(userMessage).not.toContain("confirmedProblemSubject");
     expect(serializedRequest).not.toContain(COMMON_AREA_ROOF_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
@@ -387,10 +389,37 @@ describe("OpenAiCompatibleGateway", () => {
     expect(serializedRequest).not.toContain("common_area_premises_lighting");
     expect(serializedRequest).not.toContain("common_area_premises_cleaning");
     expect(serializedRequest).not.toContain("common_area_roof");
+    expect(serializedRequest).not.toContain("common_area_elevator");
     expect(userMessage).not.toContain("confirmedProblemSubject");
     expect(serializedRequest).not.toContain(
       COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE.paragraphs[0],
     );
+  });
+
+  it.each([
+    "chat-completions",
+    "responses",
+  ] as const)("передаёт elevator contract через %s без других subject и backend-owned поля", (apiProtocol) => {
+    const input = {
+      description: "Лифт в многоквартирном доме не реагирует на вызов с первого этажа",
+      confirmedProblemSubject: "common_area_elevator" as const,
+    };
+    const requestBody = createOpenAiCompatibleRequestBody(
+      { apiProtocol, model: "benchmark-model", maxOutputTokens: 1200 },
+      input,
+    );
+    const serializedRequest = JSON.stringify(requestBody);
+    const userMessage =
+      "messages" in requestBody ? requestBody.messages[1]?.content : requestBody.input;
+
+    expect(serializedRequest).toContain("common_area_elevator");
+    expect(serializedRequest).not.toContain("common_area_entrance_door");
+    expect(serializedRequest).not.toContain("common_area_premises_lighting");
+    expect(serializedRequest).not.toContain("common_area_premises_cleaning");
+    expect(serializedRequest).not.toContain("common_area_roof");
+    expect(serializedRequest).not.toContain("common_area_ventilation");
+    expect(userMessage).not.toContain("confirmedProblemSubject");
+    expect(serializedRequest).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
   it("возвращает optional usage из Chat Completions без изменения LlmGateway outcome", async () => {

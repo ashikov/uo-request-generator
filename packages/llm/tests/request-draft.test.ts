@@ -1,6 +1,7 @@
 import {
   COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
@@ -31,6 +32,7 @@ const CLEANING_SUBJECT_RULE = "уборку помещения общего по
 const ROOF_SUBJECT_RULE = "проблема относится именно к крыше или кровле многоквартирного дома";
 const VENTILATION_SUBJECT_RULE =
   "проблему с системой вентиляции или вентиляционным каналом либо шахтой";
+const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтовой шахтой или лифтовым оборудованием";
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -220,6 +222,14 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.officialUrl);
       expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.title);
     }
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.id);
+    for (const source of COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.sources) {
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.officialUrl);
+      expect(REQUEST_DRAFT_SYSTEM_PROMPT).not.toContain(source.title);
+    }
   });
 
   it("передаёт модели динамический лимит body", () => {
@@ -349,6 +359,36 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     );
   });
 
+  it("ограничивает elevator subject прямой проблемой лифта без технической диагностики", () => {
+    const prompt = createRequestDraftSystemPrompt("common_area_elevator");
+
+    expect(prompt).toContain(ELEVATOR_SUBJECT_RULE);
+    expect(prompt).toContain("наблюдаемую проблему");
+    expect(prompt).toContain("лифтового холла");
+    expect(prompt).toContain("подъёмной платформы");
+    expect(prompt).toContain("эскалатора");
+    expect(prompt).toContain("Косвенный признак без прямой связи с лифтом");
+    expect(prompt).toContain("укажи subject: null");
+    expect(prompt).toContain("противоречат принадлежности проблемы лифту");
+    expect(prompt).toContain("не разрешай противоречие в пользу выбранного kind");
+    expect(prompt).toContain("желаемое действие проверить, осмотреть или отремонтировать лифт");
+    expect(prompt).toContain("Не устанавливай техническую причину");
+    expect(prompt).toContain("неисправный узел");
+    expect(prompt).toContain("аварийность");
+    expect(prompt).toContain("необходимость отключения");
+    expect(prompt).toContain("Не определяй исполнителя работ");
+    expect(prompt).toContain(
+      "не называй и не выбирай специализированную лифтовую или обслуживающую организацию",
+    );
+    expect(prompt).toContain("не утверждай необходимость её привлечения");
+    expect(prompt).not.toContain(DOOR_SUBJECT_RULE);
+    expect(prompt).not.toContain(LIGHTING_SUBJECT_RULE);
+    expect(prompt).not.toContain(CLEANING_SUBJECT_RULE);
+    expect(prompt).not.toContain(ROOF_SUBJECT_RULE);
+    expect(prompt).not.toContain(VENTILATION_SUBJECT_RULE);
+    expect(prompt).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+  });
+
   it.each([
     [
       undefined,
@@ -359,32 +399,74 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
         CLEANING_SUBJECT_RULE,
         ROOF_SUBJECT_RULE,
         VENTILATION_SUBJECT_RULE,
+        ELEVATOR_SUBJECT_RULE,
       ],
     ],
     [
       "common_area_entrance_door" as const,
       [DOOR_SUBJECT_RULE],
-      [LIGHTING_SUBJECT_RULE, CLEANING_SUBJECT_RULE, ROOF_SUBJECT_RULE, VENTILATION_SUBJECT_RULE],
+      [
+        LIGHTING_SUBJECT_RULE,
+        CLEANING_SUBJECT_RULE,
+        ROOF_SUBJECT_RULE,
+        VENTILATION_SUBJECT_RULE,
+        ELEVATOR_SUBJECT_RULE,
+      ],
     ],
     [
       "common_area_premises_lighting" as const,
       [LIGHTING_SUBJECT_RULE],
-      [DOOR_SUBJECT_RULE, CLEANING_SUBJECT_RULE, ROOF_SUBJECT_RULE, VENTILATION_SUBJECT_RULE],
+      [
+        DOOR_SUBJECT_RULE,
+        CLEANING_SUBJECT_RULE,
+        ROOF_SUBJECT_RULE,
+        VENTILATION_SUBJECT_RULE,
+        ELEVATOR_SUBJECT_RULE,
+      ],
     ],
     [
       "common_area_premises_cleaning" as const,
       [CLEANING_SUBJECT_RULE],
-      [DOOR_SUBJECT_RULE, LIGHTING_SUBJECT_RULE, ROOF_SUBJECT_RULE, VENTILATION_SUBJECT_RULE],
+      [
+        DOOR_SUBJECT_RULE,
+        LIGHTING_SUBJECT_RULE,
+        ROOF_SUBJECT_RULE,
+        VENTILATION_SUBJECT_RULE,
+        ELEVATOR_SUBJECT_RULE,
+      ],
     ],
     [
       "common_area_roof" as const,
       [ROOF_SUBJECT_RULE],
-      [DOOR_SUBJECT_RULE, LIGHTING_SUBJECT_RULE, CLEANING_SUBJECT_RULE, VENTILATION_SUBJECT_RULE],
+      [
+        DOOR_SUBJECT_RULE,
+        LIGHTING_SUBJECT_RULE,
+        CLEANING_SUBJECT_RULE,
+        VENTILATION_SUBJECT_RULE,
+        ELEVATOR_SUBJECT_RULE,
+      ],
     ],
     [
       "common_area_ventilation" as const,
       [VENTILATION_SUBJECT_RULE],
-      [DOOR_SUBJECT_RULE, LIGHTING_SUBJECT_RULE, CLEANING_SUBJECT_RULE, ROOF_SUBJECT_RULE],
+      [
+        DOOR_SUBJECT_RULE,
+        LIGHTING_SUBJECT_RULE,
+        CLEANING_SUBJECT_RULE,
+        ROOF_SUBJECT_RULE,
+        ELEVATOR_SUBJECT_RULE,
+      ],
+    ],
+    [
+      "common_area_elevator" as const,
+      [ELEVATOR_SUBJECT_RULE],
+      [
+        DOOR_SUBJECT_RULE,
+        LIGHTING_SUBJECT_RULE,
+        CLEANING_SUBJECT_RULE,
+        ROOF_SUBJECT_RULE,
+        VENTILATION_SUBJECT_RULE,
+      ],
     ],
   ])("не включает subject-specific данные других контрактов: %s", (confirmedProblemSubject, includedFragments, excludedFragments) => {
     const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
@@ -404,6 +486,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       "common_area_premises_cleaning",
       "common_area_roof",
       "common_area_ventilation",
+      "common_area_elevator",
     ].filter((kind) => kind !== confirmedProblemSubject);
     for (const kind of includedKinds) {
       expect(prompt).toContain(kind);
@@ -491,6 +574,38 @@ describe("provider-facing RequestDraft", () => {
     expect(parsed.subject).toBeNull();
   });
 
+  it("принимает elevator subject только с дословным evidence прямой проблемы лифта", () => {
+    const description = "Лифт в многоквартирном доме не реагирует на вызов с первого этажа.";
+    const parsed = parseRequestDraft(
+      serializeDraft(
+        createDraft({
+          problem: description,
+          subject: {
+            kind: "common_area_elevator",
+            evidence: [{ sourceField: "description", quote: description }],
+          },
+        }),
+      ),
+    );
+
+    expectGeneratedDraft(parsed);
+    expect(parsed.subject).toEqual({
+      kind: "common_area_elevator",
+      evidence: [{ sourceField: "description", quote: description }],
+    });
+  });
+
+  it.each([
+    "В подъезде слышен скрежет.",
+    "В лифтовом холле не работает освещение.",
+    "На лестничной площадке слышен шум.",
+  ])("сохраняет fail-closed subject: null по косвенному признаку лифта: %s", (problem) => {
+    const parsed = parseRequestDraft(serializeDraft(createDraft({ problem, subject: null })));
+
+    expectGeneratedDraft(parsed);
+    expect(parsed.subject).toBeNull();
+  });
+
   it("задаёт строгую generated-ветку по полям и лимитам PrimaryRequestDraft", () => {
     const generatedSchema = REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[0];
 
@@ -565,6 +680,7 @@ describe("provider-facing RequestDraft", () => {
         "common_area_premises_cleaning",
         "common_area_roof",
         "common_area_ventilation",
+        "common_area_elevator",
       ],
     ],
     [
@@ -574,6 +690,7 @@ describe("provider-facing RequestDraft", () => {
         "common_area_premises_cleaning",
         "common_area_roof",
         "common_area_ventilation",
+        "common_area_elevator",
       ],
     ],
     [
@@ -583,6 +700,7 @@ describe("provider-facing RequestDraft", () => {
         "common_area_premises_lighting",
         "common_area_roof",
         "common_area_ventilation",
+        "common_area_elevator",
       ],
     ],
     [
@@ -592,6 +710,7 @@ describe("provider-facing RequestDraft", () => {
         "common_area_premises_lighting",
         "common_area_premises_cleaning",
         "common_area_ventilation",
+        "common_area_elevator",
       ],
     ],
     [
@@ -601,6 +720,17 @@ describe("provider-facing RequestDraft", () => {
         "common_area_premises_lighting",
         "common_area_premises_cleaning",
         "common_area_roof",
+        "common_area_elevator",
+      ],
+    ],
+    [
+      "common_area_elevator" as const,
+      [
+        "common_area_entrance_door",
+        "common_area_premises_lighting",
+        "common_area_premises_cleaning",
+        "common_area_roof",
+        "common_area_ventilation",
       ],
     ],
   ])("ограничивает subject выбранным kind или null: %s", (selectedKind, excludedKinds) => {

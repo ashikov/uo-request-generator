@@ -101,6 +101,10 @@ describe("публичная страница", () => {
     expect(html).toContain("обслуживающими более одного помещения");
     expect(html).toContain("Духота, жара, запах или влажность сами по себе");
     expect(html).toContain("вентиляции внутри одной квартиры");
+    expect(html).toContain('value="common_area_elevator"');
+    expect(html).toMatch(/value="common_area_elevator"[\s\S]*?>\s*Лифт\s*<\/option>/);
+    expect(html).toContain('data-subject-hint="Подходит, когда проблема явно относится к лифту');
+    expect(html).toContain("сервис не определяет техническую причину или аварийность");
     expect(html).toContain('id="confirmed-problem-subject-hint"');
     expect(html).toContain("Выберите только точный предмет проблемы.");
     expect(html).toContain(

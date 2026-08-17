@@ -74,6 +74,7 @@ test("показывает короткие подписи предметов и
     "Уборка",
     "Кровля",
     "Вентиляция",
+    "Лифт",
   ]);
   expect(
     await subjectSelect
@@ -86,6 +87,7 @@ test("показывает короткие подписи предметов и
     "common_area_premises_cleaning",
     "common_area_roof",
     "common_area_ventilation",
+    "common_area_elevator",
   ]);
   await expect(page.locator("#confirmed-problem-subject-hint")).toHaveText(
     "Выберите только точный предмет проблемы.",
@@ -105,6 +107,8 @@ test("показывает короткие подписи предметов и
   await expect(subjectSelect).toHaveValue("common_area_roof");
   await subjectSelect.selectOption("common_area_ventilation");
   await expect(subjectSelect).toHaveValue("common_area_ventilation");
+  await subjectSelect.selectOption("common_area_elevator");
+  await expect(subjectSelect).toHaveValue("common_area_elevator");
 });
 
 test("показывает пояснение только для выбранного предмета проблемы", async ({ page }, testInfo) => {
@@ -150,6 +154,12 @@ test("показывает пояснение только для выбранн
   await expect(contextHint).toContainText("Духота, жара, запах или влажность");
   await expect(contextHint).toContainText("вентиляции внутри одной квартиры");
   await expect(contextHint).not.toContainText("именно к кровле МКД");
+
+  await subjectSelect.selectOption("common_area_elevator");
+  await expect(contextHint).toContainText("явно относится к лифту");
+  await expect(contextHint).toContainText("Косвенные признаки");
+  await expect(contextHint).toContainText("не определяет техническую причину или аварийность");
+  await expect(contextHint).not.toContainText("системой вентиляции");
   await expectNoHorizontalDocumentOverflow(page);
   await expectWithinViewportHorizontally(page, [
     { name: "выбор предмета проблемы", locator: subjectSelect },
@@ -297,6 +307,27 @@ test("отправляет явное подтверждение вентиля�
   expect(submittedPayload).toEqual({
     description: "Общедомовой вентиляционный канал, обслуживающий помещения подъезда, не работает.",
     confirmedProblemSubject: "common_area_ventilation",
+  });
+});
+
+test("отправляет явное подтверждение лифта общего имущества", async ({ page }) => {
+  let submittedPayload: unknown;
+  await page.route(generateUrlPattern, async (route) => {
+    submittedPayload = route.request().postDataJSON();
+    await fulfillJson(route, 200, standardGenerationResult);
+  });
+  await page.goto("/");
+
+  await page
+    .locator("#description")
+    .fill("Лифт в многоквартирном доме не реагирует на вызов с первого этажа.");
+  await page.locator("#confirmed-problem-subject").selectOption("common_area_elevator");
+  await page.locator("#submit-button").click();
+
+  await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
+  expect(submittedPayload).toEqual({
+    description: "Лифт в многоквартирном доме не реагирует на вызов с первого этажа.",
+    confirmedProblemSubject: "common_area_elevator",
   });
 });
 

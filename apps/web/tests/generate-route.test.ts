@@ -235,6 +235,7 @@ describe("POST /api/generate", () => {
       "common_area_ventilation",
       "Общедомовой вентиляционный канал, обслуживающий помещения подъезда, не работает",
     ],
+    ["common_area_elevator", "Лифт в многоквартирном доме не реагирует на вызов"],
   ] as const)("передаёт gateway явный выбранный предмет проблемы: %s", async (confirmedProblemSubject, description) => {
     const gateway = new DisabledLlmGateway();
     const generateRequest = vi.spyOn(gateway, "generateRequest");
