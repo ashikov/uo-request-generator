@@ -78,7 +78,7 @@ test("показывает короткие подписи предметов и
       .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value)),
   ).toEqual(["", "common_area_entrance_door", "common_area_premises_lighting"]);
   await expect(page.locator("#confirmed-problem-subject-hint")).toHaveText(
-    "Выберите только точный предмет проблемы. Дверной вариант — не дверь квартиры и не дверь частного помещения. Вариант освещения — не освещение внутри квартиры и не придомовое, уличное или фасадное освещение.",
+    "Выберите только точный предмет проблемы.",
   );
   await expectNoHorizontalDocumentOverflow(page);
   await expectWithinViewportHorizontally(page, [
@@ -89,6 +89,48 @@ test("показывает короткие подписи предметов и
   await expect(subjectSelect).toHaveValue("common_area_entrance_door");
   await subjectSelect.selectOption("common_area_premises_lighting");
   await expect(subjectSelect).toHaveValue("common_area_premises_lighting");
+});
+
+test("показывает пояснение только для выбранного предмета проблемы", async ({ page }, testInfo) => {
+  await page.goto("/");
+
+  const subjectSelect = page.locator("#confirmed-problem-subject");
+  const generalHint = page.locator("#confirmed-problem-subject-hint");
+  const contextHint = page.locator("#confirmed-problem-subject-context");
+  await expect(subjectSelect).toHaveValue("");
+  await expect(generalHint).toHaveText("Выберите только точный предмет проблемы.");
+  await expect(contextHint).toBeHidden();
+
+  await subjectSelect.selectOption("common_area_entrance_door");
+  await expect(contextHint).toBeVisible();
+  await expect(contextHint).toContainText("входной двери МКД");
+  await expect(contextHint).toContainText("двери квартиры");
+  await expect(contextHint).toContainText("частного помещения");
+
+  await subjectSelect.selectOption("common_area_premises_lighting");
+  await expect(contextHint).toContainText("освещения помещений общего пользования МКД");
+  await expect(contextHint).toContainText("освещению внутри квартиры");
+  await expect(contextHint).toContainText("придомовому, уличному или фасадному освещению");
+  await expect(contextHint).not.toContainText("входной двери МКД");
+  await expectNoHorizontalDocumentOverflow(page);
+  await expectWithinViewportHorizontally(page, [
+    { name: "выбор предмета проблемы", locator: subjectSelect },
+    { name: "контекстное пояснение предмета проблемы", locator: contextHint },
+  ]);
+  const contextHintScreenshot = testInfo.outputPath("contextual-subject-hint.png");
+  await page.screenshot({ path: contextHintScreenshot, fullPage: true });
+  await testInfo.attach("contextual-subject-hint", {
+    path: contextHintScreenshot,
+    contentType: "image/png",
+  });
+
+  await subjectSelect.selectOption("");
+  await expect(contextHint).toBeHidden();
+  await expect(contextHint).toHaveText("");
+  await expectNoHorizontalDocumentOverflow(page);
+  await expectWithinViewportHorizontally(page, [
+    { name: "выбор предмета проблемы", locator: subjectSelect },
+  ]);
 });
 
 test("сохраняет переводы строк только в сгенерированной заявке", async ({ page }) => {

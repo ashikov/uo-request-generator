@@ -14,6 +14,9 @@ export function initializeCaptcha() {
   const consequences = document.querySelector("#consequences");
   const desiredActions = document.querySelector("#desired-actions");
   const confirmedProblemSubject = document.querySelector("#confirmed-problem-subject");
+  const confirmedProblemSubjectContext = document.querySelector(
+    "#confirmed-problem-subject-context",
+  );
   const descriptionCount = document.querySelector("#description-count");
   const locationCount = document.querySelector("#location-count");
   const consequencesCount = document.querySelector("#consequences-count");
@@ -49,6 +52,14 @@ export function initializeCaptcha() {
 
   function updateCharacterCount(field, count) {
     count.textContent = `${field.value.length} / ${field.maxLength}`;
+  }
+
+  function updateConfirmedProblemSubjectContext() {
+    const subjectHint =
+      confirmedProblemSubject.options.item(confirmedProblemSubject.selectedIndex)?.dataset
+        .subjectHint ?? "";
+    confirmedProblemSubjectContext.textContent = subjectHint;
+    confirmedProblemSubjectContext.toggleAttribute("hidden", subjectHint === "");
   }
 
   function readForm() {
@@ -359,10 +370,12 @@ export function initializeCaptcha() {
   desiredActions.addEventListener("input", () =>
     updateCharacterCount(desiredActions, desiredActionsCount),
   );
+  confirmedProblemSubject.addEventListener("change", updateConfirmedProblemSubjectContext);
   updateCharacterCount(description, descriptionCount);
   updateCharacterCount(location, locationCount);
   updateCharacterCount(consequences, consequencesCount);
   updateCharacterCount(desiredActions, desiredActionsCount);
+  updateConfirmedProblemSubjectContext();
   setSubmitting(false);
   if (captchaNotice !== null) {
     void smartCaptchaInitializer.getPublicConfig().then((config) => {

@@ -67,14 +67,20 @@ describe("публичная страница", () => {
       /for="confirmed-problem-subject"[\s\S]*Предмет проблемы \(необязательно\)/,
     );
     expect(html).toContain('id="confirmed-problem-subject"');
-    expect(html).toContain('aria-describedby="confirmed-problem-subject-hint"');
+    expect(html).toContain(
+      'aria-describedby="confirmed-problem-subject-hint confirmed-problem-subject-context"',
+    );
     expect(html).toContain("Входная дверь МКД или помещения общего пользования");
+    expect(html).toContain('data-subject-hint="Подходит для входной двери МКД');
     expect(html).toContain('value="common_area_premises_lighting"');
     expect(html).toContain("Освещение помещения общего пользования МКД");
+    expect(html).toContain(
+      'data-subject-hint="Подходит для освещения помещений общего пользования МКД',
+    );
     expect(html).toContain('id="confirmed-problem-subject-hint"');
-    expect(html).toContain("дверь квартиры");
-    expect(html).toContain("не дверь частного помещения");
-    expect(html).toContain("не освещение внутри квартиры");
-    expect(html).toContain("не придомовое, уличное или фасадное освещение");
+    expect(html).toContain("Выберите только точный предмет проблемы.");
+    expect(html).toContain(
+      '<div id="confirmed-problem-subject-context" class="form-text" role="status" hidden></div>',
+    );
   });
 });
