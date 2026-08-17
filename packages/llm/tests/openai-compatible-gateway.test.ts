@@ -303,6 +303,41 @@ describe("OpenAiCompatibleGateway", () => {
     expect(requestBody.input).not.toContain("confirmedProblemSubject");
   });
 
+  it.each([
+    "chat-completions",
+    "responses",
+  ] as const)("передаёт cleaning contract через %s без provider-owned confirmed subject", (apiProtocol) => {
+    const input = {
+      ...VALID_INPUT,
+      confirmedProblemSubject: "common_area_premises_cleaning" as const,
+    };
+    const requestBody = createOpenAiCompatibleRequestBody(
+      {
+        apiProtocol,
+        model: "benchmark-model",
+        maxOutputTokens: 1200,
+      },
+      input,
+    );
+
+    expect(JSON.stringify(requestBody)).toContain("common_area_premises_cleaning");
+    expect(JSON.stringify(requestBody)).not.toContain("common_area_entrance_door");
+    expect(JSON.stringify(requestBody)).not.toContain("common_area_premises_lighting");
+    const expectedPrompt = createRequestDraftSystemPrompt(input.confirmedProblemSubject);
+    const expectedSchema = createRequestDraftJsonSchema(input.confirmedProblemSubject);
+    const userMessage =
+      "messages" in requestBody ? requestBody.messages[1]?.content : requestBody.input;
+
+    if ("messages" in requestBody) {
+      expect(requestBody.messages[0]?.content).toBe(expectedPrompt);
+      expect(requestBody.response_format.json_schema.schema).toEqual(expectedSchema);
+    } else {
+      expect(requestBody.instructions).toBe(expectedPrompt);
+      expect(requestBody.text.format.schema).toEqual(expectedSchema);
+    }
+    expect(userMessage).not.toContain("confirmedProblemSubject");
+  });
+
   it("возвращает optional usage из Chat Completions без изменения LlmGateway outcome", async () => {
     const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

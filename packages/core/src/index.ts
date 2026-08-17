@@ -11,6 +11,7 @@ export {
 } from "./contracts.js";
 export type { GenerateRequestOutcome, LlmGateway } from "./llm-gateway.js";
 export {
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,

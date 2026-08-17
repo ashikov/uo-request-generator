@@ -24,10 +24,10 @@ const MANAGEMENT_RULES_BASIS =
   "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
 const BODY_LIMIT_INPUT = {
   description: "а".repeat(10),
-  confirmedProblemSubject: "common_area_entrance_door" as const,
+  confirmedProblemSubject: "common_area_premises_cleaning" as const,
 } as const;
 const BODY_LIMIT_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
-  kind: "common_area_entrance_door",
+  kind: "common_area_premises_cleaning",
   evidence: [{ sourceField: "description", quote: BODY_LIMIT_INPUT.description }],
 };
 
@@ -178,19 +178,43 @@ describe("primaryRequestDraftSchema", () => {
     expect(primaryRequestDraftSchema.safeParse(tooLong).success).toBe(false);
   });
 
-  it("проверяет точный лимит процедурного действия и предупреждения", () => {
-    expect(
-      primaryRequestDraftSchema.safeParse(
-        createDraft({
-          actionPlan: {
-            preliminaryCheck: "а".repeat(primaryRequestDraftLimits.action.max),
-            remedyActions: ["б".repeat(primaryRequestDraftLimits.action.max)],
-            resultCheck: "в".repeat(primaryRequestDraftLimits.action.max),
-          },
-          warnings: ["б".repeat(primaryRequestDraftLimits.warning.max)],
-        }),
-      ).success,
-    ).toBe(true);
+  it.each([
+    [
+      "preliminaryCheck",
+      {
+        actionPlan: {
+          preliminaryCheck: "а".repeat(primaryRequestDraftLimits.action.max),
+          remedyActions: ["Восстановить освещение"],
+          resultCheck: null,
+        },
+      },
+    ],
+    [
+      "remedyActions",
+      {
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["а".repeat(primaryRequestDraftLimits.action.max)],
+          resultCheck: null,
+        },
+      },
+    ],
+    [
+      "resultCheck",
+      {
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["Восстановить освещение"],
+          resultCheck: "а".repeat(primaryRequestDraftLimits.action.max),
+        },
+      },
+    ],
+    ["warnings", { warnings: ["а".repeat(primaryRequestDraftLimits.warning.max)] }],
+  ])("принимает %s на точном лимите", (_field, overrides) => {
+    expect(primaryRequestDraftSchema.safeParse(createDraft(overrides)).success).toBe(true);
+  });
+
+  it("отклоняет превышение лимита процедурного действия или предупреждения", () => {
     expect(
       primaryRequestDraftSchema.safeParse(
         createDraft({

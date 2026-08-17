@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
   generateRequestLimits,
+  primaryRequestLegalBasisLimits,
   primaryRequestDraftSchema,
   renderPrimaryRequestDraft,
   type GenerateRequestInput,
@@ -41,6 +43,23 @@ const LIGHTING_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
     {
       sourceField: "description",
       quote: LIGHTING_INPUT.description,
+    },
+  ],
+};
+
+const CLEANING_INPUT = {
+  description: "В подъезде многоквартирного дома не выполнена уборка лестничной площадки.",
+} satisfies GenerateRequestInput;
+const CONFIRMED_CLEANING_INPUT = {
+  ...CLEANING_INPUT,
+  confirmedProblemSubject: "common_area_premises_cleaning",
+} satisfies GenerateRequestInput;
+const CLEANING_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
+  kind: "common_area_premises_cleaning",
+  evidence: [
+    {
+      sourceField: "description",
+      quote: CLEANING_INPUT.description,
     },
   ],
 };
@@ -459,6 +478,135 @@ describe("нормативный модуль освещения помещен�
     expect(primaryRequestDraftSchema.safeParse(draftFittingWithoutModule).success).toBe(false);
     expect(() =>
       renderPrimaryRequestDraft(draftFittingWithoutModule, CONFIRMED_LIGHTING_INPUT),
+    ).toThrow();
+    expect(draftFittingWithoutModule.problem).toHaveLength(maximumProblemWithoutSpecificBasis);
+  });
+});
+
+describe("нормативный модуль уборки помещений общего пользования", () => {
+  const paragraph =
+    "Согласно подпункту «а» пункта 2 и подпункту «г» пункта 11 Правил содержания общего имущества в многоквартирном доме, утверждённых постановлением Правительства РФ от 13.08.2006 № 491, помещения, не являющиеся частями квартир и предназначенные для обслуживания более одного помещения, относятся к помещениям общего пользования, а содержание общего имущества включает уборку и санитарно-гигиеническую очистку таких помещений.";
+
+  function createCleaningDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
+    return createDraft({
+      title: "Не выполнена уборка подъезда",
+      problem: CLEANING_INPUT.description,
+      subject: CLEANING_SUBJECT,
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: ["Выполнить уборку лестничной площадки"],
+        resultCheck: null,
+      },
+      ...overrides,
+    });
+  }
+
+  it("хранит стабильный id, точный текст, применимость и metadata первичного источника", () => {
+    expect(COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE).toEqual({
+      id: "common-area-cleaning",
+      applicability: {
+        subject: "common_area_premises_cleaning",
+        requiresExplicitUserConfirmation: true,
+        requiresVerifiedInputEvidence: true,
+        limitation:
+          "Только уборка помещений общего пользования многоквартирного дома. Не применяется к уборке внутри квартиры, придомовой территории, контейнерной площадки или вывозу твёрдых коммунальных отходов.",
+      },
+      paragraphs: [paragraph],
+      sources: [
+        {
+          id: "ru-government-decree-491-common-property-rules",
+          title: "Постановление Правительства Российской Федерации от 13.08.2006 № 491",
+          officialUrl: "https://government.ru/docs/all/57158/",
+          provisions: ["подпункт «а» пункта 2", "подпункт «г» пункта 11"],
+          edition: "с изменениями от 07.03.2025 № 293",
+          validThrough: "2027-12-31",
+        },
+      ],
+      verifiedAt: "2026-08-17",
+    });
+  });
+
+  it("добавляет специальный абзац ровно один раз между общими основаниями и просьбой", () => {
+    const result = renderPrimaryRequestDraft(createCleaningDraft(), CONFIRMED_CLEANING_INPUT);
+
+    expect(result.body.split(paragraph)).toHaveLength(2);
+    expect(result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK)).toBeLessThan(
+      result.body.indexOf(paragraph),
+    );
+    expect(result.body.indexOf(paragraph)).toBeLessThan(result.body.indexOf("Прошу:"));
+  });
+
+  it.each([
+    ["без подтверждения", CLEANING_INPUT],
+    [
+      "при несовпадении subject",
+      { ...CLEANING_INPUT, confirmedProblemSubject: "common_area_premises_lighting" as const },
+    ],
+    [
+      "при неподтверждаемом evidence",
+      {
+        description: "В подъезде требуется уборка коридора.",
+        confirmedProblemSubject: "common_area_premises_cleaning" as const,
+      },
+    ],
+  ])("не подключает модуль %s", (_caseName, input) => {
+    const result = renderPrimaryRequestDraft(createCleaningDraft(), input);
+
+    expect(result.body).not.toContain(paragraph);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it("не считает LLM subject сам по себе достаточным", () => {
+    const result = renderPrimaryRequestDraft(createCleaningDraft());
+
+    expect(result.body).not.toContain(paragraph);
+  });
+
+  it.each([
+    "В квартире требуется уборка пола.",
+    "На придомовой территории требуется уборка.",
+    "На контейнерной площадке скопился мусор.",
+    "Необходимо организовать вывоз ТКО.",
+    "В подъезде не работает освещение.",
+  ])("не подключает cleaning module вне области применимости: %s", (description) => {
+    const result = renderPrimaryRequestDraft(
+      createCleaningDraft({ problem: description, subject: null }),
+      { description, confirmedProblemSubject: "common_area_premises_cleaning" },
+    );
+
+    expect(result.body).not.toContain(paragraph);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it("не выводит URL, metadata и процедурные действия из нормативного модуля", () => {
+    const result = renderPrimaryRequestDraft(createCleaningDraft(), CONFIRMED_CLEANING_INPUT);
+    const serializedModule = JSON.stringify(COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE);
+
+    expect(result.body).not.toContain("government.ru");
+    expect(result.body).not.toContain("2026-08-17");
+    expect(result.body).not.toContain("common-area-cleaning");
+    expect(serializedModule).not.toContain("actionPlan");
+    expect(serializedModule).not.toContain("remedyActions");
+  });
+
+  it("учитывает новый максимальный legal block в budget без усечения", () => {
+    const expectedMaximumBlock = [COMMON_LEGAL_BASIS_BLOCK, paragraph].join("\n\n");
+    const minimalDraft = createCleaningDraft({
+      problem: "а.",
+      actionPlan: { preliminaryCheck: null, remedyActions: ["б."], resultCheck: null },
+    });
+    const minimalBodyLength = renderPrimaryRequestDraft(minimalDraft).body.length;
+    const maximumProblemWithoutSpecificBasis =
+      generateRequestLimits.result.bodyMax - minimalBodyLength + minimalDraft.problem.length;
+    const draftFittingWithoutModule = createCleaningDraft({
+      problem: `${"а".repeat(maximumProblemWithoutSpecificBasis - 1)}.`,
+      actionPlan: minimalDraft.actionPlan,
+    });
+
+    expect(primaryRequestLegalBasisLimits.maximumBlockLength).toBe(expectedMaximumBlock.length);
+    expect(primaryRequestDraftSchema.safeParse(draftFittingWithoutModule).success).toBe(false);
+    expect(() =>
+      renderPrimaryRequestDraft(draftFittingWithoutModule, CONFIRMED_CLEANING_INPUT),
     ).toThrow();
     expect(draftFittingWithoutModule.problem).toHaveLength(maximumProblemWithoutSpecificBasis);
   });
