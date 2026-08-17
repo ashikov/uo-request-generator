@@ -22,6 +22,7 @@
     "format:check": "biome format .",
     "typecheck": "pnpm --recursive --if-present typecheck && tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage.enabled",
     "check:quality": "pnpm format:check && pnpm lint && pnpm lint:md && pnpm check:file-endings && pnpm typecheck",
     "check": "pnpm check:quality && pnpm test && pnpm build"
   },
@@ -29,6 +30,7 @@
     "@biomejs/biome": "2.5.3",
     "@playwright/test": "1.62.1",
     "@types/node": "26.1.1",
+    "@vitest/coverage-v8": "4.1.10",
     "happy-dom": "^20.11.0",
     "markdownlint-cli2": "0.23.0",
     "typescript": "6.0.3",
