@@ -4,6 +4,7 @@ import {
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+  COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
   generateRequestLimits,
   primaryRequestLegalBasisLimits,
@@ -72,6 +73,15 @@ const ROOF_INPUT = {
 const ROOF_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
   kind: "common_area_roof",
   evidence: [{ sourceField: "description", quote: ROOF_INPUT.description }],
+};
+
+const VENTILATION_INPUT = {
+  description: "Общедомовой вентиляционный канал, обслуживающий помещения подъезда, не работает.",
+  confirmedProblemSubject: "common_area_ventilation",
+} satisfies GenerateRequestInput;
+const VENTILATION_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
+  kind: "common_area_ventilation",
+  evidence: [{ sourceField: "description", quote: VENTILATION_INPUT.description }],
 };
 
 function createDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
@@ -750,5 +760,157 @@ describe("нормативный модуль кровли многокварт�
     expect(
       renderPrimaryRequestDraft(createRoofDraft(), ROOF_INPUT).body.length,
     ).toBeLessThanOrEqual(generateRequestLimits.result.bodyMax);
+  });
+});
+
+describe("нормативный модуль вентиляции общего имущества", () => {
+  const paragraph =
+    "Оборудование системы вентиляции, находящееся в многоквартирном доме и обслуживающее более одного помещения, относится к общему имуществу. По постановлению Правительства РФ от 13.08.2006 № 491 такое общее имущество должно содержаться в состоянии, обеспечивающем соблюдение характеристик надёжности и безопасности дома, а его содержание включает осмотр для своевременного выявления несоответствий установленным требованиям.";
+
+  function createVentilationDraft(
+    overrides: Partial<PrimaryRequestDraft> = {},
+  ): PrimaryRequestDraft {
+    return createDraft({
+      title: "Проблема с общедомовой вентиляцией",
+      problem: VENTILATION_INPUT.description,
+      subject: VENTILATION_SUBJECT,
+      actionPlan: {
+        preliminaryCheck: "Проверить состояние общедомовой вентиляции",
+        remedyActions: ["Восстановить работоспособность общедомовой вентиляции"],
+        resultCheck: null,
+      },
+      ...overrides,
+    });
+  }
+
+  it("хранит стабильный id, точный текст, применимость и metadata первичного источника", () => {
+    expect(COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE).toEqual({
+      id: "common-area-ventilation",
+      applicability: {
+        subject: "common_area_ventilation",
+        requiresExplicitUserConfirmation: true,
+        requiresVerifiedInputEvidence: true,
+        limitation:
+          "Только система вентиляции или её элементы, входящие в состав общего имущества многоквартирного дома и обслуживающие более одного помещения. Не применяется к вентиляции внутри одной квартиры, дымовым каналам, газовому оборудованию и симптомам без прямо подтверждённой связи с вентиляцией.",
+      },
+      paragraphs: [paragraph],
+      sources: [
+        {
+          id: "ru-government-decree-491-common-property-rules",
+          title: "Постановление Правительства Российской Федерации от 13.08.2006 № 491",
+          officialUrl: "https://government.ru/docs/all/57158/",
+          provisions: ["подпункт «д» пункта 2", "подпункт «а» пункта 10", "подпункт «а» пункта 11"],
+          edition: "с изменениями от 07.03.2025 № 293",
+          validThrough: "2027-12-31",
+        },
+      ],
+      verifiedAt: "2026-08-17",
+    });
+  });
+
+  it("добавляет специальный абзац ровно один раз между общими основаниями и просьбой", () => {
+    const result = renderPrimaryRequestDraft(createVentilationDraft(), VENTILATION_INPUT);
+
+    expect(result.body.split(paragraph)).toHaveLength(2);
+    expect(result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK)).toBeLessThan(
+      result.body.indexOf(paragraph),
+    );
+    expect(result.body.indexOf(paragraph)).toBeLessThan(result.body.indexOf("Прошу:"));
+  });
+
+  it.each([
+    ["без явного подтверждения", { description: VENTILATION_INPUT.description }],
+    [
+      "при несовпадении подтверждения",
+      {
+        description: VENTILATION_INPUT.description,
+        confirmedProblemSubject: "common_area_roof" as const,
+      },
+    ],
+    [
+      "при несовпавшей дословной цитате",
+      {
+        description: "Система вентиляции помещения общего пользования требует проверки.",
+        confirmedProblemSubject: "common_area_ventilation" as const,
+      },
+    ],
+  ])("не подключает модуль %s", (_caseName, input) => {
+    const result = renderPrimaryRequestDraft(createVentilationDraft(), input);
+
+    expect(result.body).not.toContain(paragraph);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it.each([
+    "В подъезде душно.",
+    "В общем коридоре очень жарко.",
+    "В холле появился запах.",
+    "На лестничной площадке высокая влажность.",
+  ])("не подключает модуль по одному симптому: %s", (description) => {
+    const result = renderPrimaryRequestDraft(
+      createVentilationDraft({ problem: description, subject: null }),
+      { description, confirmedProblemSubject: "common_area_ventilation" },
+    );
+
+    expect(result.body).not.toContain(paragraph);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
+  it("не считает LLM subject достаточным без подтверждения пользователя", () => {
+    const result = renderPrimaryRequestDraft(createVentilationDraft());
+
+    expect(result.body).not.toContain(paragraph);
+  });
+
+  it("не подключает модуль для несвязанного или внутриквартирного сценария", () => {
+    for (const description of [
+      "В квартире не работает вытяжной вентилятор.",
+      "На лестничной площадке не работает освещение.",
+    ]) {
+      const result = renderPrimaryRequestDraft(
+        createVentilationDraft({ problem: description, subject: null }),
+        { description, confirmedProblemSubject: "common_area_ventilation" },
+      );
+
+      expect(result.body).not.toContain(paragraph);
+      expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+    }
+  });
+
+  it("не выводит URL, metadata, диагностику и процедурные действия из модуля", () => {
+    const result = renderPrimaryRequestDraft(createVentilationDraft(), VENTILATION_INPUT);
+    const serializedModule = JSON.stringify(COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE);
+
+    expect(result.body).not.toContain("government.ru");
+    expect(result.body).not.toContain("2026-08-17");
+    expect(result.body).not.toContain("common-area-ventilation");
+    expect(paragraph).not.toContain("засор");
+    expect(paragraph).not.toContain("дефект");
+    expect(paragraph).not.toContain("воздухообмен");
+    expect(serializedModule).not.toContain("actionPlan");
+    expect(serializedModule).not.toContain("remedyActions");
+    expect(serializedModule).not.toContain("03.04.2013 № 290");
+  });
+
+  it("учитывает ventilation module в максимальном budget и применяет не более одного модуля", () => {
+    const specificModules = [
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+      COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+      COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+      COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+    ];
+    const expectedMaximumSpecificLength = Math.max(
+      ...specificModules.map((module) => module.paragraphs.join("\n\n").length),
+    );
+    const result = renderPrimaryRequestDraft(createVentilationDraft(), VENTILATION_INPUT);
+
+    expect(primaryRequestLegalBasisLimits.maximumBlockLength).toBe(
+      COMMON_LEGAL_BASIS_BLOCK.length + "\n\n".length + expectedMaximumSpecificLength,
+    );
+    expect(result.body.length).toBeLessThanOrEqual(generateRequestLimits.result.bodyMax);
+    expect(specificModules.filter((module) => result.body.includes(module.paragraphs[0]))).toEqual([
+      COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+    ]);
   });
 });

@@ -3,6 +3,7 @@ import {
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+  COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
 } from "@uo-request-generator/core";
 import {
   createOpenAiCompatibleRequestBody,
@@ -359,8 +360,37 @@ describe("OpenAiCompatibleGateway", () => {
     expect(serializedRequest).not.toContain("common_area_entrance_door");
     expect(serializedRequest).not.toContain("common_area_premises_lighting");
     expect(serializedRequest).not.toContain("common_area_premises_cleaning");
+    expect(serializedRequest).not.toContain("common_area_ventilation");
     expect(userMessage).not.toContain("confirmedProblemSubject");
     expect(serializedRequest).not.toContain(COMMON_AREA_ROOF_LEGAL_BASIS_MODULE.paragraphs[0]);
+  });
+
+  it.each([
+    "chat-completions",
+    "responses",
+  ] as const)("передаёт ventilation contract через %s без других subject и backend-owned поля", (apiProtocol) => {
+    const input = {
+      description:
+        "Общедомовой вентиляционный канал, обслуживающий помещения подъезда, не работает",
+      confirmedProblemSubject: "common_area_ventilation" as const,
+    };
+    const requestBody = createOpenAiCompatibleRequestBody(
+      { apiProtocol, model: "benchmark-model", maxOutputTokens: 1200 },
+      input,
+    );
+    const serializedRequest = JSON.stringify(requestBody);
+    const userMessage =
+      "messages" in requestBody ? requestBody.messages[1]?.content : requestBody.input;
+
+    expect(serializedRequest).toContain("common_area_ventilation");
+    expect(serializedRequest).not.toContain("common_area_entrance_door");
+    expect(serializedRequest).not.toContain("common_area_premises_lighting");
+    expect(serializedRequest).not.toContain("common_area_premises_cleaning");
+    expect(serializedRequest).not.toContain("common_area_roof");
+    expect(userMessage).not.toContain("confirmedProblemSubject");
+    expect(serializedRequest).not.toContain(
+      COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
   });
 
   it("возвращает optional usage из Chat Completions без изменения LlmGateway outcome", async () => {

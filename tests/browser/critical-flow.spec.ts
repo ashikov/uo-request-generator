@@ -73,6 +73,7 @@ test("показывает короткие подписи предметов и
     "Освещение помещения общего пользования МКД",
     "Уборка помещения общего пользования МКД",
     "Кровля многоквартирного дома",
+    "Общедомовая вентиляция",
   ]);
   expect(
     await subjectSelect
@@ -84,6 +85,7 @@ test("показывает короткие подписи предметов и
     "common_area_premises_lighting",
     "common_area_premises_cleaning",
     "common_area_roof",
+    "common_area_ventilation",
   ]);
   await expect(page.locator("#confirmed-problem-subject-hint")).toHaveText(
     "Выберите только точный предмет проблемы.",
@@ -101,6 +103,8 @@ test("показывает короткие подписи предметов и
   await expect(subjectSelect).toHaveValue("common_area_premises_cleaning");
   await subjectSelect.selectOption("common_area_roof");
   await expect(subjectSelect).toHaveValue("common_area_roof");
+  await subjectSelect.selectOption("common_area_ventilation");
+  await expect(subjectSelect).toHaveValue("common_area_ventilation");
 });
 
 test("показывает пояснение только для выбранного предмета проблемы", async ({ page }, testInfo) => {
@@ -138,6 +142,14 @@ test("показывает пояснение только для выбранн
   await expect(contextHint).toContainText("протечки, мокрого потолка или пятна");
   await expect(contextHint).toContainText("источник воды не установлен");
   await expect(contextHint).not.toContainText("уборки подъезда");
+
+  await subjectSelect.selectOption("common_area_ventilation");
+  await expect(contextHint).toContainText("системой вентиляции");
+  await expect(contextHint).toContainText("вентиляционным каналом/шахтой общего имущества МКД");
+  await expect(contextHint).toContainText("обслуживающими более одного помещения");
+  await expect(contextHint).toContainText("Духота, жара, запах или влажность");
+  await expect(contextHint).toContainText("вентиляции внутри одной квартиры");
+  await expect(contextHint).not.toContainText("именно к кровле МКД");
   await expectNoHorizontalDocumentOverflow(page);
   await expectWithinViewportHorizontally(page, [
     { name: "выбор предмета проблемы", locator: subjectSelect },
@@ -264,6 +276,27 @@ test("отправляет явное подтверждение кровли м
   expect(submittedPayload).toEqual({
     description: "На кровле многоквартирного дома обнаружена протечка.",
     confirmedProblemSubject: "common_area_roof",
+  });
+});
+
+test("отправляет явное подтверждение вентиляции общего имущества", async ({ page }) => {
+  let submittedPayload: unknown;
+  await page.route(generateUrlPattern, async (route) => {
+    submittedPayload = route.request().postDataJSON();
+    await fulfillJson(route, 200, standardGenerationResult);
+  });
+  await page.goto("/");
+
+  await page
+    .locator("#description")
+    .fill("Общедомовой вентиляционный канал, обслуживающий помещения подъезда, не работает.");
+  await page.locator("#confirmed-problem-subject").selectOption("common_area_ventilation");
+  await page.locator("#submit-button").click();
+
+  await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
+  expect(submittedPayload).toEqual({
+    description: "Общедомовой вентиляционный канал, обслуживающий помещения подъезда, не работает.",
+    confirmedProblemSubject: "common_area_ventilation",
   });
 });
 

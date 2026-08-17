@@ -110,6 +110,12 @@ async function initializeApp(
         >
           Кровля многоквартирного дома
         </option>
+        <option
+          value="common_area_ventilation"
+          data-subject-hint="Подходит только для явно известной проблемы с системой вентиляции или вентиляционным каналом/шахтой общего имущества МКД, обслуживающими более одного помещения. Духота, жара, запах или влажность сами по себе не подтверждают проблему вентиляции. Не относится к вентиляции внутри одной квартиры, дымовым каналам или газовому оборудованию."
+        >
+          Общедомовая вентиляция
+        </option>
       </select>
       <span id="confirmed-problem-subject-hint">
         Выберите только точный предмет проблемы.
@@ -368,6 +374,7 @@ describe("обработка ответа генерации в приложен
       "Освещение помещения общего пользования МКД",
       "Уборка помещения общего пользования МКД",
       "Кровля многоквартирного дома",
+      "Общедомовая вентиляция",
     ]);
     expect(getConfirmedProblemSubjectHint().textContent?.trim()).toBe(
       "Выберите только точный предмет проблемы.",
@@ -413,6 +420,15 @@ describe("обработка ответа генерации в приложен
     expect(contextHint.textContent).toContain("протечки, мокрого потолка или пятна");
     expect(contextHint.textContent).toContain("источник воды не установлен");
     expect(contextHint.textContent).not.toContain("уборки подъезда");
+
+    subjectSelect.value = "common_area_ventilation";
+    subjectSelect.dispatchEvent(new Event("change"));
+    expect(contextHint.textContent).toContain("системой вентиляции");
+    expect(contextHint.textContent).toContain("вентиляционным каналом/шахтой общего имущества МКД");
+    expect(contextHint.textContent).toContain("обслуживающими более одного помещения");
+    expect(contextHint.textContent).toContain("Духота, жара, запах или влажность");
+    expect(contextHint.textContent).toContain("вентиляции внутри одной квартиры");
+    expect(contextHint.textContent).not.toContain("именно к кровле МКД");
 
     subjectSelect.value = "";
     subjectSelect.dispatchEvent(new Event("change"));

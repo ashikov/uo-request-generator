@@ -80,9 +80,10 @@ Provider-independent структурированные части одной п
 
 Структурированный пользовательский факт `confirmedProblemSubject`.
 Поддерживаются перечисленные в контракте значения предмета:
-`common_area_entrance_door`, `common_area_premises_lighting` и
-`common_area_premises_cleaning`, а также `common_area_roof`. Значение означает,
-что пользователь явно подтвердил, что ввод относится к этому предмету.
+`common_area_entrance_door`, `common_area_premises_lighting`,
+`common_area_premises_cleaning`, `common_area_roof` и
+`common_area_ventilation`. Значение означает, что пользователь явно подтвердил,
+что ввод относится к этому предмету.
 Значение не входит в provider-owned пользовательские данные и не может быть
 изменено LLM. Backend использует его только для выбора одного узкого
 provider-facing контракта проверки предмета. Подтверждение остаётся
