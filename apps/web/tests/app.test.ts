@@ -87,7 +87,7 @@ async function initializeApp(
       >
         <option value="">Не выбрано</option>
         <option value="common_area_entrance_door">
-          Входная дверь МКД и дверь помещения общего пользования, обслуживающая более одного помещения
+          Входная дверь МКД или помещения общего пользования
         </option>
         <option value="common_area_premises_lighting">
           Освещение помещения общего пользования МКД
@@ -343,7 +343,7 @@ describe("обработка ответа генерации в приложен
       Array.from(getConfirmedProblemSubject().options).map((option) => option.textContent?.trim()),
     ).toEqual([
       "Не выбрано",
-      "Входная дверь МКД и дверь помещения общего пользования, обслуживающая более одного помещения",
+      "Входная дверь МКД или помещения общего пользования",
       "Освещение помещения общего пользования МКД",
     ]);
     const hint = getConfirmedProblemSubjectHint().textContent ?? "";

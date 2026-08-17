@@ -63,6 +63,34 @@ test("загружает начальное состояние и отправл
   expect(submittedPayload).toEqual({ description: requiredDescription });
 });
 
+test("показывает короткие подписи предметов и сохраняет их контракт", async ({ page }) => {
+  await page.goto("/");
+
+  const subjectSelect = page.locator("#confirmed-problem-subject");
+  await expect(subjectSelect.locator("option")).toHaveText([
+    "Не выбрано",
+    "Входная дверь МКД или помещения общего пользования",
+    "Освещение помещения общего пользования МКД",
+  ]);
+  expect(
+    await subjectSelect
+      .locator("option")
+      .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value)),
+  ).toEqual(["", "common_area_entrance_door", "common_area_premises_lighting"]);
+  await expect(page.locator("#confirmed-problem-subject-hint")).toHaveText(
+    "Выберите только точный предмет проблемы. Дверной вариант — не дверь квартиры и не дверь частного помещения. Вариант освещения — не освещение внутри квартиры и не придомовое, уличное или фасадное освещение.",
+  );
+  await expectNoHorizontalDocumentOverflow(page);
+  await expectWithinViewportHorizontally(page, [
+    { name: "выбор предмета проблемы", locator: subjectSelect },
+  ]);
+
+  await subjectSelect.selectOption("common_area_entrance_door");
+  await expect(subjectSelect).toHaveValue("common_area_entrance_door");
+  await subjectSelect.selectOption("common_area_premises_lighting");
+  await expect(subjectSelect).toHaveValue("common_area_premises_lighting");
+});
+
 test("сохраняет переводы строк только в сгенерированной заявке", async ({ page }) => {
   const generatedResult = {
     title: "Проверка освещения",
