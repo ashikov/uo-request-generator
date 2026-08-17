@@ -104,6 +104,12 @@ async function initializeApp(
         >
           Уборка помещения общего пользования МКД
         </option>
+        <option
+          value="common_area_roof"
+          data-subject-hint="Подходит только если известно, что проблема относится именно к кровле МКД. Не выбирайте этот пункт только из-за протечки, мокрого потолка или пятна, если источник воды не установлен."
+        >
+          Кровля многоквартирного дома
+        </option>
       </select>
       <span id="confirmed-problem-subject-hint">
         Выберите только точный предмет проблемы.
@@ -361,6 +367,7 @@ describe("обработка ответа генерации в приложен
       "Входная дверь МКД или помещения общего пользования",
       "Освещение помещения общего пользования МКД",
       "Уборка помещения общего пользования МКД",
+      "Кровля многоквартирного дома",
     ]);
     expect(getConfirmedProblemSubjectHint().textContent?.trim()).toBe(
       "Выберите только точный предмет проблемы.",
@@ -399,6 +406,13 @@ describe("обработка ответа генерации в приложен
     expect(contextHint.textContent).toContain("придомовой территории");
     expect(contextHint.textContent).toContain("контейнерной площадке или вывозу ТКО");
     expect(contextHint.textContent).not.toContain("освещения помещений");
+
+    subjectSelect.value = "common_area_roof";
+    subjectSelect.dispatchEvent(new Event("change"));
+    expect(contextHint.textContent).toContain("именно к кровле МКД");
+    expect(contextHint.textContent).toContain("протечки, мокрого потолка или пятна");
+    expect(contextHint.textContent).toContain("источник воды не установлен");
+    expect(contextHint.textContent).not.toContain("уборки подъезда");
 
     subjectSelect.value = "";
     subjectSelect.dispatchEvent(new Event("change"));
@@ -529,6 +543,24 @@ describe("обработка ответа генерации в приложен
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
       description: "В подъезде многоквартирного дома не выполнена уборка",
       confirmedProblemSubject: "common_area_premises_cleaning",
+    });
+  });
+
+  it("отправляет явное подтверждение кровли многоквартирного дома", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues("На кровле многоквартирного дома обнаружена протечка", "");
+    getConfirmedProblemSubject().value = "common_area_roof";
+
+    submitForm();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      description: "На кровле многоквартирного дома обнаружена протечка",
+      confirmedProblemSubject: "common_area_roof",
     });
   });
 

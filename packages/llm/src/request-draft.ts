@@ -272,6 +272,11 @@ const commonAreaPremisesCleaningPromptRules = [
   "- для kind common_area_premises_cleaning evidence по отдельности или в совокупности должно подтверждать и проблему уборки, и помещение общего пользования многоквартирного дома; не утверждай антисанитарное состояние, вред здоровью, наличие вредителей, запахи или другие последствия, которых нет во входе",
 ] as const;
 
+const commonAreaRoofPromptRules = [
+  "- используй kind common_area_roof, только если вход прямо сообщает, что проблема относится именно к крыше или кровле многоквартирного дома. Не считай достаточными мокрый потолок, сообщение «капает вода», пятно после дождя, сырость или протечку без прямого указания на крышу или кровлю",
+  "- для kind common_area_roof evidence по отдельности или в совокупности должно прямо подтверждать и крышу или кровлю, и многоквартирный дом; если вход сообщает только о проявлении воды без установленного пользователем источника, укажи subject: null и не устанавливай источник воды самостоятельно",
+] as const;
+
 function createRequestDraftSubjectPromptRules(
   confirmedProblemSubject: ConfirmedProblemSubject | undefined,
 ): readonly string[] {
@@ -289,6 +294,9 @@ function createRequestDraftSubjectPromptRules(
       break;
     case "common_area_premises_cleaning":
       subjectRules = commonAreaPremisesCleaningPromptRules;
+      break;
+    case "common_area_roof":
+      subjectRules = commonAreaRoofPromptRules;
       break;
     default: {
       const unsupportedSubject: never = confirmedProblemSubject;
