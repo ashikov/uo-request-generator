@@ -11,6 +11,8 @@ import {
 import { describe, expect, it } from "vitest";
 import { detailedEntranceDoorDraft } from "../../core/tests/primary-request-draft.fixtures.js";
 import {
+  createRequestDraftJsonSchema,
+  createRequestDraftSystemPrompt,
   parseRequestDraft,
   REQUEST_DRAFT_DYNAMIC_BODY_MAX,
   REQUEST_DRAFT_JSON_SCHEMA,
@@ -20,6 +22,8 @@ import {
 } from "../src/request-draft.js";
 
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
+const DOOR_SUBJECT_RULE = "входную дверь многоквартирного дома";
+const LIGHTING_SUBJECT_RULE = "неисправную или неработающую осветительную установку";
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -197,21 +201,26 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
   });
 
   it("запрашивает только предметный факт с проверяемым evidence, а не выбор закона", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("subject описывает только предмет проблемы");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("дословных непрерывных фрагментов");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("subject: null");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не является выбором нормативного акта");
+    const prompt = createRequestDraftSystemPrompt("common_area_entrance_door");
+
+    expect(prompt).toContain("subject описывает только предмет проблемы");
+    expect(prompt).toContain("дословных непрерывных фрагментов");
+    expect(prompt).toContain("subject: null");
+    expect(prompt).toContain("не является выбором нормативного акта");
   });
 
   it("разделяет evidence rules по kind и ограничивает lighting subject", () => {
-    const promptRules = REQUEST_DRAFT_SYSTEM_PROMPT.split("\n");
-    const doorEvidenceRule = promptRules.find((rule) =>
+    const doorPromptRules = createRequestDraftSystemPrompt("common_area_entrance_door").split("\n");
+    const lightingPromptRules = createRequestDraftSystemPrompt(
+      "common_area_premises_lighting",
+    ).split("\n");
+    const doorEvidenceRule = doorPromptRules.find((rule) =>
       rule.includes("подтверждать и дверь, и её принадлежность"),
     );
-    const lightingEvidenceRule = promptRules.find((rule) =>
+    const lightingEvidenceRule = lightingPromptRules.find((rule) =>
       rule.includes("для kind common_area_premises_lighting evidence"),
     );
-    const lightingSubjectRule = promptRules.find((rule) =>
+    const lightingSubjectRule = lightingPromptRules.find((rule) =>
       rule.includes("неисправную или неработающую осветительную установку"),
     );
 
@@ -224,6 +233,37 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(lightingSubjectRule).toBe(
       "- используй kind common_area_premises_lighting, только если вход прямо указывает на неисправную или неработающую осветительную установку либо освещение внутри помещения общего пользования многоквартирного дома. Не используй его для освещения внутри квартиры, придомовой территории, уличного или фасадного освещения, жалоб на дизайн или предпочтительную яркость",
     );
+    expect(doorPromptRules.join("\n")).not.toContain(LIGHTING_SUBJECT_RULE);
+    expect(lightingPromptRules.join("\n")).not.toContain(DOOR_SUBJECT_RULE);
+  });
+
+  it.each([
+    [undefined, [], [DOOR_SUBJECT_RULE, LIGHTING_SUBJECT_RULE]],
+    ["common_area_entrance_door" as const, [DOOR_SUBJECT_RULE], [LIGHTING_SUBJECT_RULE]],
+    ["common_area_premises_lighting" as const, [LIGHTING_SUBJECT_RULE], [DOOR_SUBJECT_RULE]],
+  ])("не включает subject-specific данные других контрактов: %s", (confirmedProblemSubject, includedFragments, excludedFragments) => {
+    const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+    const schemaText = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
+
+    for (const fragment of includedFragments) {
+      expect(prompt).toContain(fragment);
+    }
+    for (const fragment of excludedFragments) {
+      expect(prompt).not.toContain(fragment);
+    }
+
+    const includedKinds = confirmedProblemSubject === undefined ? [] : [confirmedProblemSubject];
+    const excludedKinds = ["common_area_entrance_door", "common_area_premises_lighting"].filter(
+      (kind) => kind !== confirmedProblemSubject,
+    );
+    for (const kind of includedKinds) {
+      expect(prompt).toContain(kind);
+      expect(schemaText).toContain(kind);
+    }
+    for (const kind of excludedKinds) {
+      expect(prompt).not.toContain(kind);
+      expect(schemaText).not.toContain(kind);
+    }
   });
 
   it.each([
@@ -279,37 +319,7 @@ describe("provider-facing RequestDraft", () => {
         maxLength: primaryRequestDraftLimits.verification.max,
       },
       subject: {
-        anyOf: [
-          {
-            type: "object",
-            properties: {
-              kind: {
-                type: "string",
-                enum: ["common_area_entrance_door", "common_area_premises_lighting"],
-              },
-              evidence: {
-                type: "array",
-                minItems: 1,
-                maxItems: 2,
-                items: {
-                  type: "object",
-                  properties: {
-                    sourceField: {
-                      type: "string",
-                      enum: ["description", "location", "consequences", "desiredActions"],
-                    },
-                    quote: { type: "string", minLength: 10, maxLength: 300 },
-                  },
-                  required: ["sourceField", "quote"],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ["kind", "evidence"],
-            additionalProperties: false,
-          },
-          { type: "null" },
-        ],
+        type: "null",
       },
       actionPlan: {
         anyOf: expect.arrayContaining([
@@ -330,6 +340,46 @@ describe("provider-facing RequestDraft", () => {
         },
       },
     });
+  });
+
+  it.each([
+    ["common_area_entrance_door" as const, "common_area_premises_lighting"],
+    ["common_area_premises_lighting" as const, "common_area_entrance_door"],
+  ])("ограничивает subject выбранным kind или null: %s", (selectedKind, excludedKind) => {
+    const subjectSchema =
+      createRequestDraftJsonSchema(selectedKind).properties.draft.anyOf[0].properties.subject;
+
+    expect(subjectSchema).toEqual({
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: [selectedKind] },
+            evidence: {
+              type: "array",
+              minItems: 1,
+              maxItems: 2,
+              items: {
+                type: "object",
+                properties: {
+                  sourceField: {
+                    type: "string",
+                    enum: ["description", "location", "consequences", "desiredActions"],
+                  },
+                  quote: { type: "string", minLength: 10, maxLength: 300 },
+                },
+                required: ["sourceField", "quote"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["kind", "evidence"],
+          additionalProperties: false,
+        },
+        { type: "null" },
+      ],
+    });
+    expect(JSON.stringify(subjectSchema)).not.toContain(excludedKind);
   });
 
   it("ограничивает общий размер procedural plan средствами provider JSON Schema", () => {

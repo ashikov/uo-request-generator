@@ -12,10 +12,10 @@ import {
   GenerationTimeoutError,
 } from "./generation-error.js";
 import {
+  createRequestDraftJsonSchema,
+  createRequestDraftSystemPrompt,
   parseRequestDraft,
-  REQUEST_DRAFT_JSON_SCHEMA,
   REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
-  REQUEST_DRAFT_SYSTEM_PROMPT,
 } from "./request-draft.js";
 
 export type OpenAiCompatibleGatewayConfig = {
@@ -83,7 +83,7 @@ type OpenAiChatCompletionRequest = {
     json_schema: {
       name: typeof REQUEST_DRAFT_RESPONSE_FORMAT_NAME;
       strict: true;
-      schema: typeof REQUEST_DRAFT_JSON_SCHEMA;
+      schema: ReturnType<typeof createRequestDraftJsonSchema>;
     };
   };
   max_tokens?: number;
@@ -102,7 +102,7 @@ type OpenAiResponsesRequest = {
       type: "json_schema";
       name: typeof REQUEST_DRAFT_RESPONSE_FORMAT_NAME;
       strict: true;
-      schema: typeof REQUEST_DRAFT_JSON_SCHEMA;
+      schema: ReturnType<typeof createRequestDraftJsonSchema>;
     };
   };
 };
@@ -189,11 +189,13 @@ export function createOpenAiCompatibleRequestBody(
   input: GenerateRequestInput,
 ): OpenAiChatCompletionRequest | OpenAiResponsesRequest {
   const userMessage = createUserMessage(input);
+  const systemPrompt = createRequestDraftSystemPrompt(input.confirmedProblemSubject);
+  const jsonSchema = createRequestDraftJsonSchema(input.confirmedProblemSubject);
 
   if (config.apiProtocol === "responses") {
     return {
       model: config.model,
-      instructions: REQUEST_DRAFT_SYSTEM_PROMPT,
+      instructions: systemPrompt,
       input: userMessage,
       temperature: TEMPERATURE,
       max_output_tokens: config.maxOutputTokens,
@@ -203,7 +205,7 @@ export function createOpenAiCompatibleRequestBody(
           type: "json_schema",
           name: REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
           strict: true,
-          schema: REQUEST_DRAFT_JSON_SCHEMA,
+          schema: jsonSchema,
         },
       },
     };
@@ -212,7 +214,7 @@ export function createOpenAiCompatibleRequestBody(
   const requestBody: OpenAiChatCompletionRequest = {
     model: config.model,
     messages: [
-      { role: "system", content: REQUEST_DRAFT_SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
     temperature: TEMPERATURE,
@@ -221,7 +223,7 @@ export function createOpenAiCompatibleRequestBody(
       json_schema: {
         name: REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
         strict: true,
-        schema: REQUEST_DRAFT_JSON_SCHEMA,
+        schema: jsonSchema,
       },
     },
   };

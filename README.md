@@ -72,7 +72,7 @@ Chat Completions. Для Responses API используются endpoint
 Выбранные endpoint и модель должны поддерживать Structured Outputs: для
 `chat-completions` — через `response_format` с типом `json_schema`, для
 `responses` — через `text.format` с типом `json_schema`. Оба протокола используют
-одну строгую JSON Schema с `strict: true`. Fallback на свободный текст,
+одну выбранную строгую JSON Schema с `strict: true`. Fallback на свободный текст,
 `json_object` или повторный запрос отсутствует, поэтому провайдер без этой
 поддержки несовместим с текущим gateway.
 
