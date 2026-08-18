@@ -156,14 +156,23 @@ function writeTerminalEvent(
   }
 
   context.terminalEventWritten = true;
-  writeGenerationEvent({
-    ...terminalStatus,
+  const eventDetails = {
     requestId: context.requestId,
     timestamp: new Date().toISOString(),
     durationMs: Math.round(performance.now() - context.startedAt),
-    httpStatus,
     ...(llmMetadata === undefined ? {} : { llm: llmMetadata }),
-  });
+  };
+
+  if (terminalStatus.event === "generation_rejected") {
+    writeGenerationEvent({ ...terminalStatus, ...eventDetails, httpStatus });
+    return;
+  }
+
+  if (httpStatus === 413) {
+    throw new Error("generation_failed cannot use HTTP 413");
+  }
+
+  writeGenerationEvent({ ...terminalStatus, ...eventDetails, httpStatus });
 }
 
 function writeSuccessEvent(
