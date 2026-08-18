@@ -183,7 +183,8 @@ test("сохраняет layout-инварианты от формы до дли
   await page.locator("#submit-button").click();
 
   const errorArea = page.locator("#error-area");
-  await expect(errorArea).toHaveText(controlledServerErrorMessage);
+  await expect(errorArea).toContainText(controlledServerErrorMessage);
+  await expect(errorArea).toContainText("Код запроса: browser-layout-request-id");
   await expect(page.locator("#description")).toHaveValue(fullFormValues.description);
   await expect(page.locator("#location")).toHaveValue(fullFormValues.location);
   await expect(page.locator("#consequences")).toHaveValue(fullFormValues.consequences);

@@ -1,5 +1,11 @@
 import { generateRequestLimits, type LlmGateway } from "@uo-request-generator/core";
-import { DisabledLlmGateway } from "@uo-request-generator/llm";
+import {
+  DisabledLlmGateway,
+  GenerationInvalidResponseError,
+  GenerationNetworkError,
+  GenerationProviderUnavailableError,
+  GenerationTimeoutError,
+} from "@uo-request-generator/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 
@@ -31,7 +37,10 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 
-function expectApiError(payload: unknown, expected: { code: ApiErrorCode; message: string }): void {
+function expectApiError(
+  payload: unknown,
+  expected: { code: ApiErrorCode; message: string },
+): string {
   if (typeof payload !== "object" || payload === null || !("error" in payload)) {
     throw new Error("Expected an API error object");
   }
@@ -55,6 +64,7 @@ function expectApiError(payload: unknown, expected: { code: ApiErrorCode; messag
   expect(apiError.requestId).toMatch(
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   );
+  return apiError.requestId;
 }
 
 async function injectGenerate(
@@ -135,9 +145,66 @@ describe("POST /api/generate", () => {
     expect(generateRequest).toHaveBeenCalledOnce();
     expect(generateRequest).toHaveBeenCalledWith(input, expect.any(String));
     expect(response.statusCode).toBe(503);
-    expectApiError(response.json(), {
+    const requestId = expectApiError(response.json(), {
       code: "generation_provider_unavailable",
       message: "Генерация пока не подключена",
+    });
+    expect(response.headers["x-request-id"]).toBe(requestId);
+  });
+
+  it.each([
+    ["таймаут", new GenerationTimeoutError()],
+    ["сетевая ошибка", new GenerationNetworkError()],
+    [
+      "некорректный ответ провайдера",
+      new GenerationInvalidResponseError("Внутренняя диагностическая строка провайдера"),
+    ],
+    ["недоступность провайдера", new GenerationProviderUnavailableError("Внутренняя ошибка")],
+  ])("возвращает нейтральную ошибку для настроенного gateway при исходе: %s", async (_caseName, providerError) => {
+    const gateway: LlmGateway = {
+      generateRequest: vi.fn().mockRejectedValue(providerError),
+    };
+    const input = { description: "На лестничной площадке не горит свет" };
+
+    const response = await injectGenerate(input, gateway);
+
+    expect(response.statusCode).toBe(503);
+    const requestId = expectApiError(response.json(), {
+      code: "generation_provider_unavailable",
+      message: "Генерация временно недоступна. Попробуйте позже",
+    });
+    expect(response.headers["x-request-id"]).toBe(requestId);
+    expect(response.body).not.toContain("Внутренняя диагностическая строка провайдера");
+    expect(response.body).not.toContain("Внутренняя ошибка");
+  });
+
+  it("сохраняет нейтральную ошибку для metadata-capable gateway", async () => {
+    const gateway: LlmGateway = {
+      generateRequest: vi.fn(),
+      generateRequestWithMetadata: vi.fn().mockResolvedValue({
+        status: "failure",
+        failureStatus: "provider_unavailable",
+        metadata: {
+          provider: "test-provider",
+          model: "test-model",
+          usage: null,
+          usageStatus: "missing",
+          systemPromptHash:
+            "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          durationMs: 1,
+        },
+      }),
+    };
+
+    const response = await injectGenerate(
+      { description: "На лестничной площадке не горит свет" },
+      gateway,
+    );
+
+    expect(response.statusCode).toBe(503);
+    expectApiError(response.json(), {
+      code: "generation_provider_unavailable",
+      message: "Генерация временно недоступна. Попробуйте позже",
     });
   });
 

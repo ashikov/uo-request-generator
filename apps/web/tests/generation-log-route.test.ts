@@ -1,5 +1,6 @@
 import type { LlmGateway } from "@uo-request-generator/core";
 import {
+  DisabledLlmGateway,
   GenerationInvalidResponseError,
   GenerationNetworkError,
   GenerationProviderUnavailableError,
@@ -125,6 +126,21 @@ function requestIdFromResponse(response: { headers: Record<string, unknown> }): 
   if (typeof requestId !== "string") {
     throw new Error("Expected an x-request-id response header");
   }
+  return requestId;
+}
+
+function expectGenerationProviderError(
+  response: { json: () => unknown; headers: Record<string, unknown> },
+  message: string,
+): string {
+  const requestId = requestIdFromResponse(response);
+  expect(response.json()).toEqual({
+    error: {
+      code: "generation_provider_unavailable",
+      message,
+      requestId,
+    },
+  });
   return requestId;
 }
 
@@ -413,11 +429,32 @@ describe("структурированные события POST /api/generate",
     const response = await injectGenerate(app, validInput);
 
     expect(response.statusCode).toBe(503);
-    expectEventPair(events, requestIdFromResponse(response), {
-      event: "generation_failed",
-      status: "provider_unavailable",
-      httpStatus: 503,
-    });
+    expectEventPair(
+      events,
+      expectGenerationProviderError(response, "Генерация временно недоступна. Попробуйте позже"),
+      {
+        event: "generation_failed",
+        status: "provider_unavailable",
+        httpStatus: 503,
+      },
+    );
+  });
+
+  it("сохраняет отдельное сообщение для отключённой генерации", async () => {
+    const { app, events } = createCapturingApp({ llmGateway: new DisabledLlmGateway() });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    expectEventPair(
+      events,
+      expectGenerationProviderError(response, "Генерация пока не подключена"),
+      {
+        event: "generation_failed",
+        status: "provider_unavailable",
+        httpStatus: 503,
+      },
+    );
   });
 
   it("пишет generation_failed/timeout при таймауте провайдера", async () => {
@@ -428,11 +465,15 @@ describe("структурированные события POST /api/generate",
     const response = await injectGenerate(app, validInput);
 
     expect(response.statusCode).toBe(503);
-    expectEventPair(events, requestIdFromResponse(response), {
-      event: "generation_failed",
-      status: "timeout",
-      httpStatus: 503,
-    });
+    expectEventPair(
+      events,
+      expectGenerationProviderError(response, "Генерация временно недоступна. Попробуйте позже"),
+      {
+        event: "generation_failed",
+        status: "timeout",
+        httpStatus: 503,
+      },
+    );
   });
 
   it("пишет generation_failed/network_error при сетевой ошибке", async () => {
@@ -443,11 +484,15 @@ describe("структурированные события POST /api/generate",
     const response = await injectGenerate(app, validInput);
 
     expect(response.statusCode).toBe(503);
-    expectEventPair(events, requestIdFromResponse(response), {
-      event: "generation_failed",
-      status: "network_error",
-      httpStatus: 503,
-    });
+    expectEventPair(
+      events,
+      expectGenerationProviderError(response, "Генерация временно недоступна. Попробуйте позже"),
+      {
+        event: "generation_failed",
+        status: "network_error",
+        httpStatus: 503,
+      },
+    );
   });
 
   it("пишет generation_failed/invalid_response при некорректном ответе провайдера", async () => {
@@ -460,11 +505,15 @@ describe("структурированные события POST /api/generate",
     const response = await injectGenerate(app, validInput);
 
     expect(response.statusCode).toBe(503);
-    expectEventPair(events, requestIdFromResponse(response), {
-      event: "generation_failed",
-      status: "invalid_response",
-      httpStatus: 503,
-    });
+    expectEventPair(
+      events,
+      expectGenerationProviderError(response, "Генерация временно недоступна. Попробуйте позже"),
+      {
+        event: "generation_failed",
+        status: "invalid_response",
+        httpStatus: 503,
+      },
+    );
   });
 
   it("пишет generation_failed/internal_error при неизвестной ошибке", async () => {

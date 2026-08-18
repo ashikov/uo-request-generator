@@ -6,6 +6,7 @@ import type {
   LlmGenerationMetadata,
 } from "@uo-request-generator/core";
 import {
+  DisabledLlmGateway,
   GenerationInvalidResponseError,
   GenerationNetworkError,
   GenerationProviderUnavailableError,
@@ -81,6 +82,12 @@ const requestTooLargeApiError: ApiError = {
 const providerUnavailableApiError: ApiError = {
   code: "generation_provider_unavailable",
   message: "Генерация пока не подключена",
+  statusCode: 503,
+};
+
+const configuredProviderUnavailableApiError: ApiError = {
+  code: "generation_provider_unavailable",
+  message: "Генерация временно недоступна. Попробуйте позже",
   statusCode: 503,
 };
 
@@ -237,7 +244,7 @@ function sendMetadataGatewayFailure(
 ): FastifyReply {
   return sendApiErrorWithEvent(
     reply,
-    providerUnavailableApiError,
+    configuredProviderUnavailableApiError,
     context,
     { event: "generation_failed", status: failureStatus },
     writeGenerationEvent,
@@ -267,6 +274,7 @@ async function generateRequest(
 
 function sendGenerationFailure(
   error: unknown,
+  llmGateway: LlmGateway,
   reply: FastifyReply,
   context: GenerationRequestContext,
   writeGenerationEvent: GenerationEventWriter,
@@ -274,7 +282,7 @@ function sendGenerationFailure(
   if (error instanceof GenerationTimeoutError) {
     return sendApiErrorWithEvent(
       reply,
-      providerUnavailableApiError,
+      configuredProviderUnavailableApiError,
       context,
       { event: "generation_failed", status: "timeout" },
       writeGenerationEvent,
@@ -284,7 +292,7 @@ function sendGenerationFailure(
   if (error instanceof GenerationNetworkError) {
     return sendApiErrorWithEvent(
       reply,
-      providerUnavailableApiError,
+      configuredProviderUnavailableApiError,
       context,
       { event: "generation_failed", status: "network_error" },
       writeGenerationEvent,
@@ -294,7 +302,7 @@ function sendGenerationFailure(
   if (error instanceof GenerationInvalidResponseError) {
     return sendApiErrorWithEvent(
       reply,
-      providerUnavailableApiError,
+      configuredProviderUnavailableApiError,
       context,
       { event: "generation_failed", status: "invalid_response" },
       writeGenerationEvent,
@@ -304,7 +312,9 @@ function sendGenerationFailure(
   if (error instanceof GenerationProviderUnavailableError) {
     return sendApiErrorWithEvent(
       reply,
-      providerUnavailableApiError,
+      llmGateway instanceof DisabledLlmGateway
+        ? providerUnavailableApiError
+        : configuredProviderUnavailableApiError,
       context,
       { event: "generation_failed", status: "provider_unavailable" },
       writeGenerationEvent,
@@ -367,7 +377,13 @@ export function registerGenerateRoute(
           );
         }
 
-        return sendGenerationFailure(error, reply, context, options.writeGenerationEvent);
+        return sendGenerationFailure(
+          error,
+          options.llmGateway,
+          reply,
+          context,
+          options.writeGenerationEvent,
+        );
       },
     },
     async (request, reply) => {
@@ -504,7 +520,13 @@ export function registerGenerateRoute(
           safeguardDecision.release();
         }
       } catch (error) {
-        return sendGenerationFailure(error, reply, context, options.writeGenerationEvent);
+        return sendGenerationFailure(
+          error,
+          options.llmGateway,
+          reply,
+          context,
+          options.writeGenerationEvent,
+        );
       } finally {
         releaseRateLimit?.();
       }
