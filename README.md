@@ -71,8 +71,9 @@ Yandex-compatible и стандартный сырой HTTP-ответ без SD
 `https://ai.api.cloud.yandex.net/v1/chat/completions` и модель YandexGPT для
 Chat Completions. Для Responses API используются endpoint
 `https://ai.api.cloud.yandex.net/v1/responses` и Alice AI LLM Flash.
-Произвольный OpenAI-compatible провайдер настраивается полными URL, моделью,
-схемой авторизации и выбранным протоколом.
+Произвольный OpenAI-compatible провайдер настраивается переменными
+`LLM_API_URL`, `LLM_API_KEY`, `LLM_AUTH_SCHEME`, `LLM_MODEL`, `LLM_PROVIDER` и
+выбранным `LLM_API_PROTOCOL`.
 Выбранные endpoint и модель должны поддерживать Structured Outputs: для
 `chat-completions` — через `response_format` с типом `json_schema`, для
 `responses` — через `text.format` с типом `json_schema`. Оба протокола используют
