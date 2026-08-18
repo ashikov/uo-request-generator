@@ -44,7 +44,7 @@ export type GenerationFailedEvent = {
     | "invalid_response"
     | "internal_error";
   durationMs: number;
-  httpStatus: 400 | 413 | 429 | 500 | 503;
+  httpStatus: 400 | 429 | 500 | 503;
   llm?: LlmGenerationMetadata;
 };
 
