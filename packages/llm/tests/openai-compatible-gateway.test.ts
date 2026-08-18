@@ -38,6 +38,7 @@ const GATEWAY_CONFIG: OpenAiCompatibleGatewayConfig = {
   apiUrl: "https://provider.example/v1/chat/completions",
   apiKey: MOCK_API_KEY,
   model: "test-model",
+  provider: "test-provider",
   authScheme: "Api-Key",
   apiProtocol: "chat-completions",
 };
@@ -447,17 +448,17 @@ describe("OpenAiCompatibleGateway", () => {
     expect(generation.outcome).toEqual(VALID_LLM_RESPONSE);
     expect(generation.usage).toEqual({ inputTokens: 101, outputTokens: 52, totalTokens: 153 });
     expect(generation.metadata).toMatchObject({
-      provider: "openai-compatible",
+      provider: "test-provider",
       model: "test-model",
       usage: { inputTokens: 101, outputTokens: 52, totalTokens: 153 },
       usageStatus: "available",
-      systemPromptHash: createRequestDraftSystemPromptHash(
-        createRequestDraftSystemPrompt(undefined),
-      ),
       durationMs: expect.any(Number),
     });
     expect(generation.metadata.durationMs).toBeGreaterThanOrEqual(0);
     const requestBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+    expect(generation.metadata.systemPromptHash).toBe(
+      createRequestDraftSystemPromptHash(requestBody.messages[0].content),
+    );
     expect(requestBody.max_tokens).toBe(1200);
     expect(requestBody.max_completion_tokens).toBeUndefined();
   });
@@ -1456,7 +1457,7 @@ describe("OpenAiCompatibleGateway", () => {
     });
 
     it("возвращает optional usage из Responses API", async () => {
-      createResponsesMockFetch({
+      const mockFetch = createResponsesMockFetch({
         output_text: VALID_LLM_TEXT,
         usage: { input_tokens: 90, output_tokens: 45, total_tokens: 135 },
       });
@@ -1471,11 +1472,15 @@ describe("OpenAiCompatibleGateway", () => {
       expect(generation.outcome).toEqual(VALID_LLM_RESPONSE);
       expect(generation.usage).toEqual({ inputTokens: 90, outputTokens: 45, totalTokens: 135 });
       expect(generation.metadata).toMatchObject({
-        provider: "openai-compatible",
+        provider: "test-provider",
         model: "test-model",
         usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
         usageStatus: "available",
       });
+      const requestBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+      expect(generation.metadata.systemPromptHash).toBe(
+        createRequestDraftSystemPromptHash(requestBody.instructions),
+      );
     });
 
     it("не падает при отсутствии Responses usage", async () => {

@@ -18,7 +18,7 @@ export type LlmUsage = {
 export type LlmUsageStatus = "available" | "missing" | "invalid";
 
 export type LlmGenerationMetadata = {
-  provider: "openai-compatible" | "yandex";
+  provider: string;
   model: string;
   usage: LlmUsage | null;
   usageStatus: LlmUsageStatus;

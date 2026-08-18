@@ -395,10 +395,18 @@ Completions сохраняется существующая форма запр�
 отдельные заявки.
 
 Конфигурационный слой `apps/web` валидирует переменные окружения и передаёт в
-`OpenAiCompatibleGateway` выбранный протокол, готовые URL, модель, ключ и схему
-авторизации. `LLM_API_PROTOCOL` принимает `chat-completions` или `responses`.
+`OpenAiCompatibleGateway` выбранный протокол, готовые URL, модель, ключ, схему
+авторизации и identifier provider. `LLM_API_PROTOCOL` принимает
+`chat-completions` или `responses`.
 При отсутствии переменной для обратной совместимости выбирается
-`chat-completions`. Протокол не определяется по URL, модели или провайдеру.
+`chat-completions`. Протокол и provider не определяются по URL, модели или
+схеме авторизации.
+
+Встроенная Yandex AI-конфигурация детерминированно передаёт provider `yandex` и
+не требует `LLM_PROVIDER`. Для custom `LLM_API_URL` обязательно задать
+`LLM_PROVIDER` как стабильный lower-case ASCII identifier длиной до 64 символов
+из букв, цифр, `_` и `-`. Неполная или невалидная custom-конфигурация fail
+closed выбирает `DisabledLlmGateway`.
 
 Yandex AI настраивается в этом слое как один из OpenAI-compatible провайдеров.
 Для Chat Completions слой выбирает `/v1/chat/completions` и YandexGPT, для

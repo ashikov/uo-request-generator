@@ -95,6 +95,23 @@ describe("createLlmGateway", () => {
     expect(requestBody.messages).toHaveLength(2);
   });
 
+  it("передаёт yandex как provider metadata встроенной конфигурации", async () => {
+    mockProviderResponse();
+    const gateway = createLlmGateway({
+      LLM_API_KEY: "test-api-key",
+      LLM_FOLDER_ID: "test-folder-id",
+    });
+
+    if (!(gateway instanceof OpenAiCompatibleGateway)) {
+      throw new Error("Ожидался OpenAiCompatibleGateway");
+    }
+    const generation = await gateway.generateRequestWithMetadata({
+      description: "На лестничной площадке не горит свет",
+    });
+
+    expect(generation).toMatchObject({ status: "success", metadata: { provider: "yandex" } });
+  });
+
   it("явно выбирает Yandex Chat Completions", async () => {
     const fetchMock = mockProviderResponse();
     const gateway = createLlmGateway({
@@ -164,6 +181,7 @@ describe("createLlmGateway", () => {
       LLM_API_KEY: "test-api-key",
       LLM_AUTH_SCHEME: "Bearer",
       LLM_MODEL: "provider-model-name",
+      LLM_PROVIDER: "provider-alpha",
     });
 
     expect(gateway).toBeInstanceOf(OpenAiCompatibleGateway);
@@ -183,6 +201,40 @@ describe("createLlmGateway", () => {
     expect(requestBody.store).toBe(apiProtocol === "responses" ? false : undefined);
   });
 
+  it("сохраняет разные custom provider identifiers для одной model", async () => {
+    const environment = {
+      LLM_API_URL: "https://provider.example/v1/chat/completions",
+      LLM_API_KEY: "test-api-key",
+      LLM_AUTH_SCHEME: "Bearer",
+      LLM_MODEL: "shared-model-name",
+    };
+    const firstFetch = mockProviderResponse();
+    const firstGateway = createLlmGateway({ ...environment, LLM_PROVIDER: "provider-alpha" });
+    if (!(firstGateway instanceof OpenAiCompatibleGateway)) {
+      throw new Error("Ожидался OpenAiCompatibleGateway");
+    }
+    const first = await firstGateway.generateRequestWithMetadata({
+      description: "Не работает свет",
+    });
+    firstFetch.mockRestore();
+
+    mockProviderResponse();
+    const secondGateway = createLlmGateway({ ...environment, LLM_PROVIDER: "provider-beta" });
+    if (!(secondGateway instanceof OpenAiCompatibleGateway)) {
+      throw new Error("Ожидался OpenAiCompatibleGateway");
+    }
+    const second = await secondGateway.generateRequestWithMetadata({
+      description: "Не работает свет",
+    });
+
+    expect(first).toMatchObject({
+      metadata: { provider: "provider-alpha", model: "shared-model-name" },
+    });
+    expect(second).toMatchObject({
+      metadata: { provider: "provider-beta", model: "shared-model-name" },
+    });
+  });
+
   it("не определяет протокол по URL", async () => {
     const fetchMock = mockProviderResponse();
     const gateway = createLlmGateway({
@@ -190,6 +242,7 @@ describe("createLlmGateway", () => {
       LLM_API_KEY: "test-api-key",
       LLM_AUTH_SCHEME: "Bearer",
       LLM_MODEL: "provider-model-name",
+      LLM_PROVIDER: "provider-alpha",
     });
 
     expect(gateway).toBeInstanceOf(OpenAiCompatibleGateway);
@@ -208,6 +261,7 @@ describe("createLlmGateway", () => {
       LLM_API_KEY: "test-api-key",
       LLM_AUTH_SCHEME: "Bearer",
       LLM_MODEL: "responses-model-name",
+      LLM_PROVIDER: "provider-alpha",
     });
 
     await gateway.generateRequest({ description: "Не работает освещение" });
@@ -223,6 +277,20 @@ describe("createLlmGateway", () => {
       createLlmGateway({
         LLM_API_URL: "https://provider.example/v1/chat/completions",
         LLM_API_KEY: "test-api-key",
+        LLM_AUTH_SCHEME: "Bearer",
+        LLM_MODEL: "provider-model-name",
+      }),
+    ).toBeInstanceOf(DisabledLlmGateway);
+  });
+
+  it("выбирает заглушку при невалидном custom provider identifier", () => {
+    expect(
+      createLlmGateway({
+        LLM_API_URL: "https://provider.example/v1/chat/completions",
+        LLM_API_KEY: "test-api-key",
+        LLM_AUTH_SCHEME: "Bearer",
+        LLM_MODEL: "provider-model-name",
+        LLM_PROVIDER: "provider identifier",
       }),
     ).toBeInstanceOf(DisabledLlmGateway);
   });
@@ -235,6 +303,7 @@ describe("createLlmGateway", () => {
         LLM_API_KEY: "test-api-key",
         LLM_AUTH_SCHEME: "Bearer",
         LLM_MODEL: "provider-model-name",
+        LLM_PROVIDER: "provider-alpha",
       }),
     ).toBeInstanceOf(DisabledLlmGateway);
   });
