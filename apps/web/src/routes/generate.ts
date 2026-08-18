@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { LlmGateway } from "@uo-request-generator/core";
+import type {
+  LlmGateway,
+  LlmGatewayGeneration,
+  LlmGenerationFailureStatus,
+  LlmGenerationMetadata,
+} from "@uo-request-generator/core";
 import {
   GenerationInvalidResponseError,
   GenerationNetworkError,
@@ -134,6 +139,7 @@ function writeTerminalEvent(
   terminalStatus: GenerationTerminalStatus,
   httpStatus: 400 | 429 | 500 | 503,
   writeGenerationEvent: GenerationEventWriter,
+  llmMetadata?: LlmGenerationMetadata,
 ): void {
   if (context.terminalEventWritten) {
     return;
@@ -146,12 +152,14 @@ function writeTerminalEvent(
     timestamp: new Date().toISOString(),
     durationMs: Math.round(performance.now() - context.startedAt),
     httpStatus,
+    ...(llmMetadata === undefined ? {} : { llm: llmMetadata }),
   });
 }
 
 function writeSuccessEvent(
   context: GenerationRequestContext,
   writeGenerationEvent: GenerationEventWriter,
+  llmMetadata?: LlmGenerationMetadata,
 ): void {
   if (context.terminalEventWritten) {
     return;
@@ -165,6 +173,7 @@ function writeSuccessEvent(
     status: "generated",
     durationMs: Math.round(performance.now() - context.startedAt),
     httpStatus: 200,
+    ...(llmMetadata === undefined ? {} : { llm: llmMetadata }),
   });
 }
 
@@ -188,9 +197,53 @@ function sendApiErrorWithEvent(
   context: GenerationRequestContext,
   terminalStatus: GenerationTerminalStatus,
   writeGenerationEvent: GenerationEventWriter,
+  llmMetadata?: LlmGenerationMetadata,
 ): FastifyReply {
-  writeTerminalEvent(context, terminalStatus, apiError.statusCode, writeGenerationEvent);
+  writeTerminalEvent(
+    context,
+    terminalStatus,
+    apiError.statusCode,
+    writeGenerationEvent,
+    llmMetadata,
+  );
   return sendApiError(reply, apiError, context);
+}
+
+function sendMetadataGatewayFailure(
+  failureStatus: LlmGenerationFailureStatus,
+  reply: FastifyReply,
+  context: GenerationRequestContext,
+  writeGenerationEvent: GenerationEventWriter,
+  llmMetadata: LlmGenerationMetadata,
+): FastifyReply {
+  return sendApiErrorWithEvent(
+    reply,
+    providerUnavailableApiError,
+    context,
+    { event: "generation_failed", status: failureStatus },
+    writeGenerationEvent,
+    llmMetadata,
+  );
+}
+
+async function generateRequest(
+  llmGateway: LlmGateway,
+  input: Parameters<LlmGateway["generateRequest"]>[0],
+  requestId: string,
+): Promise<
+  | { status: "success"; generation: Exclude<LlmGatewayGeneration, { status: "failure" }> }
+  | { status: "legacy"; outcome: Awaited<ReturnType<LlmGateway["generateRequest"]>> }
+  | { status: "failure"; generation: Extract<LlmGatewayGeneration, { status: "failure" }> }
+> {
+  if (llmGateway.generateRequestWithMetadata === undefined) {
+    return { status: "legacy", outcome: await llmGateway.generateRequest(input, requestId) };
+  }
+
+  const generation = await llmGateway.generateRequestWithMetadata(input, requestId);
+  if (generation.status === "failure") {
+    return { status: "failure", generation };
+  }
+  return { status: "success", generation };
 }
 
 function sendGenerationFailure(
@@ -383,10 +436,26 @@ export function registerGenerateRoute(
         }
 
         try {
-          const outcome = await options.llmGateway.generateRequest(
+          const generation = await generateRequest(
+            options.llmGateway,
             generationInput,
             context.requestId,
           );
+
+          if (generation.status === "failure") {
+            return sendMetadataGatewayFailure(
+              generation.generation.failureStatus,
+              reply,
+              context,
+              options.writeGenerationEvent,
+              generation.generation.metadata,
+            );
+          }
+
+          const outcome =
+            generation.status === "legacy" ? generation.outcome : generation.generation.outcome;
+          const llmMetadata =
+            generation.status === "success" ? generation.generation.metadata : undefined;
 
           if (outcome.status === "multiple_issues") {
             return sendApiErrorWithEvent(
@@ -395,10 +464,11 @@ export function registerGenerateRoute(
               context,
               { event: "generation_rejected", status: "multiple_issues" },
               options.writeGenerationEvent,
+              llmMetadata,
             );
           }
 
-          writeSuccessEvent(context, options.writeGenerationEvent);
+          writeSuccessEvent(context, options.writeGenerationEvent, llmMetadata);
           return outcome.result;
         } finally {
           safeguardDecision.release();

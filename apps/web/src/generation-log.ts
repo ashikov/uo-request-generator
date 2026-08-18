@@ -1,3 +1,5 @@
+import type { LlmGenerationMetadata } from "@uo-request-generator/core";
+
 export type GenerationStartedEvent = {
   event: "generation_started";
   requestId: string;
@@ -11,6 +13,7 @@ export type GenerationSucceededEvent = {
   status: "generated";
   durationMs: number;
   httpStatus: 200;
+  llm?: LlmGenerationMetadata;
 };
 
 export type GenerationRejectedEvent = {
@@ -26,6 +29,7 @@ export type GenerationRejectedEvent = {
     | "generation_unavailable";
   durationMs: number;
   httpStatus: 400 | 429 | 500 | 503;
+  llm?: LlmGenerationMetadata;
 };
 
 export type GenerationFailedEvent = {
@@ -40,6 +44,7 @@ export type GenerationFailedEvent = {
     | "internal_error";
   durationMs: number;
   httpStatus: 400 | 429 | 500 | 503;
+  llm?: LlmGenerationMetadata;
 };
 
 export type GenerationLogEvent =

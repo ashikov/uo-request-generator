@@ -164,6 +164,97 @@ describe("структурированные события POST /api/generate",
     });
   });
 
+  it("добавляет безопасные metadata LLM в terminal event успешной генерации", async () => {
+    const llmMetadata = {
+      provider: "openai-compatible",
+      model: "test-model-full-name",
+      usage: { inputTokens: 101, outputTokens: 52, totalTokens: 153 },
+      usageStatus: "available" as const,
+      systemPromptHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      durationMs: 42,
+    };
+    const generateRequestWithMetadata = vi.fn().mockResolvedValue({
+      status: "success" as const,
+      outcome: generatedOutcome,
+      metadata: llmMetadata,
+    });
+    const { app, events } = createCapturingApp({
+      llmGateway: {
+        generateRequest: vi.fn().mockResolvedValue(generatedOutcome),
+        generateRequestWithMetadata,
+      },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(200);
+    expect(generateRequestWithMetadata).toHaveBeenCalledWith(
+      validInput,
+      requestIdFromResponse(response),
+    );
+    expect(events[1]).toMatchObject({ event: "generation_succeeded", llm: llmMetadata });
+    expect(JSON.stringify(events)).not.toContain(validInput.description);
+  });
+
+  it("сохраняет terminal event без usage провайдера", async () => {
+    const llmMetadata = {
+      provider: "yandex" as const,
+      model: "test-model-full-name",
+      usage: null,
+      usageStatus: "missing" as const,
+      systemPromptHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      durationMs: 42,
+    };
+    const { app, events } = createCapturingApp({
+      llmGateway: {
+        generateRequest: vi.fn().mockResolvedValue(generatedOutcome),
+        generateRequestWithMetadata: vi.fn().mockResolvedValue({
+          status: "success",
+          outcome: generatedOutcome,
+          metadata: llmMetadata,
+        }),
+      },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(200);
+    expect(events[1]).toMatchObject({
+      event: "generation_succeeded",
+      llm: { usage: null, usageStatus: "missing" },
+    });
+  });
+
+  it("сохраняет metadata при контролируемой ошибке provider", async () => {
+    const llmMetadata = {
+      provider: "openai-compatible" as const,
+      model: "test-model-full-name",
+      usage: null,
+      usageStatus: "missing" as const,
+      systemPromptHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      durationMs: 42,
+    };
+    const { app, events } = createCapturingApp({
+      llmGateway: {
+        generateRequest: vi.fn(),
+        generateRequestWithMetadata: vi.fn().mockResolvedValue({
+          status: "failure",
+          failureStatus: "timeout",
+          metadata: llmMetadata,
+        }),
+      },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    expect(events[1]).toMatchObject({
+      event: "generation_failed",
+      status: "timeout",
+      llm: llmMetadata,
+    });
+  });
+
   it("пишет generation_rejected/validation_error для невалидного ввода", async () => {
     const { app, events } = createCapturingApp();
 

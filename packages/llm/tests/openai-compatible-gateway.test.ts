@@ -19,6 +19,7 @@ import {
   COMMON_LEGAL_BASIS_BLOCK,
   createRequestDraftJsonSchema,
   createRequestDraftSystemPrompt,
+  createRequestDraftSystemPromptHash,
   REQUEST_DRAFT_JSON_SCHEMA,
   REQUEST_DRAFT_SYSTEM_PROMPT,
 } from "../src/request-draft.js";
@@ -445,9 +446,44 @@ describe("OpenAiCompatibleGateway", () => {
     }
     expect(generation.outcome).toEqual(VALID_LLM_RESPONSE);
     expect(generation.usage).toEqual({ inputTokens: 101, outputTokens: 52, totalTokens: 153 });
+    expect(generation.metadata).toMatchObject({
+      provider: "openai-compatible",
+      model: "test-model",
+      usage: { inputTokens: 101, outputTokens: 52, totalTokens: 153 },
+      usageStatus: "available",
+      systemPromptHash: createRequestDraftSystemPromptHash(
+        createRequestDraftSystemPrompt(undefined),
+      ),
+      durationMs: expect.any(Number),
+    });
+    expect(generation.metadata.durationMs).toBeGreaterThanOrEqual(0);
     const requestBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     expect(requestBody.max_tokens).toBe(1200);
     expect(requestBody.max_completion_tokens).toBeUndefined();
+  });
+
+  it.each([
+    ["отсутствующем", undefined, "missing"],
+    ["частичном", { prompt_tokens: 101, completion_tokens: 52 }, "invalid"],
+    ["некорректном", { prompt_tokens: "101", completion_tokens: 52, total_tokens: 153 }, "invalid"],
+  ] as const)("не ломает генерацию при %s Chat Completions usage", async (_caseName, usage, usageStatus) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: VALID_LLM_TEXT } }],
+          ...(usage === undefined ? {} : { usage }),
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const generation = await createGateway().generateRequestWithMetadata(VALID_INPUT);
+
+    expect(generation.status).toBe("success");
+    if (generation.status !== "success") {
+      throw new Error("Ожидался успешный generation result");
+    }
+    expect(generation.metadata).toMatchObject({ usage: null, usageStatus });
   });
 
   it("передаёт Chat Completions исходные поля как JSON с явными null", async () => {
@@ -531,7 +567,7 @@ describe("OpenAiCompatibleGateway", () => {
 
     const generation = await createGateway().generateRequestWithMetadata(VALID_INPUT);
 
-    expect(generation).toEqual({
+    expect(generation).toMatchObject({
       status: "failure",
       failureKind: "request",
       error: "request failed",
@@ -546,7 +582,7 @@ describe("OpenAiCompatibleGateway", () => {
 
     const generation = await createGateway().generateRequestWithMetadata(VALID_INPUT);
 
-    expect(generation).toEqual({
+    expect(generation).toMatchObject({
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
@@ -559,10 +595,18 @@ describe("OpenAiCompatibleGateway", () => {
 
     const generation = await createGateway().generateRequestWithMetadata(VALID_INPUT);
 
-    expect(generation).toEqual({
+    expect(generation).toMatchObject({
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
+    });
+    expect(generation).toMatchObject({
+      failureStatus: "network_error",
+      metadata: {
+        usage: null,
+        usageStatus: "missing",
+        durationMs: expect.any(Number),
+      },
     });
   });
 
@@ -580,7 +624,7 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
       GenerationTimeoutError,
     );
-    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toEqual({
+    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toMatchObject({
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
@@ -605,7 +649,7 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
       GenerationTimeoutError,
     );
-    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toEqual({
+    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toMatchObject({
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
@@ -933,7 +977,7 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
       GenerationInvalidResponseError,
     );
-    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toEqual({
+    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toMatchObject({
       status: "failure",
       failureKind: "request",
       error: "request failed",
@@ -1183,7 +1227,7 @@ describe("OpenAiCompatibleGateway", () => {
       const generation =
         await createGateway(responsesConfig).generateRequestWithMetadata(VALID_INPUT);
 
-      expect(generation).toEqual({
+      expect(generation).toMatchObject({
         status: "failure",
         failureKind: "request",
         error: "request failed",
@@ -1201,7 +1245,7 @@ describe("OpenAiCompatibleGateway", () => {
       const generation =
         await createGateway(responsesConfig).generateRequestWithMetadata(VALID_INPUT);
 
-      expect(generation).toEqual({
+      expect(generation).toMatchObject({
         status: "failure",
         failureKind: "request",
         error: "request failed",
@@ -1426,6 +1470,12 @@ describe("OpenAiCompatibleGateway", () => {
       }
       expect(generation.outcome).toEqual(VALID_LLM_RESPONSE);
       expect(generation.usage).toEqual({ inputTokens: 90, outputTokens: 45, totalTokens: 135 });
+      expect(generation.metadata).toMatchObject({
+        provider: "openai-compatible",
+        model: "test-model",
+        usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
+        usageStatus: "available",
+      });
     });
 
     it("не падает при отсутствии Responses usage", async () => {
@@ -1439,6 +1489,24 @@ describe("OpenAiCompatibleGateway", () => {
         throw new Error("Ожидался успешный generation result");
       }
       expect(generation.usage).toBeUndefined();
+      expect(generation.metadata).toMatchObject({ usage: null, usageStatus: "missing" });
+    });
+
+    it.each([
+      { input_tokens: 90, output_tokens: 45 },
+      { input_tokens: "90", output_tokens: 45, total_tokens: 135 },
+      { input_tokens: 90, output_tokens: -1, total_tokens: 89 },
+    ])("не ломает успешную генерацию при некорректном Responses usage: %o", async (usage) => {
+      createResponsesMockFetch({ output_text: VALID_LLM_TEXT, usage });
+
+      const generation =
+        await createGateway(responsesConfig).generateRequestWithMetadata(VALID_INPUT);
+
+      expect(generation.status).toBe("success");
+      if (generation.status !== "success") {
+        throw new Error("Ожидался успешный generation result");
+      }
+      expect(generation.metadata).toMatchObject({ usage: null, usageStatus: "invalid" });
     });
 
     it("использует схему авторизации и дополнительные заголовки", async () => {

@@ -69,6 +69,7 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
     model,
     authScheme: LLM_AUTH_SCHEME ?? YANDEX_AUTH_SCHEME,
     apiProtocol: LLM_API_PROTOCOL,
+    provider: "yandex",
     ...(LLM_FOLDER_ID === undefined ? {} : { extraHeaders: { "x-folder-id": LLM_FOLDER_ID } }),
   });
 }
