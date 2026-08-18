@@ -187,9 +187,21 @@ route `errorHandler` используют один контекст, включ�
 
 Начальное событие содержит `event`, `requestId` и `timestamp`. Итоговое событие
 дополнительно содержит `status`, `durationMs` и фактический `httpStatus`
-публичного ответа. События записываются в stdout по одной строке и не содержат
-пользовательский ввод, готовую заявку, prompt, response body, API keys,
-`Authorization`, CAPTCHA token, cookies, полный набор headers или `process.env`.
+публичного ответа. После реально выполненного вызова metadata-capable gateway
+итоговое событие содержит безопасный вложенный объект `llm`: provider, полное
+имя model, нормализованный usage, `usageStatus`, SHA-256 hash точного system
+prompt и `durationMs` обращения к провайдеру. Верхнеуровневый `durationMs`
+остаётся длительностью всего HTTP-запроса.
+
+Usage нормализуется из фактического ответа провайдера в `inputTokens`,
+`outputTokens` и `totalTokens`. При отсутствии usage он равен `null` со статусом
+`missing`, а при частичных или невалидных данных — `null` со статусом `invalid`.
+Это не делает успешную генерацию ошибкой и не вычисляет токены самостоятельно.
+Hash system prompt служит воспроизводимым идентификатором: одинаковый точный
+текст даёт то же значение, изменение текста — другое. События записываются в
+stdout по одной строке и не содержат пользовательский ввод, готовую заявку,
+prompt, response body, API keys, `Authorization`, CAPTCHA token, cookies,
+полный набор headers или `process.env`.
 
 Пакет `llm` классифицирует контролируемые ошибки через
 `GenerationProviderUnavailableError` и его наследников
@@ -483,10 +495,12 @@ HTTP-ответ Responses API передаёт текст в блоках `outpu
 не зависит от SDK провайдера.
 
 Локальный benchmark вызывает тот же `OpenAiCompatibleGateway` напрямую, без
-Fastify, CAPTCHA, rate limiter и generation safeguard. Дополнительный внутренний
-метод transport возвращает тот же публичный outcome вместе с optional provider
-usage. Обычный `LlmGateway` и production-вызов используют прежний метод и не
-получают benchmark metadata.
+Fastify, CAPTCHA, rate limiter и generation safeguard. Дополнительный метод
+`generateRequestWithMetadata` сохраняет свой benchmark-контракт с optional
+provider usage.
+Production использует provider-independent metadata gateway, когда adapter его
+поддерживает, для безопасного terminal event без передачи prompt или
+пользовательских данных верхним слоям.
 
 Benchmark строит request body общим helper, поэтому сериализация input,
 production prompt, Structured Output schema, temperature и protocol-specific

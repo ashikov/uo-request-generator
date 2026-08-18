@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   COMMON_LEGAL_BASIS_BLOCK,
   PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS,
@@ -437,6 +438,10 @@ export function createRequestDraftSystemPrompt(
         : part,
     )
     .join("\n");
+}
+
+export function createRequestDraftSystemPromptHash(systemPrompt: string): string {
+  return `sha256:${createHash("sha256").update(systemPrompt).digest("hex")}`;
 }
 
 export const REQUEST_DRAFT_SYSTEM_PROMPT = createRequestDraftSystemPrompt(undefined);

@@ -9,7 +9,15 @@ export {
   type GenerateRequestInput,
   type GenerateRequestResult,
 } from "./contracts.js";
-export type { GenerateRequestOutcome, LlmGateway } from "./llm-gateway.js";
+export type {
+  GenerateRequestOutcome,
+  LlmGateway,
+  LlmGatewayGeneration,
+  LlmGenerationFailureStatus,
+  LlmGenerationMetadata,
+  LlmUsage,
+  LlmUsageStatus,
+} from "./llm-gateway.js";
 export {
   COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,

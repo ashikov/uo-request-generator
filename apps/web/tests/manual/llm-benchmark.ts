@@ -15,7 +15,6 @@ import {
   type LlmProviderUsage,
   OpenAiCompatibleGateway,
   type OpenAiCompatibleGatewayConfig,
-  type OpenAiCompatibleGeneration,
 } from "@uo-request-generator/llm";
 import { z } from "zod";
 import { scenarios, type TestScenario } from "../../../../packages/core/tests/fixtures.js";
@@ -95,8 +94,22 @@ type BenchmarkRunReport = {
   records: BenchmarkRequestRecord[];
 };
 
+type BenchmarkGeneration =
+  | {
+      status: "success";
+      outcome: GenerateRequestOutcome;
+      usage?: LlmProviderUsage;
+    }
+  | {
+      status: "failure";
+      error: "request failed" | "provider unavailable";
+      failureKind: "request" | "provider";
+      statusCode?: number;
+      usage?: LlmProviderUsage;
+    };
+
 type BenchmarkGateway = {
-  generateRequestWithMetadata(input: GenerateRequestInput): Promise<OpenAiCompatibleGeneration>;
+  generateRequestWithMetadata(input: GenerateRequestInput): Promise<BenchmarkGeneration>;
 };
 
 export type BenchmarkDependencies = {

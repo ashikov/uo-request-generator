@@ -15,6 +15,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { detailedEntranceDoorDraft } from "../../core/tests/primary-request-draft.fixtures.js";
 import {
+  createRequestDraftSystemPromptHash,
   createRequestDraftJsonSchema,
   createRequestDraftSystemPrompt,
   parseRequestDraft,
@@ -111,6 +112,17 @@ function createDraftAtBodyLength(bodyLength: number): GeneratedRequestDraft {
 }
 
 describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
+  it("создаёт стабильный hash точного system prompt", () => {
+    const prompt = createRequestDraftSystemPrompt("common_area_elevator");
+
+    expect(createRequestDraftSystemPromptHash(prompt)).toBe(
+      createRequestDraftSystemPromptHash(prompt),
+    );
+    expect(createRequestDraftSystemPromptHash(`${prompt} `)).not.toBe(
+      createRequestDraftSystemPromptHash(prompt),
+    );
+  });
+
   it("распределяет все входные роли", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("description — свободное описание ситуации");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("location — отдельно переданное место");
