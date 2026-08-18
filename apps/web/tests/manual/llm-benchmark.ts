@@ -196,6 +196,12 @@ const benchmarkProviderEnvironmentSchema = z.object({
   LLM_API_URL: z.url(),
   LLM_API_KEY: z.string().trim().min(1),
   LLM_AUTH_SCHEME: z.string().trim().min(1),
+  LLM_PROVIDER: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9][a-z0-9_-]*$/),
   LLM_FOLDER_ID: z.string().trim().min(1).optional(),
 });
 
@@ -452,14 +458,17 @@ function providerConfig(
   const result = benchmarkProviderEnvironmentSchema.safeParse(environment);
 
   if (!result.success) {
-    throw new BenchmarkInputError("Для paid run нужны LLM_API_URL, LLM_API_KEY и LLM_AUTH_SCHEME");
+    throw new BenchmarkInputError(
+      "Для paid run нужны LLM_API_URL, LLM_API_KEY, LLM_AUTH_SCHEME и LLM_PROVIDER",
+    );
   }
 
-  const { LLM_API_URL, LLM_API_KEY, LLM_AUTH_SCHEME, LLM_FOLDER_ID } = result.data;
+  const { LLM_API_URL, LLM_API_KEY, LLM_AUTH_SCHEME, LLM_FOLDER_ID, LLM_PROVIDER } = result.data;
   return {
     apiUrl: LLM_API_URL,
     apiKey: LLM_API_KEY,
     authScheme: LLM_AUTH_SCHEME,
+    provider: LLM_PROVIDER,
     ...(LLM_FOLDER_ID === undefined ? {} : { extraHeaders: { "x-folder-id": LLM_FOLDER_ID } }),
   };
 }

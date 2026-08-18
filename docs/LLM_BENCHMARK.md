@@ -41,8 +41,9 @@ Chat Completions benchmark отклоняется до provider request. Respons
 получает `max_output_tokens`.
 
 API key в benchmark config не хранится. Только для подтверждённого запуска
-нужны локальные `LLM_API_URL`, `LLM_API_KEY` и `LLM_AUTH_SCHEME`. Необязательный
-`LLM_FOLDER_ID` передаётся как существующий provider header. Plan mode не читает
+нужны локальные `LLM_API_URL`, `LLM_API_KEY`, `LLM_AUTH_SCHEME` и
+`LLM_PROVIDER`. Необязательный `LLM_FOLDER_ID` передаётся как существующий
+provider header. Plan mode не читает
 ключ и работает без provider network access, CAPTCHA, Fastify и deployment.
 `LLM_MODEL` не используется: список сравниваемых моделей берётся только из
 явного benchmark config.

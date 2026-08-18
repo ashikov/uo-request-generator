@@ -166,7 +166,7 @@ describe("структурированные события POST /api/generate",
 
   it("добавляет безопасные metadata LLM в terminal event успешной генерации", async () => {
     const llmMetadata = {
-      provider: "openai-compatible",
+      provider: "provider-alpha",
       model: "test-model-full-name",
       usage: { inputTokens: 101, outputTokens: 52, totalTokens: 153 },
       usageStatus: "available" as const,
@@ -194,6 +194,8 @@ describe("структурированные события POST /api/generate",
     );
     expect(events[1]).toMatchObject({ event: "generation_succeeded", llm: llmMetadata });
     expect(JSON.stringify(events)).not.toContain(validInput.description);
+    expect(JSON.stringify(events)).not.toContain("https://provider.example");
+    expect(JSON.stringify(events)).not.toContain("test-api-key");
   });
 
   it("сохраняет terminal event без usage провайдера", async () => {

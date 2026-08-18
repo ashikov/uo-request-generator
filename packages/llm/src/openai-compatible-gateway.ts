@@ -29,7 +29,7 @@ export type OpenAiCompatibleGatewayConfig = {
   model: string;
   authScheme: string;
   apiProtocol: LlmApiProtocol;
-  provider?: "openai-compatible" | "yandex";
+  provider: string;
   extraHeaders?: Record<string, string>;
   timeoutMs?: number;
   maxOutputTokens?: number;
@@ -441,7 +441,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
   private readonly apiUrl: string;
   private readonly apiKey: string;
   private readonly model: string;
-  private readonly provider: "openai-compatible" | "yandex";
+  private readonly provider: string;
   private readonly authScheme: string;
   private readonly apiProtocol: LlmApiProtocol;
   private readonly extraHeaders: Record<string, string>;
@@ -459,7 +459,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     this.apiUrl = config.apiUrl;
     this.apiKey = config.apiKey;
     this.model = config.model;
-    this.provider = config.provider ?? "openai-compatible";
+    this.provider = config.provider;
     this.authScheme = config.authScheme;
     this.apiProtocol = config.apiProtocol;
     this.extraHeaders = config.extraHeaders ?? {};
