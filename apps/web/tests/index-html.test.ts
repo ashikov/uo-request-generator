@@ -25,6 +25,18 @@ describe("публичная страница", () => {
     );
   });
 
+  it("ясно обозначает границу отправки заявки", async () => {
+    const html = await readFile(join(publicDirectory, "index.html"), "utf8");
+    const pageText = html.replace(/\s+/g, " ");
+
+    expect(html).toMatch(/<title>Заявка в управляющую организацию<\/title>/);
+    expect(html).toMatch(/<h1[^>]*>Заявка в управляющую организацию<\/h1>/);
+    expect(pageText).toContain(
+      "Сервис только подготавливает текст заявки и не отправляет её. Готовый текст нужно отправить в управляющую организацию самостоятельно.",
+    );
+    expect(html).not.toMatch(/<h1[^>]*>Заявка в УО<\/h1>/);
+  });
+
   it("содержит необязательные поля контекста с доступными подсказками и счётчиками", async () => {
     const html = await readFile(join(publicDirectory, "index.html"), "utf8");
 

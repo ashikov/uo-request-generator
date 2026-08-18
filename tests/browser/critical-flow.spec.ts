@@ -46,6 +46,14 @@ test("загружает начальное состояние и отправл
 
   await page.goto("/");
 
+  const submissionNotice = page.locator("#submission-notice");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Заявка в управляющую организацию" }),
+  ).toBeVisible();
+  await expect(submissionNotice).toHaveText(
+    "Сервис только подготавливает текст заявки и не отправляет её. Готовый текст нужно отправить в управляющую организацию самостоятельно.",
+  );
+  await expect(submissionNotice).toBeVisible();
   await expect(page.locator("#result-placeholder")).toHaveText(
     "Здесь появится результат после успешной генерации.",
   );
@@ -55,6 +63,11 @@ test("загружает начальное состояние и отправл
   await expect(page.locator("#consequences")).toBeEditable();
   await expect(page.locator("#desired-actions")).toBeEditable();
   await expect(page.locator("#confirmed-problem-subject")).toBeEnabled();
+  await expect(page.locator("#submit-button")).toBeEnabled();
+  await expectNoHorizontalDocumentOverflow(page);
+  await expectWithinViewportHorizontally(page, [
+    { name: "пояснение о самостоятельной отправке", locator: submissionNotice },
+  ]);
 
   await page.locator("#description").fill(requiredDescription);
   await page.locator("#submit-button").click();

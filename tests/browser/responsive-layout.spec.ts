@@ -58,6 +58,7 @@ async function expectCoreLayout(page: Page): Promise<void> {
     },
     { name: "основная кнопка", locator: page.locator("#submit-button") },
     { name: "область результата", locator: page.locator("#result-area") },
+    { name: "пояснение о самостоятельной отправке", locator: page.locator("#submission-notice") },
     {
       name: "служебное сообщение",
       locator: page.getByText("Проверьте готовую заявку перед отправкой", { exact: false }),
@@ -115,7 +116,13 @@ test("сохраняет layout-инварианты от формы до дли
 
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { level: 1, name: "Заявка в УО" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Заявка в управляющую организацию" }),
+  ).toBeVisible();
+  await expect(page.locator("#submission-notice")).toHaveText(
+    "Сервис только подготавливает текст заявки и не отправляет её. Готовый текст нужно отправить в управляющую организацию самостоятельно.",
+  );
+  await expect(page.locator("#submission-notice")).toBeVisible();
   await expect(page.locator("#request-form")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator("#captcha-notice")).toBeHidden();
 
