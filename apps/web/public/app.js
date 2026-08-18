@@ -37,6 +37,7 @@ export function initializeCaptcha() {
     "internal_error",
     "multiple_issues",
     "rate_limit_exceeded",
+    "request_too_large",
     "validation_error",
   ]);
   const generationResultLimits = {

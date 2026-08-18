@@ -852,6 +852,37 @@ describe("обработка ответа генерации в приложен
     );
   });
 
+  it("принимает request_too_large и показывает безопасное серверное сообщение", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 413,
+        json: () =>
+          Promise.resolve({
+            error: {
+              code: "request_too_large",
+              message: "Размер запроса превышает допустимый предел",
+              requestId: "test-request-too-large-request-id",
+            },
+          }),
+      }),
+    );
+    setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
+
+    submitForm();
+
+    await expectError("Размер запроса превышает допустимый предел");
+    expect(getErrorArea().textContent).not.toContain("request_too_large");
+    expect(getErrorArea().textContent).not.toContain("test-request-too-large-request-id");
+    expectFormValues(
+      initialDescription,
+      initialLocation,
+      initialConsequences,
+      initialDesiredActions,
+    );
+  });
+
   it("принимает generation_unavailable и показывает безопасное серверное сообщение", async () => {
     vi.stubGlobal(
       "fetch",
