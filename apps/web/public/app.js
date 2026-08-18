@@ -118,7 +118,7 @@ export function initializeCaptcha() {
     });
   }
 
-  function readErrorMessage(payload) {
+  function readApiError(payload) {
     if (
       typeof payload !== "object" ||
       payload === null ||
@@ -145,7 +145,7 @@ export function initializeCaptcha() {
       return undefined;
     }
 
-    return error.message;
+    return { message: error.message, requestId: error.requestId };
   }
 
   function isGenerationResult(payload) {
@@ -193,12 +193,18 @@ export function initializeCaptcha() {
     description.setAttribute("aria-describedby", descriptionDescribedBy);
   }
 
-  function renderError(message, hasDescriptionValidationError = false) {
+  function renderError(message, hasDescriptionValidationError = false, requestId) {
     clearDescriptionValidationError();
     if (hasDescriptionValidationError) {
       setDescriptionValidationError();
     }
     errorArea.textContent = message;
+    if (requestId !== undefined) {
+      const requestIdElement = document.createElement("div");
+      requestIdElement.className = "mt-1 small";
+      requestIdElement.textContent = `Код запроса: ${requestId}`;
+      errorArea.append(requestIdElement);
+    }
     errorArea.hidden = false;
     errorArea.focus();
   }
@@ -333,7 +339,12 @@ export function initializeCaptcha() {
           }
 
           if (!response.ok) {
-            renderError(readErrorMessage(payload) ?? "Не удалось составить заявку");
+            const apiError = readApiError(payload);
+            renderError(
+              apiError?.message ?? "Не удалось составить заявку",
+              false,
+              apiError?.requestId,
+            );
             return;
           }
 

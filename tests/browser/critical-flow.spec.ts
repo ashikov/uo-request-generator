@@ -400,7 +400,10 @@ test("сохраняет все введённые значения после �
 
   await page.locator("#submit-button").click();
 
-  await expect(page.locator("#error-area")).toHaveText(controlledServerErrorMessage);
+  await expect(page.locator("#error-area")).toContainText(controlledServerErrorMessage);
+  await expect(page.locator("#error-area")).toContainText(
+    "Код запроса: browser-server-error-request-id",
+  );
   await expect(page.locator("#error-area")).toBeFocused();
   await expect(page.locator("#description")).toHaveValue(fullFormValues.description);
   await expect(page.locator("#location")).toHaveValue(fullFormValues.location);

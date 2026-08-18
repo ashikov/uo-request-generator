@@ -269,7 +269,7 @@ function expectDescriptionDescribedBy(...expectedIds: string[]): void {
 
 async function expectError(message: string): Promise<void> {
   await vi.waitFor(() => {
-    expect(getErrorArea().textContent).toBe(message);
+    expect(getErrorArea().firstChild?.textContent).toBe(message);
     expect(getErrorArea().hidden).toBe(false);
     expect(getSubmitButton().disabled).toBe(false);
     expect(getSubmitButton().textContent).toBe("Составить заявку");
@@ -638,6 +638,7 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Описание должно содержать не менее 10 символов");
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(getErrorArea().textContent).not.toContain("Код запроса:");
     expectFormValues("Коротко", initialLocation, initialConsequences, initialDesiredActions);
     expect(getDescription().getAttribute("aria-invalid")).toBe("true");
     expectDescriptionDescribedBy("description-hint", "description-count", "error-area");
@@ -700,6 +701,7 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Не удалось связаться с сервисом. Попробуйте позже");
     expect(getErrorArea().textContent).not.toContain("некорректный ответ");
+    expect(getErrorArea().textContent).not.toContain("Код запроса:");
     expect(getDescription().getAttribute("aria-invalid")).toBeNull();
     expectDescriptionDescribedBy("description-hint", "description-count");
     expectFormValues(
@@ -710,7 +712,7 @@ describe("обработка ответа генерации в приложен
     );
   });
 
-  it("показывает контролируемое сообщение API и не раскрывает его служебные поля", async () => {
+  it("показывает контролируемое сообщение API с полным кодом запроса", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -731,7 +733,7 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Проверьте формат и содержание запроса");
     expect(getErrorArea().textContent).not.toContain("validation_error");
-    expect(getErrorArea().textContent).not.toContain("test-request-id");
+    expect(getErrorArea().textContent).toContain("Код запроса: test-request-id");
     expect(getDescription().getAttribute("aria-invalid")).toBeNull();
     expectDescriptionDescribedBy("description-hint", "description-count");
     expectFormValues(
@@ -802,7 +804,7 @@ describe("обработка ответа генерации в приложен
     expect(document.querySelector("#result-area p")?.id).toBe("result-placeholder");
     expect(getCopyButton()).toBeNull();
     expect(getErrorArea().textContent).not.toContain("multiple_issues");
-    expect(getErrorArea().textContent).not.toContain("test-multiple-issues-request-id");
+    expect(getErrorArea().textContent).toContain("Код запроса: test-multiple-issues-request-id");
 
     setFormValues(
       "На детской площадке сломаны качели и торчат острые болты",
@@ -818,6 +820,7 @@ describe("обработка ответа генерации в приложен
       expect(getSubmitButton().disabled).toBe(false);
       expect(getForm().getAttribute("aria-busy")).toBe("false");
     });
+    expect(getErrorArea().textContent).not.toContain("test-multiple-issues-request-id");
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -843,7 +846,7 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Слишком много запросов. Попробуйте позже");
     expect(getErrorArea().textContent).not.toContain("rate_limit_exceeded");
-    expect(getErrorArea().textContent).not.toContain("test-rate-limit-request-id");
+    expect(getErrorArea().textContent).toContain("Код запроса: test-rate-limit-request-id");
     expectFormValues(
       initialDescription,
       initialLocation,
@@ -874,7 +877,7 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Размер запроса превышает допустимый предел");
     expect(getErrorArea().textContent).not.toContain("request_too_large");
-    expect(getErrorArea().textContent).not.toContain("test-request-too-large-request-id");
+    expect(getErrorArea().textContent).toContain("Код запроса: test-request-too-large-request-id");
     expectFormValues(
       initialDescription,
       initialLocation,
@@ -904,7 +907,9 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Генерация временно недоступна. Попробуйте позже");
     expect(getErrorArea().textContent).not.toContain("generation_unavailable");
-    expect(getErrorArea().textContent).not.toContain("test-generation-unavailable-request-id");
+    expect(getErrorArea().textContent).toContain(
+      "Код запроса: test-generation-unavailable-request-id",
+    );
     expectFormValues(
       initialDescription,
       initialLocation,
@@ -915,25 +920,46 @@ describe("обработка ответа генерации в приложен
 
   it("заменяет некорректную ошибку API безопасным общим сообщением", async () => {
     const internalMessage = "Внутренняя диагностическая строка";
+    const requestId = "test-previous-request-id";
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        json: () =>
-          Promise.resolve({
-            error: {
-              code: "unexpected_error",
-              message: internalMessage,
-            },
-          }),
-      }),
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () =>
+            Promise.resolve({
+              error: {
+                code: "validation_error",
+                message: "Проверьте формат и содержание запроса",
+                requestId,
+              },
+            }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () =>
+            Promise.resolve({
+              error: {
+                code: "validation_error",
+                message: internalMessage,
+              },
+            }),
+        }),
     );
     setFormValues(initialDescription, initialLocation, initialConsequences, initialDesiredActions);
 
     submitForm();
 
+    await expectError("Проверьте формат и содержание запроса");
+    expect(getErrorArea().textContent).toContain(`Код запроса: ${requestId}`);
+
+    submitForm();
+
     await expectError("Не удалось составить заявку");
     expect(getErrorArea().textContent).not.toContain(internalMessage);
+    expect(getErrorArea().textContent).not.toContain("Код запроса:");
+    expect(getErrorArea().textContent).not.toContain(requestId);
     expectFormValues(
       initialDescription,
       initialLocation,
@@ -956,6 +982,7 @@ describe("обработка ответа генерации в приложен
 
     await expectError("Сервис вернул некорректный ответ. Попробуйте позже");
     expect(getErrorArea().textContent).not.toContain("Не удалось связаться с сервисом");
+    expect(getErrorArea().textContent).not.toContain("Код запроса:");
     expectFormValues(
       initialDescription,
       initialLocation,
