@@ -22,13 +22,14 @@ export type GenerationRejectedEvent = {
   timestamp: string;
   status:
     | "validation_error"
+    | "request_too_large"
     | "multiple_issues"
     | "rate_limited"
     | "captcha_failed"
     | "captcha_unavailable"
     | "generation_unavailable";
   durationMs: number;
-  httpStatus: 400 | 429 | 500 | 503;
+  httpStatus: 400 | 413 | 429 | 500 | 503;
   llm?: LlmGenerationMetadata;
 };
 
@@ -43,7 +44,7 @@ export type GenerationFailedEvent = {
     | "invalid_response"
     | "internal_error";
   durationMs: number;
-  httpStatus: 400 | 429 | 500 | 503;
+  httpStatus: 400 | 413 | 429 | 500 | 503;
   llm?: LlmGenerationMetadata;
 };
 

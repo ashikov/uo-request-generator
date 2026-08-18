@@ -142,6 +142,13 @@ CAPTCHA. Затем общий предохранитель атомарно д�
 проверенный или явно отключённый CAPTCHA-режим с допуском предохранителя вызывает
 `LlmGateway`.
 
+До JSON parsing маршрут применяет встроенный Fastify `bodyLimit` в 45 635 байт.
+Граница складывается из максимальной длины всех входных полей, самого длинного
+`confirmedProblemSubject`, максимального CAPTCHA-токена, шести байт на один
+UTF-16 code unit при JSON escaping, фактической структуры JSON и служебного
+запаса 2 048 байт. Превышение возвращает безопасный HTTP 413 с кодом
+`request_too_large` до limiter, CAPTCHA, общего предохранителя и LLM.
+
 `LlmGateway.generateRequest()` возвращает типизированный outcome. Ветка
 `generated` содержит существующий `GenerateRequestResult`, а
 `multiple_issues` сообщает, что во вводе несколько самостоятельных несвязанных
@@ -151,7 +158,9 @@ CAPTCHA. Затем общий предохранитель атомарно д�
 Порядок реализованных проверок:
 
 ```text
-валидация входных данных
+transport body limit
+→ JSON parsing
+→ валидация входных данных
 → клиентские лимиты
 → серверная проверка CAPTCHA
 → общий предохранитель LLM-вызовов
@@ -179,8 +188,8 @@ route `errorHandler` используют один контекст, включ�
 итоговую JSON-строку с тем же `requestId`:
 
 - `generation_succeeded` со статусом `generated`
-- `generation_rejected` со статусом `validation_error`, `multiple_issues`,
-  `rate_limited`, `captcha_failed`, `captcha_unavailable` или
+- `generation_rejected` со статусом `request_too_large`, `validation_error`,
+  `multiple_issues`, `rate_limited`, `captcha_failed`, `captcha_unavailable` или
   `generation_unavailable`
 - `generation_failed` со статусом `provider_unavailable`, `timeout`,
   `network_error`, `invalid_response` или `internal_error`

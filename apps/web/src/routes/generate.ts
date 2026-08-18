@@ -18,7 +18,10 @@ import type {
   GenerationFailedEvent,
   GenerationRejectedEvent,
 } from "../generation-log.js";
-import { generateHttpRequestSchema } from "../generation-http-contract.js";
+import {
+  generateHttpRequestSchema,
+  generateRequestBodyLimitBytes,
+} from "../generation-http-contract.js";
 import type { GenerationRateLimiter } from "../generation-rate-limiter.js";
 import type { GenerationSafeguard } from "../generation-safeguard.js";
 import type { SmartCaptchaConfig } from "../smartcaptcha-config.js";
@@ -32,12 +35,13 @@ type ApiErrorCode =
   | "internal_error"
   | "multiple_issues"
   | "rate_limit_exceeded"
+  | "request_too_large"
   | "validation_error";
 
 type ApiError = {
   code: ApiErrorCode;
   message: string;
-  statusCode: 400 | 429 | 500 | 503;
+  statusCode: 400 | 413 | 429 | 500 | 503;
 };
 
 type GenerationRequestContext = {
@@ -66,6 +70,12 @@ const validationApiError: ApiError = {
   code: "validation_error",
   message: "Проверьте формат и содержание запроса",
   statusCode: 400,
+};
+
+const requestTooLargeApiError: ApiError = {
+  code: "request_too_large",
+  message: "Размер запроса превышает допустимый предел",
+  statusCode: 413,
 };
 
 const providerUnavailableApiError: ApiError = {
@@ -137,7 +147,7 @@ function ensureGenerationContext(
 function writeTerminalEvent(
   context: GenerationRequestContext,
   terminalStatus: GenerationTerminalStatus,
-  httpStatus: 400 | 429 | 500 | 503,
+  httpStatus: 400 | 413 | 429 | 500 | 503,
   writeGenerationEvent: GenerationEventWriter,
   llmMetadata?: LlmGenerationMetadata,
 ): void {
@@ -319,12 +329,23 @@ export function registerGenerateRoute(
   app.post(
     "/api/generate",
     {
+      bodyLimit: generateRequestBodyLimitBytes,
       onRequest(request, reply, done) {
         ensureGenerationContext(request, reply, options.writeGenerationEvent);
         done();
       },
       errorHandler(error, request, reply) {
         const context = ensureGenerationContext(request, reply, options.writeGenerationEvent);
+
+        if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") {
+          return sendApiErrorWithEvent(
+            reply,
+            requestTooLargeApiError,
+            context,
+            { event: "generation_rejected", status: "request_too_large" },
+            options.writeGenerationEvent,
+          );
+        }
 
         // Fastify отклоняет некорректный JSON до вызова основного обработчика.
         if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY") {
