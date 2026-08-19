@@ -253,7 +253,7 @@ describe("LLM benchmark", () => {
     };
     const runtime = dependencies({
       readFile: vi.fn().mockResolvedValue(JSON.stringify(configWithoutPrice)),
-      confirm: vi.fn().mockResolvedValue("RUN 13"),
+      confirm: vi.fn().mockResolvedValue("RUN 14"),
     });
 
     await expect(runLlmBenchmark(["--config", CONFIG_PATH, "--run"], runtime)).resolves.toBe(1);
@@ -511,7 +511,7 @@ describe("LLM benchmark", () => {
 
     expect(selected).toEqual(scenarios);
     expect(selected[0]).toBe(scenarios[0]);
-    expect(selected).toHaveLength(13);
+    expect(selected).toHaveLength(14);
   });
 
   it("исключает local config и report directory из Git", () => {

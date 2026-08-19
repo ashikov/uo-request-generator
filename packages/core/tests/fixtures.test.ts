@@ -11,6 +11,7 @@ const REQUIRED_CATEGORIES: ScenarioCategory[] = [
   "emotional_description",
   "wording_normalization",
   "minimum_sufficient_requests",
+  "location_action_deduplication",
   "simple_defect",
   "location_preservation",
   "conflicting_location",
@@ -82,8 +83,8 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("покрывает безопасное смысловое и процедурное обогащение без роста набора", () => {
-    expect(scenarios).toHaveLength(13);
+  it("покрывает безопасное смысловое и процедурное обогащение", () => {
+    expect(scenarios).toHaveLength(14);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
@@ -142,6 +143,41 @@ describe("test scenario fixtures", () => {
       expect.arrayContaining(["необоснованное практическое значение или риск"]),
     );
   });
+
+  it("фиксирует смысловой контракт места без механического повтора в действиях", () => {
+    const scenario = scenarios.find(({ id }) => id === "location-action-deduplication");
+
+    expect(scenario?.input.description).toBe(
+      "С потолка в общем коридоре капает вода. Источник протечки неизвестен.",
+    );
+    expect(scenario?.input.location).toBe("подъезд 2, этаж 5");
+    expect(scenario?.input.confirmedProblemSubject).toBeUndefined();
+    expect(scenario?.expectedOutcome).toBe("generated");
+
+    if (scenario?.expectedOutcome !== "generated") {
+      throw new Error("Ожидался generated-сценарий устранения повтора места");
+    }
+
+    expect(scenario.expectWarning).toBe(false);
+    expect(scenario.mustPreserveFacts).toEqual(
+      expect.arrayContaining([
+        "с потолка в общем коридоре капает вода",
+        "источник протечки неизвестен",
+        "место проблемы: подъезд 2, этаж 5",
+        "минимальный и понятный план действий по устранению протечки",
+        "место не повторяется механически в каждом пункте раздела «Прошу:»",
+        "одно необходимое упоминание места допустимо, если оно различает действие или объект",
+      ]),
+    );
+    expect(scenario.mustNotInvent).toEqual(
+      expect.arrayContaining([
+        "крыша как источник протечки",
+        "труба как источник протечки",
+        "квартира как источник протечки",
+        "другой конкретный источник протечки",
+      ]),
+    );
+  });
 });
 
 const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] }> = {
@@ -176,6 +212,10 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
   minimum_sufficient_requests: {
     present: ["description"],
     absent: ["location", "consequences", "desiredActions", "confirmedProblemSubject"],
+  },
+  location_action_deduplication: {
+    present: ["description", "location"],
+    absent: ["consequences", "desiredActions", "confirmedProblemSubject"],
   },
   simple_defect: {
     present: ["description"],
