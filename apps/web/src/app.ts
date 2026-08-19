@@ -5,17 +5,21 @@ import fastifyStatic from "@fastify/static";
 import type { LlmGateway } from "@uo-request-generator/core";
 import { DisabledLlmGateway } from "@uo-request-generator/llm";
 import Fastify, { type FastifyInstance } from "fastify";
-import { type GenerationEventWriter, writeGenerationEventToStdout } from "./generation-log.js";
+import {
+  createFailSafeGenerationEventWriter,
+  type GenerationEventWriter,
+  writeGenerationEventToStdout,
+} from "./generation-log.js";
 import {
   createGenerationRateLimitConfig,
   type GenerationRateLimitConfig,
 } from "./generation-rate-limit-config.js";
 import { GenerationRateLimiter } from "./generation-rate-limiter.js";
+import { GenerationSafeguard } from "./generation-safeguard.js";
 import {
   createGenerationSafeguardConfig,
   type GenerationSafeguardConfig,
 } from "./generation-safeguard-config.js";
-import { GenerationSafeguard } from "./generation-safeguard.js";
 import { registerCaptchaConfigRoute } from "./routes/captcha-config.js";
 import { registerGenerateRoute } from "./routes/generate.js";
 import { registerHealthRoute } from "./routes/health.js";
@@ -83,7 +87,9 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     (smartCaptchaConfig.mode === "required"
       ? new SmartCaptchaVerifier({ serverKey: smartCaptchaConfig.serverKey })
       : undefined);
-  const writeGenerationEvent = options.writeGenerationEvent ?? writeGenerationEventToStdout;
+  const writeGenerationEvent = createFailSafeGenerationEventWriter(
+    options.writeGenerationEvent ?? writeGenerationEventToStdout,
+  );
 
   app.register(fastifyCookie, {
     secret: generationRateLimitConfig.cookieSecret,
