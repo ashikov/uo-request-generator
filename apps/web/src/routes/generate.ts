@@ -48,7 +48,7 @@ type ApiError = {
 type GenerationRequestContext = {
   requestId: string;
   startedAt: number;
-  terminalEventWritten: boolean;
+  terminalEventAttempted: boolean;
 };
 
 type GenerationTerminalStatus =
@@ -139,7 +139,7 @@ function ensureGenerationContext(
   const context: GenerationRequestContext = {
     requestId: randomUUID(),
     startedAt: performance.now(),
-    terminalEventWritten: false,
+    terminalEventAttempted: false,
   };
   request.generationContext = context;
   reply.header("x-request-id", context.requestId);
@@ -158,11 +158,11 @@ function writeTerminalEvent(
   writeGenerationEvent: GenerationEventWriter,
   llmMetadata?: LlmGenerationMetadata,
 ): void {
-  if (context.terminalEventWritten) {
+  if (context.terminalEventAttempted) {
     return;
   }
 
-  context.terminalEventWritten = true;
+  context.terminalEventAttempted = true;
   const eventDetails = {
     requestId: context.requestId,
     timestamp: new Date().toISOString(),
@@ -187,11 +187,11 @@ function writeSuccessEvent(
   writeGenerationEvent: GenerationEventWriter,
   llmMetadata?: LlmGenerationMetadata,
 ): void {
-  if (context.terminalEventWritten) {
+  if (context.terminalEventAttempted) {
     return;
   }
 
-  context.terminalEventWritten = true;
+  context.terminalEventAttempted = true;
   writeGenerationEvent({
     event: "generation_succeeded",
     requestId: context.requestId,

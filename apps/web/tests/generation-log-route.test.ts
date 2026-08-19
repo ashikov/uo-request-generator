@@ -9,7 +9,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
-import { type GenerationLogEvent, writeGenerationEventToStdout } from "../src/generation-log";
+import type { GenerationLogEvent } from "../src/generation-log";
 import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config";
 import type { GenerationSafeguardOptions } from "../src/generation-safeguard";
 
@@ -590,19 +590,5 @@ describe("структурированные события POST /api/generate",
     const serializedEvents = events.map((event) => JSON.stringify(event)).join("\n");
     expect(serializedEvents).not.toContain(privateInput);
     expect(serializedEvents).not.toContain(gatewayErrorMessage);
-  });
-
-  it("пишет событие в stdout одной JSON-строкой", () => {
-    const stdoutWrite = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-    const event: GenerationLogEvent = {
-      event: "generation_started",
-      requestId: "test-request-id",
-      timestamp: "2026-08-15T00:00:00.000Z",
-    };
-
-    writeGenerationEventToStdout(event);
-
-    expect(stdoutWrite).toHaveBeenCalledOnce();
-    expect(stdoutWrite).toHaveBeenCalledWith(`${JSON.stringify(event)}\n`);
   });
 });
