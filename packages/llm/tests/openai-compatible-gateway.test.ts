@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
 } from "@uo-request-generator/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createOpenAiCompatibleRequestBody,
   GenerationInvalidResponseError,
@@ -770,6 +771,55 @@ describe("OpenAiCompatibleGateway", () => {
     }
     expect(result.result.body).toContain(COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0]);
     expect(result.result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("добавляет cleaning module ровно один раз для подтверждённого синтетического subject", async () => {
+    const description = "В подъезде грязно, уборка не проводится около двух недель.";
+    const location = "первый подъезд";
+    const desiredActions = "Обеспечить регулярную уборку помещения общего пользования.";
+    const paragraph = COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.paragraphs[0];
+    const draft = {
+      outcome: "generated",
+      title: "Не проводится уборка в подъезде",
+      problem: "В первом подъезде около двух недель не проводится уборка.",
+      circumstances: null,
+      impact: null,
+      verification: null,
+      subject: {
+        kind: "common_area_premises_cleaning",
+        evidence: [
+          { sourceField: "description", quote: description },
+          { sourceField: "location", quote: location },
+        ],
+      },
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: [desiredActions],
+        resultCheck: null,
+      },
+      warnings: [],
+    };
+    const mockFetch = createMockFetch(createLlmText(draft));
+
+    const result = await createGateway().generateRequest({
+      description,
+      location,
+      desiredActions,
+      confirmedProblemSubject: "common_area_premises_cleaning",
+    });
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body.split(paragraph)).toHaveLength(2);
+    expect(result.result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK)).toBeLessThan(
+      result.result.body.indexOf(paragraph),
+    );
+    expect(result.result.body.indexOf(paragraph)).toBeLessThan(
+      result.result.body.indexOf("Прошу:"),
+    );
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 

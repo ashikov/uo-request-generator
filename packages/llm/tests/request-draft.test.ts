@@ -6,23 +6,24 @@ import {
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
+  CONFIRMED_PROBLEM_SUBJECT_KINDS,
   generateRequestLimits,
-  primaryRequestLegalBasisLimits,
-  primaryRequestDraftLimits,
-  renderPrimaryRequestDraft,
   type PrimaryRequestDraft,
+  primaryRequestDraftLimits,
+  primaryRequestLegalBasisLimits,
+  renderPrimaryRequestDraft,
 } from "@uo-request-generator/core";
 import { describe, expect, it } from "vitest";
 import { detailedEntranceDoorDraft } from "../../core/tests/primary-request-draft.fixtures.js";
 import {
-  createRequestDraftSystemPromptHash,
   createRequestDraftJsonSchema,
   createRequestDraftSystemPrompt,
+  createRequestDraftSystemPromptHash,
+  type GeneratedRequestDraft,
   parseRequestDraft,
   REQUEST_DRAFT_DYNAMIC_BODY_MAX,
   REQUEST_DRAFT_JSON_SCHEMA,
   REQUEST_DRAFT_SYSTEM_PROMPT,
-  type GeneratedRequestDraft,
   type RequestDraft,
 } from "../src/request-draft.js";
 
@@ -399,6 +400,24 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(prompt).not.toContain(ROOF_SUBJECT_RULE);
     expect(prompt).not.toContain(VENTILATION_SUBJECT_RULE);
     expect(prompt).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+  });
+
+  it("закрепляет регрессию контракта обязательного subject при достаточном evidence", () => {
+    const subjectRequiredWhenEvidenceSufficientMarker =
+      "<subject-required-when-evidence-sufficient>";
+
+    for (const selectedSubjectKind of CONFIRMED_PROBLEM_SUBJECT_KINDS) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+
+      expect([
+        ...prompt.matchAll(new RegExp(subjectRequiredWhenEvidenceSufficientMarker, "g")),
+      ]).toHaveLength(1);
+    }
+    expect([
+      ...createRequestDraftSystemPrompt(undefined).matchAll(
+        new RegExp(subjectRequiredWhenEvidenceSufficientMarker, "g"),
+      ),
+    ]).toHaveLength(0);
   });
 
   it.each([

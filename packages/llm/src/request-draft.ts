@@ -1,16 +1,18 @@
 import { createHash } from "node:crypto";
 import {
   COMMON_LEGAL_BASIS_BLOCK,
+  type ConfirmedProblemSubject,
   PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS,
-  primaryRequestLegalBasisLimits,
-  primaryRequestSubjectLimits,
   primaryRequestDraftLimits,
   primaryRequestDraftSchema,
-  type ConfirmedProblemSubject,
+  primaryRequestLegalBasisLimits,
+  primaryRequestSubjectLimits,
 } from "@uo-request-generator/core";
 import { z } from "zod";
 import { GenerationInvalidResponseError } from "./generation-error.js";
+
 const REQUEST_BODY_SECTION_SEPARATOR = "\n\n";
+
 export { COMMON_LEGAL_BASIS_BLOCK };
 
 export const REQUEST_DRAFT_RESPONSE_FORMAT_NAME = "request_draft";
@@ -326,7 +328,7 @@ function createRequestDraftSubjectPromptRules(
     subjectRules[0],
     "- subject.evidence содержит от одного до двух дословных непрерывных фрагментов исходных description, location, consequences или desiredActions; для каждого фрагмента укажи sourceField и quote, скопированный без перефразирования, изменения регистра или пунктуации",
     subjectRules[1],
-    "- если исходный ввод не содержит достаточных дословных фрагментов для выбранного kind, укажи subject: null; не выводи принадлежность предмета к общему имуществу только из собственной категории или перефразирования",
+    "<subject-required-when-evidence-sufficient> Если предметные условия выбранного kind прямо и непротиворечиво выполнены во входе и есть достаточные дословные фрагменты исходных полей, соответствующие требованиям evidence, обязательно укажи непустой subject с выбранным kind и evidence. Во всех остальных случаях укажи subject: null. Сам по себе выбор пользователя не подтверждает subject.",
   ];
 }
 
