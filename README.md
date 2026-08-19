@@ -443,8 +443,9 @@ assertions. Обычный `pnpm check` типизирует browser-тесты,
 
 ## Логи
 
-Для каждого `POST /api/generate` приложение пишет в stdout событие
-`generation_started` и ровно одно итоговое событие в виде отдельных JSON-строк.
+Для каждого `POST /api/generate` приложение выполняет попытку записи в stdout
+события `generation_started` и ровно одного итогового события в виде отдельных
+JSON-строк.
 Один `requestId` связывает весь путь запроса, возвращается клиенту в заголовке
 `x-request-id` и входит в безопасный API error response.
 
