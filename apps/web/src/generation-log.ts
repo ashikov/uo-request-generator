@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { LlmGenerationMetadata } from "@uo-request-generator/core";
 
 export type GenerationStartedEvent = {
@@ -54,8 +55,40 @@ export type GenerationLogEvent =
   | GenerationRejectedEvent
   | GenerationFailedEvent;
 
-export type GenerationEventWriter = (event: GenerationLogEvent) => void;
+export type GenerationEventWriter = (event: GenerationLogEvent) => undefined;
 
-export function writeGenerationEventToStdout(event: GenerationLogEvent): void {
-  process.stdout.write(`${JSON.stringify(event)}\n`);
+function writeLine(fileDescriptor: 1 | 2, line: string): void {
+  const bytesWritten = fs.writeSync(fileDescriptor, line);
+  if (bytesWritten !== Buffer.byteLength(line)) {
+    throw new RangeError("Incomplete generation log write");
+  }
+}
+
+export function writeGenerationEventToStdout(event: GenerationLogEvent): undefined {
+  writeLine(1, `${JSON.stringify(event)}\n`);
+  return undefined;
+}
+
+export function createFailSafeGenerationEventWriter(
+  writer: GenerationEventWriter,
+): GenerationEventWriter {
+  return (event) => {
+    try {
+      writer(event);
+    } catch {
+      try {
+        writeLine(
+          2,
+          `${JSON.stringify({
+            event: "generation_event_write_failed",
+            requestId: event.requestId,
+            failedEvent: event.event,
+          })}\n`,
+        );
+      } catch {
+        // Сбой stderr не должен менять исход запроса.
+        return;
+      }
+    }
+  };
 }

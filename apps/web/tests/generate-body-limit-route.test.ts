@@ -67,7 +67,9 @@ function createObservedApp() {
       serverKey: "test-server-key",
     },
     smartCaptchaVerifier: { verify: captchaVerify },
-    writeGenerationEvent: (event) => events.push(event),
+    writeGenerationEvent: (event) => {
+      events.push(event);
+    },
   });
   apps.push(app);
 
