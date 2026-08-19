@@ -9,6 +9,7 @@ export type ScenarioCategory =
   | "emotional_description"
   | "wording_normalization"
   | "minimum_sufficient_requests"
+  | "location_action_deduplication"
   | "simple_defect"
   | "location_preservation"
   | "conflicting_location"
@@ -206,6 +207,30 @@ export const scenarios: TestScenario[] = [
       "квартира как источник протечки",
       "повреждение или ремонт потолка",
       "плесень, короткое замыкание или разрушение конструкций",
+    ],
+    expectWarning: false,
+  },
+  {
+    id: "location-action-deduplication",
+    category: "location_action_deduplication",
+    expectedOutcome: "generated",
+    input: {
+      description: "С потолка в общем коридоре капает вода. Источник протечки неизвестен.",
+      location: "подъезд 2, этаж 5",
+    },
+    mustPreserveFacts: [
+      "с потолка в общем коридоре капает вода",
+      "источник протечки неизвестен",
+      "место проблемы: подъезд 2, этаж 5",
+      "минимальный и понятный план действий по устранению протечки",
+      "место не повторяется механически в каждом пункте раздела «Прошу:»",
+      "одно необходимое упоминание места допустимо, если оно различает действие или объект",
+    ],
+    mustNotInvent: [
+      "крыша как источник протечки",
+      "труба как источник протечки",
+      "квартира как источник протечки",
+      "другой конкретный источник протечки",
     ],
     expectWarning: false,
   },

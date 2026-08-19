@@ -420,6 +420,23 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     ]).toHaveLength(0);
   });
 
+  it("закрепляет регрессию контракта ответственности location между problem и actionPlan", () => {
+    const actionPlanLocationResponsibilityMarker =
+      '<action-plan-location-responsibility general-location-role="problem" action-location-reuse="distinct-target-or-action-only">';
+
+    for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+
+      expect([
+        ...prompt.matchAll(new RegExp(actionPlanLocationResponsibilityMarker, "g")),
+      ]).toHaveLength(1);
+      expect(prompt).toContain("Общее место остаётся в problem");
+      expect(prompt).toContain("не дублируется механически в каждом пункте actionPlan");
+      expect(prompt).toContain("только если без этого нельзя отличить");
+      expect(prompt).toContain("конкретный объект или действие");
+    }
+  });
+
   it.each([
     [
       undefined,

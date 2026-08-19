@@ -407,6 +407,7 @@ const requestDraftSystemPromptParts = [
   "- Не требуй resultCheck для каждой заявки",
   "- Не создавай для очевидного дефекта искусственную цепочку осмотр → диагностика → ремонт → проверка",
   "- Для простого очевидного дефекта не добавляй диагностику причины и другие этапы только ради объёма",
+  '<action-plan-location-responsibility general-location-role="problem" action-location-reuse="distinct-target-or-action-only"> Общее место остаётся в problem и не дублируется механически в каждом пункте actionPlan. Упомяни место в пункте actionPlan только если без этого нельзя отличить конкретный объект или действие от другого.',
   `- Количество определяется содержанием: preliminaryCheck + remedyActions.length + resultCheck не должно превышать ${primaryRequestDraftLimits.actionPlan.itemsMax}; не заполняй procedural plan до пяти пунктов искусственно`,
   "",
   "Формулируй problem, circumstances, impact и verification как грамотные законченные русские предложения. Начинай их с прописной буквы, используй естественную пунктуацию и подходящий завершающий знак. Не копируй разговорный текст дословно, если его можно нормализовать без изменения фактов.",
