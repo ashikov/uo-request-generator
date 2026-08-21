@@ -28,6 +28,12 @@ type ClientDailyUsage = {
   attempts: number;
 };
 
+const utcDayDurationMs = 86_400_000;
+
+export function nextUtcDayBoundary(timestamp: number): number {
+  return startOfUtcDay(timestamp) + utcDayDurationMs;
+}
+
 export class GenerationRateLimiter {
   readonly #options: GenerationRateLimiterOptions;
   readonly #now: () => number;
@@ -61,7 +67,7 @@ export class GenerationRateLimiter {
       clientDailyUsage !== undefined &&
       clientDailyUsage.attempts >= this.#options.clientDailyLimit
     ) {
-      retryAfterCandidates.push(utcDayStart + 86_400_000 - now);
+      retryAfterCandidates.push(nextUtcDayBoundary(now) - now);
     }
 
     const hasActiveClient = this.#activeClients.has(attempt.clientId);

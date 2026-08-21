@@ -73,12 +73,46 @@ function cookieHeaderFrom(response: { headers: Record<string, unknown> }): strin
     throw new Error("Expected a Set-Cookie response header");
   }
 
-  const cookieHeader = serializedCookie.split(";")[0];
-  if (cookieHeader === undefined) {
+  return cookiePairFrom(serializedCookie);
+}
+
+function cookiePairFrom(serializedCookie: string): string {
+  const cookiePair = serializedCookie.split(";")[0];
+  if (cookiePair === undefined) {
     throw new Error("Expected a serialized cookie");
   }
 
+  return cookiePair;
+}
+
+function cookieHeadersFrom(response: { headers: Record<string, unknown> }): string[] {
+  const setCookie = response.headers["set-cookie"];
+  if (typeof setCookie === "string") {
+    return [setCookie];
+  }
+  if (Array.isArray(setCookie) && setCookie.every((header) => typeof header === "string")) {
+    return setCookie;
+  }
+
+  throw new Error("Expected Set-Cookie response headers");
+}
+
+function cookieHeaderWithPath(cookieHeaders: string[], path: string): string {
+  const cookieHeader = cookieHeaders.find((header) => header.includes(`Path=${path};`));
+  if (cookieHeader === undefined) {
+    throw new Error(`Expected a Set-Cookie header with Path=${path}`);
+  }
+
   return cookieHeader;
+}
+
+function cookieMaxAgeSeconds(cookieHeader: string): number {
+  const maxAge = /Max-Age=(\d+)/.exec(cookieHeader)?.[1];
+  if (maxAge === undefined) {
+    throw new Error("Expected a Set-Cookie Max-Age attribute");
+  }
+
+  return Number(maxAge);
 }
 
 function signedCookieHeader(app: FastifyInstance, clientId: string): string {
@@ -331,9 +365,11 @@ describe("лимиты POST /api/generate", () => {
 });
 
 describe("подписанная техническая cookie", () => {
-  it("выдаёт новому клиенту подписанный UUID с безопасными атрибутами", async () => {
+  it("выдаёт новому клиенту подписанный UUID с scoped cookie и безопасными атрибутами", async () => {
+    const now = Date.UTC(2026, 6, 27, 12);
     const app = registerApp({
       generateGenerationClientId: () => clientIds.first,
+      generationRateLimiterNow: () => now,
     });
 
     const response = await injectGenerate(app, {
@@ -351,12 +387,13 @@ describe("подписанная техническая cookie", () => {
     });
     expect(serializedCookie).toContain("HttpOnly");
     expect(serializedCookie).toContain("SameSite=Strict");
-    expect(serializedCookie).toContain("Path=/");
-    expect(serializedCookie).toContain("Max-Age=31536000");
+    expect(serializedCookie).toContain("Path=/api/generate");
+    expect(serializedCookie).not.toContain("Path=/;");
+    expect(serializedCookie).toContain("Max-Age=43200");
     expect(serializedCookie).not.toContain("Secure");
   });
 
-  it("повторно использует корректно подписанную cookie", async () => {
+  it("переустанавливает корректно подписанную cookie в scoped path", async () => {
     const generateClientId = vi.fn().mockReturnValue(clientIds.first);
     const app = registerApp({ generateGenerationClientId: generateClientId });
 
@@ -366,8 +403,75 @@ describe("подписанная техническая cookie", () => {
     });
 
     expect(secondResponse.statusCode).toBe(200);
-    expect(secondResponse.headers["set-cookie"]).toBeUndefined();
+    expect(cookieHeaderWithPath(cookieHeadersFrom(secondResponse), "/api/generate")).toContain(
+      "HttpOnly",
+    );
     expect(generateClientId).toHaveBeenCalledOnce();
+  });
+
+  it("сохраняет valid legacy UUID, удаляет root cookie и не сбрасывает дневную квоту", async () => {
+    const generateClientId = vi.fn(() => clientIds.second);
+    const app = registerApp({
+      generationRateLimitConfig: rateLimitConfig({
+        ipRequestLimit: 100,
+        clientDailyLimit: 2,
+      }),
+      generateGenerationClientId: generateClientId,
+    });
+    await app.ready();
+    const legacyCookie = signedCookieHeader(app, clientIds.first);
+
+    const firstResponse = await injectGenerate(app, { cookie: legacyCookie });
+    const migrationCookies = cookieHeadersFrom(firstResponse);
+    const scopedCookie = cookieHeaderWithPath(migrationCookies, "/api/generate");
+    const legacyDeletion = cookieHeaderWithPath(migrationCookies, "/");
+    const scopedValue = decodeURIComponent(scopedCookie.split(";")[0]?.split("=")[1] ?? "");
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(app.unsignCookie(scopedValue)).toMatchObject({ valid: true, value: clientIds.first });
+    expect(legacyDeletion).toContain("Max-Age=0");
+    expect(legacyDeletion).toContain("HttpOnly");
+    expect(legacyDeletion).toContain("SameSite=Strict");
+    expect(firstResponse.body).not.toContain(legacyCookie);
+    expect(firstResponse.body).not.toContain(cookieSecret);
+    expect(generateClientId).not.toHaveBeenCalled();
+
+    const scopedCookiePair = cookiePairFrom(scopedCookie);
+    expect((await injectGenerate(app, { cookie: scopedCookiePair })).statusCode).toBe(200);
+    expectRateLimitError(await injectGenerate(app, { cookie: scopedCookiePair }));
+  });
+
+  it("не истекает до UTC boundary и сбрасывает daily state после неё", async () => {
+    let now = Date.UTC(2026, 6, 27, 23, 59, 59, 999);
+    const app = registerApp({
+      generationRateLimitConfig: rateLimitConfig({
+        ipRequestLimit: 100,
+        clientDailyLimit: 1,
+      }),
+      generationRateLimiterNow: () => now,
+    });
+    await app.ready();
+    const cookie = signedCookieHeader(app, clientIds.first);
+
+    const beforeBoundary = await injectGenerate(app, { cookie });
+    const beforeBoundaryCookie = cookieHeaderWithPath(
+      cookieHeadersFrom(beforeBoundary),
+      "/api/generate",
+    );
+
+    expect(beforeBoundary.statusCode).toBe(200);
+    expect(cookieMaxAgeSeconds(beforeBoundaryCookie)).toBe(1);
+    expectRateLimitError(await injectGenerate(app, { cookie }));
+
+    now += 1;
+    const afterBoundary = await injectGenerate(app, { cookie });
+    const afterBoundaryCookie = cookieHeaderWithPath(
+      cookieHeadersFrom(afterBoundary),
+      "/api/generate",
+    );
+
+    expect(afterBoundary.statusCode).toBe(200);
+    expect(cookieMaxAgeSeconds(afterBoundaryCookie)).toBe(86_400);
   });
 
   it.each([
@@ -420,12 +524,15 @@ describe("подписанная техническая cookie", () => {
       }),
     });
 
+    await app.ready();
     const response = await injectGenerate(app, {
+      cookie: signedCookieHeader(app, clientIds.first),
       forwardedProto: "https",
       remoteAddress: "192.0.2.10",
     });
 
-    expect(String(response.headers["set-cookie"])).toContain("Secure");
+    expect(cookieHeaderWithPath(cookieHeadersFrom(response), "/api/generate")).toContain("Secure");
+    expect(cookieHeaderWithPath(cookieHeadersFrom(response), "/")).toContain("Secure");
   });
 });
 
