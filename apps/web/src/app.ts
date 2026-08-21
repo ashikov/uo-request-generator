@@ -76,9 +76,10 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         ? false
         : [...generationRateLimitConfig.trustedProxies],
   });
+  const generationNow = options.generationRateLimiterNow ?? Date.now;
   const generationRateLimiter =
     options.generationRateLimiter ??
-    new GenerationRateLimiter(generationRateLimitConfig, options.generationRateLimiterNow);
+    new GenerationRateLimiter(generationRateLimitConfig, generationNow);
   const generationSafeguard =
     options.generationSafeguard ??
     new GenerationSafeguard(generationSafeguardConfig, options.generationSafeguardNow);
@@ -100,6 +101,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   registerGenerateRoute(app, {
     llmGateway,
     generationRateLimiter,
+    generationNow,
     generationSafeguard,
     generateClientId: options.generateGenerationClientId ?? randomUUID,
     smartCaptchaConfig,

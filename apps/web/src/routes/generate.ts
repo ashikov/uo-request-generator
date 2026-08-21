@@ -333,6 +333,7 @@ function sendGenerationFailure(
 type RegisterGenerateRouteOptions = {
   llmGateway: LlmGateway;
   generationRateLimiter: GenerationRateLimiter;
+  generationNow: () => number;
   generationSafeguard: GenerationSafeguard;
   generateClientId: () => string;
   smartCaptchaConfig: SmartCaptchaConfig;
@@ -417,6 +418,7 @@ export function registerGenerateRoute(
           request,
           reply,
           options.generateClientId,
+          options.generationNow,
         );
         const rateLimitDecision = options.generationRateLimiter.acquire({
           ip: request.ip,
@@ -424,6 +426,7 @@ export function registerGenerateRoute(
           hasValidClientCookie: preparedClientId.hasValidClientCookie,
         });
         if (!rateLimitDecision.allowed) {
+          preparedClientId.migrateValidClientCookie();
           if (rateLimitDecision.retryAfterSeconds !== undefined) {
             reply.header("Retry-After", String(rateLimitDecision.retryAfterSeconds));
           }
