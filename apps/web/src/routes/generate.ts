@@ -345,6 +345,18 @@ export function registerGenerateRoute(
   app: FastifyInstance,
   options: RegisterGenerateRouteOptions,
 ): void {
+  const pendingClientCookieSetters = new WeakMap<FastifyReply, () => void>();
+
+  app.addHook("onSend", async (_request, reply, payload) => {
+    const setClientCookie = pendingClientCookieSetters.get(reply);
+    if (setClientCookie !== undefined) {
+      pendingClientCookieSetters.delete(reply);
+      setClientCookie();
+    }
+
+    return payload;
+  });
+
   app.decorateRequest("generationContext", null);
   app.post(
     "/api/generate",
@@ -426,7 +438,7 @@ export function registerGenerateRoute(
           hasValidClientCookie: preparedClientId.hasValidClientCookie,
         });
         if (!rateLimitDecision.allowed) {
-          preparedClientId.migrateValidClientCookie();
+          pendingClientCookieSetters.set(reply, preparedClientId.migrateValidClientCookie);
           if (rateLimitDecision.retryAfterSeconds !== undefined) {
             reply.header("Retry-After", String(rateLimitDecision.retryAfterSeconds));
           }
@@ -441,7 +453,7 @@ export function registerGenerateRoute(
         }
 
         releaseRateLimit = rateLimitDecision.release;
-        preparedClientId.setCookieAfterAdmission();
+        pendingClientCookieSetters.set(reply, preparedClientId.setCookieAfterAdmission);
         if (options.smartCaptchaConfig.mode === "required") {
           if (captchaToken === undefined) {
             return sendApiErrorWithEvent(

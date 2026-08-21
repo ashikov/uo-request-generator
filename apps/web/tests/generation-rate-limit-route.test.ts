@@ -474,6 +474,54 @@ describe("подписанная техническая cookie", () => {
     expect(cookieMaxAgeSeconds(afterBoundaryCookie)).toBe(86_400);
   });
 
+  it("вычисляет lifetime в момент отправки ответа после UTC boundary", async () => {
+    let now = Date.UTC(2026, 6, 27, 23, 59, 59, 999);
+    let resolveGateway: (value: typeof generatedOutcome) => void = () => {
+      throw new Error("Gateway promise is not initialized");
+    };
+    const pendingGateway = new Promise<typeof generatedOutcome>((resolve) => {
+      resolveGateway = resolve;
+    });
+    const gateway: LlmGateway = {
+      generateRequest: vi
+        .fn()
+        .mockReturnValueOnce(pendingGateway)
+        .mockResolvedValue(generatedOutcome),
+    };
+    const generateClientId = vi.fn(() => clientIds.second);
+    const app = registerApp({
+      llmGateway: gateway,
+      generationRateLimitConfig: rateLimitConfig({
+        ipRequestLimit: 100,
+        clientDailyLimit: 1,
+      }),
+      generationRateLimiterNow: () => now,
+      generateGenerationClientId: generateClientId,
+    });
+    await app.ready();
+    const legacyCookie = signedCookieHeader(app, clientIds.first);
+
+    const responsePromise = injectGenerate(app, { cookie: legacyCookie });
+    await vi.waitFor(() => expect(gateway.generateRequest).toHaveBeenCalledOnce());
+    now += 1;
+    resolveGateway(generatedOutcome);
+    const response = await responsePromise;
+    const scopedCookie = cookieHeaderWithPath(cookieHeadersFrom(response), "/api/generate");
+    const scopedCookiePair = cookiePairFrom(scopedCookie);
+
+    expect(response.statusCode).toBe(200);
+    expect(cookieMaxAgeSeconds(scopedCookie)).toBe(86_400);
+    expect(
+      app.unsignCookie(decodeURIComponent(scopedCookiePair.split("=")[1] ?? "")),
+    ).toMatchObject({
+      valid: true,
+      value: clientIds.first,
+    });
+    expect((await injectGenerate(app, { cookie: scopedCookiePair })).statusCode).toBe(200);
+    expectRateLimitError(await injectGenerate(app, { cookie: scopedCookiePair }));
+    expect(generateClientId).not.toHaveBeenCalled();
+  });
+
   it.each([
     "unsigned",
     "damaged",
