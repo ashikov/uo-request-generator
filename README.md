@@ -518,6 +518,7 @@ docker compose logs --tail=100 web
 - [Продуктовые принципы](docs/PROJECT_PRINCIPLES.md)
 - [Краткий PRD](docs/PRD.md)
 - [Архитектура](docs/ARCHITECTURE.md)
+- [Обработка персональных данных](docs/PERSONAL_DATA_PROCESSING.md)
 - [Production runtime](docs/PRODUCTION_RUNTIME.md)
 - [Локальный benchmark LLM-моделей](docs/LLM_BENCHMARK.md)
 - [Правила составления заявок](docs/REQUEST_RULES.md)
