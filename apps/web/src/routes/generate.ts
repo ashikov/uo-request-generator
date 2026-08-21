@@ -14,15 +14,15 @@ import {
 } from "@uo-request-generator/llm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { prepareGenerationClientId } from "../generation-client-id.js";
+import {
+  generateHttpRequestSchema,
+  generateRequestBodyLimitBytes,
+} from "../generation-http-contract.js";
 import type {
   GenerationEventWriter,
   GenerationFailedEvent,
   GenerationRejectedEvent,
 } from "../generation-log.js";
-import {
-  generateHttpRequestSchema,
-  generateRequestBodyLimitBytes,
-} from "../generation-http-contract.js";
 import type { GenerationRateLimiter } from "../generation-rate-limiter.js";
 import type { GenerationSafeguard } from "../generation-safeguard.js";
 import type { SmartCaptchaConfig } from "../smartcaptcha-config.js";
@@ -349,9 +349,18 @@ export function registerGenerateRoute(
     "/api/generate",
     {
       bodyLimit: generateRequestBodyLimitBytes,
-      onRequest(request, reply, done) {
-        ensureGenerationContext(request, reply, options.writeGenerationEvent);
-        done();
+      async onRequest(request, reply) {
+        const context = ensureGenerationContext(request, reply, options.writeGenerationEvent);
+        // Сохраняем существующую диагностику прямого запроса без обработки его body.
+        if (!options.generationSafeguard.isGenerationEnabled()) {
+          return sendApiErrorWithEvent(
+            reply,
+            generationUnavailableApiError,
+            context,
+            { event: "generation_rejected", status: "generation_unavailable" },
+            options.writeGenerationEvent,
+          );
+        }
       },
       errorHandler(error, request, reply) {
         const context = ensureGenerationContext(request, reply, options.writeGenerationEvent);

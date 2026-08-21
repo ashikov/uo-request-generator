@@ -57,6 +57,10 @@ export function createSmartCaptchaInitializer() {
             return { status: "unavailable" };
           }
 
+          if (!config.generationAvailable) {
+            return { status: "generation_unavailable" };
+          }
+
           if (!config.required) {
             return { status: "disabled" };
           }
@@ -102,17 +106,23 @@ async function loadPublicConfig() {
 }
 
 function isPublicConfig(config) {
-  if (typeof config !== "object" || config === null || !("required" in config)) {
+  if (
+    typeof config !== "object" ||
+    config === null ||
+    !("generationAvailable" in config) ||
+    typeof config.generationAvailable !== "boolean" ||
+    !("required" in config)
+  ) {
     return false;
   }
 
   if (config.required === false) {
-    return Object.keys(config).length === 1;
+    return Object.keys(config).length === 2;
   }
 
   return (
     config.required === true &&
-    Object.keys(config).length === 2 &&
+    Object.keys(config).length === 3 &&
     "clientKey" in config &&
     typeof config.clientKey === "string" &&
     config.clientKey.trim().length > 0

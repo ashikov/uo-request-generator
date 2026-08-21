@@ -81,7 +81,9 @@ afterEach(() => {
 
 describe("browser SmartCaptcha controller", () => {
   it("не загружает внешний скрипт в отключённом режиме", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(configResponse({ required: false }));
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(configResponse({ generationAvailable: true, required: false }));
     vi.stubGlobal("fetch", fetchMock);
 
     const controller = await createSmartCaptchaController();
@@ -94,9 +96,13 @@ describe("browser SmartCaptcha controller", () => {
   });
 
   it("динамически загружает расширенный скрипт и создаёт невидимый виджет", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      configResponse({
+        generationAvailable: true,
+        required: true,
+        clientKey: "test-public-client-key",
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const { api } = createCaptchaApi();
     const unrelatedCallbackName = `${smartCaptchaCallbackPrefix}Unrelated`;
@@ -140,11 +146,16 @@ describe("browser SmartCaptcha controller", () => {
   });
 
   it.each([
-    ["неуспешного HTTP-ответа", configResponse({ required: false }, false)],
-    ["некорректной формы", configResponse({ required: true })],
+    [
+      "неуспешного HTTP-ответа",
+      configResponse({ generationAvailable: true, required: false }, false),
+    ],
+    ["отсутствующей доступности генерации", configResponse({ required: false })],
+    ["некорректной формы", configResponse({ generationAvailable: true, required: true })],
     [
       "лишнего публичного поля",
       configResponse({
+        generationAvailable: true,
         required: true,
         clientKey: "test-public-client-key",
         serverKey: "must-not-be-accepted",
@@ -162,9 +173,13 @@ describe("browser SmartCaptcha controller", () => {
   it("применяет fail closed при ошибке загрузки внешнего скрипта", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     vi.spyOn(document.head, "append").mockImplementation((...nodes) => {
       const script = nodes[0] as HTMLScriptElement;
@@ -179,9 +194,13 @@ describe("browser SmartCaptcha controller", () => {
   it("не принимает пустой callback-токен и сбрасывает состояние попытки", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const { api } = createCaptchaApi();
     Object.assign(window, { smartCaptcha: api });
@@ -208,9 +227,13 @@ describe("browser SmartCaptcha controller", () => {
   ])("завершает активную попытку при событии %s", async (event) => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const { api, callbacks } = createCaptchaApi();
     Object.assign(window, { smartCaptcha: api });
@@ -228,9 +251,13 @@ describe("browser SmartCaptcha controller", () => {
   it("игнорирует challenge-hidden после успешного callback", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const { api, callbacks } = createCaptchaApi();
     Object.assign(window, { smartCaptcha: api });
@@ -255,9 +282,13 @@ describe("browser SmartCaptcha controller", () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const { api } = createCaptchaApi();
     Object.assign(window, { smartCaptcha: api });
@@ -283,9 +314,13 @@ describe("browser SmartCaptcha controller", () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const { api } = createCaptchaApi();
     Object.assign(window, { smartCaptcha: api });
@@ -315,9 +350,13 @@ describe("browser SmartCaptcha controller", () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const { api } = createCaptchaApi();
     Object.assign(window, { smartCaptcha: api });
@@ -340,13 +379,18 @@ describe("browser SmartCaptcha initialization", () => {
   it("возвращает публичную конфигурацию", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const initializer = createSmartCaptchaInitializer();
 
     await expect(initializer.getPublicConfig()).resolves.toEqual({
+      generationAvailable: true,
       required: true,
       clientKey: "test-public-client-key",
     });
@@ -356,9 +400,13 @@ describe("browser SmartCaptcha initialization", () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const scripts: HTMLScriptElement[] = [];
     vi.spyOn(document.head, "append").mockImplementation((...nodes) => {
@@ -423,7 +471,7 @@ describe("browser SmartCaptcha initialization", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockRejectedValueOnce(new Error("temporary configuration failure"))
-      .mockResolvedValueOnce(configResponse({ required: false }));
+      .mockResolvedValueOnce(configResponse({ generationAvailable: true, required: false }));
     vi.stubGlobal("fetch", fetchMock);
     const initializer = createSmartCaptchaInitializer();
 
@@ -441,7 +489,11 @@ describe("browser SmartCaptcha initialization", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(configResponse({ required: true }))
       .mockResolvedValueOnce(
-        configResponse({ required: true, clientKey: "test-public-client-key" }),
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
       );
     vi.stubGlobal("fetch", fetchMock);
     const initializer = createSmartCaptchaInitializer();
@@ -456,9 +508,13 @@ describe("browser SmartCaptcha initialization", () => {
   it("удаляет неуспешный script и повторяет его загрузку", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     const callbackNames: SmartCaptchaCallbackName[] = [];
     const append = vi.spyOn(document.head, "append").mockImplementation((...nodes) => {
@@ -512,9 +568,13 @@ describe("browser SmartCaptcha initialization", () => {
   it("переиспользует успешный контроллер", async () => {
     const { api } = createCaptchaApi();
     Object.assign(window, { smartCaptcha: api });
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      configResponse({
+        generationAvailable: true,
+        required: true,
+        clientKey: "test-public-client-key",
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const initializer = createSmartCaptchaInitializer();
 
@@ -529,9 +589,13 @@ describe("browser SmartCaptcha initialization", () => {
   it("объединяет параллельные инициализации в один script и widget", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(configResponse({ required: true, clientKey: "test-public-client-key" })),
+      vi.fn<typeof fetch>().mockResolvedValue(
+        configResponse({
+          generationAvailable: true,
+          required: true,
+          clientKey: "test-public-client-key",
+        }),
+      ),
     );
     let callbackName: SmartCaptchaCallbackName | undefined;
     const append = vi.spyOn(document.head, "append").mockImplementation((...nodes) => {

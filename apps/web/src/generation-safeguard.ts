@@ -28,6 +28,10 @@ export class GenerationSafeguard {
     this.#now = now;
   }
 
+  isGenerationEnabled(): boolean {
+    return this.#options?.enabled ?? true;
+  }
+
   acquire(): GenerationSafeguardDecision {
     if (this.#options === undefined) {
       return { allowed: true, release: () => {} };

@@ -310,6 +310,11 @@ export function initializeCaptcha() {
     try {
       try {
         const captchaController = await smartCaptchaInitializer.getController();
+        if (captchaController.status === "generation_unavailable") {
+          renderError("Генерация временно недоступна. Попробуйте позже");
+          return;
+        }
+
         if (captchaController.status === "unavailable") {
           renderError("Проверка временно недоступна. Попробуйте позже");
           return;

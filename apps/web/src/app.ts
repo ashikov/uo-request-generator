@@ -96,7 +96,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   });
 
   registerHealthRoute(app);
-  registerCaptchaConfigRoute(app, smartCaptchaConfig);
+  registerCaptchaConfigRoute(app, smartCaptchaConfig, generationSafeguard.isGenerationEnabled());
   registerGenerateRoute(app, {
     llmGateway,
     generationRateLimiter,
