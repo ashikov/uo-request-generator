@@ -11,6 +11,15 @@ const YANDEX_CHAT_COMPLETIONS_API_URL = "https://ai.api.cloud.yandex.net/v1/chat
 const YANDEX_RESPONSES_API_URL = "https://ai.api.cloud.yandex.net/v1/responses";
 const YANDEX_AUTH_SCHEME = "Api-Key";
 const DEFAULT_LLM_API_PROTOCOL: LlmApiProtocol = "chat-completions";
+const LLM_CONFIGURATION_VARIABLES = [
+  "LLM_API_PROTOCOL",
+  "LLM_API_URL",
+  "LLM_API_KEY",
+  "LLM_MODEL",
+  "LLM_PROVIDER",
+  "LLM_AUTH_SCHEME",
+  "LLM_FOLDER_ID",
+] as const;
 const providerIdentifierSchema = z
   .string()
   .trim()
@@ -28,11 +37,21 @@ const llmEnvironmentSchema = z.object({
   LLM_FOLDER_ID: z.string().trim().min(1).optional(),
 });
 
+function isLlmConfigurationAbsent(environment: NodeJS.ProcessEnv): boolean {
+  return LLM_CONFIGURATION_VARIABLES.every(
+    (variableName) => environment[variableName] === undefined,
+  );
+}
+
 export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
+  if (isLlmConfigurationAbsent(environment)) {
+    return new DisabledLlmGateway();
+  }
+
   const environmentValidation = llmEnvironmentSchema.safeParse(environment);
 
   if (!environmentValidation.success) {
-    return new DisabledLlmGateway();
+    throw new Error("Invalid LLM configuration");
   }
 
   const {
@@ -46,12 +65,12 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
   } = environmentValidation.data;
 
   if (LLM_API_KEY === undefined) {
-    return new DisabledLlmGateway();
+    throw new Error("Invalid LLM configuration");
   }
 
   if (LLM_API_URL !== undefined) {
     if (LLM_MODEL === undefined || LLM_AUTH_SCHEME === undefined || LLM_PROVIDER === undefined) {
-      return new DisabledLlmGateway();
+      throw new Error("Invalid LLM configuration");
     }
 
     return new OpenAiCompatibleGateway({
@@ -74,7 +93,7 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
         : `gpt://${LLM_FOLDER_ID}/yandexgpt/latest`);
 
   if (model === undefined) {
-    return new DisabledLlmGateway();
+    throw new Error("Invalid LLM configuration");
   }
 
   return new OpenAiCompatibleGateway({
