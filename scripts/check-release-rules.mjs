@@ -8,22 +8,22 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const scenarios = [
   {
-    name: "fix после v0.1.0 даёт v0.1.1",
+    name: "fix после v0.2.0 даёт patch",
     currentMajor: 0,
     commits: [{ hash: "a", message: "fix: correct roof evidence rule" }],
     expected: "patch",
   },
   {
-    name: "perf после v0.1.0 даёт v0.1.1",
+    name: "perf после v0.2.0 даёт patch",
     currentMajor: 0,
     commits: [{ hash: "b", message: "perf: optimize request parsing" }],
     expected: "patch",
   },
   {
-    name: "feat после v0.1.1 даёт v0.2.0",
+    name: "feat до 1.0.0 даёт patch, а не minor",
     currentMajor: 0,
     commits: [{ hash: "c", message: "feat: add elevator legal module" }],
-    expected: "minor",
+    expected: "patch",
   },
   {
     name: "breaking change до 1.0.0 даёт следующий minor, а не v1.0.0",
@@ -57,11 +57,23 @@ const scenarios = [
     expected: "major",
   },
   {
-    name: "несколько изменений образуют одну версию по максимуму",
+    name: "несколько неразрывных изменений образуют одну версию по максимуму",
     currentMajor: 0,
     commits: [
       { hash: "h", message: "fix: adjust wording" },
       { hash: "i", message: "feat: add new legal module" },
+    ],
+    expected: "patch",
+  },
+  {
+    name: "feat вместе с breaking change образуют minor",
+    currentMajor: 0,
+    commits: [
+      { hash: "j", message: "feat: add new legal module" },
+      {
+        hash: "k",
+        message: "refactor!: rework request draft contract\n\nBREAKING CHANGE: contract reworked",
+      },
     ],
     expected: "minor",
   },
@@ -110,8 +122,9 @@ function checkConfigStructure() {
     failures.push("tagFormat должен быть v${version}");
   }
 
-  const pluginNames = config.plugins.map(([name]) => name);
+  const pluginNames = config.plugins.map((plugin) => (Array.isArray(plugin) ? plugin[0] : plugin));
   for (const required of [
+    "./scripts/release-bootstrap-guard.mjs",
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",
     "@semantic-release/github",
@@ -119,6 +132,12 @@ function checkConfigStructure() {
     if (!pluginNames.includes(required)) {
       failures.push(`отсутствует плагин ${required}`);
     }
+  }
+
+  if (pluginNames[0] !== "./scripts/release-bootstrap-guard.mjs") {
+    failures.push(
+      "bootstrap-guard должен идти первым, чтобы блокировать публикацию до создания тега",
+    );
   }
 
   const githubConfig = config.plugins.find(([name]) => name === "@semantic-release/github")[1];
