@@ -300,6 +300,16 @@ describe("уведомление SmartCaptcha", () => {
     await vi.waitFor(() => expect(getCaptchaNotice().hidden).toBe(true));
   });
 
+  it("не показывает уведомление при недоступной генерации с обязательной CAPTCHA", async () => {
+    await initializeApp("", 120, "", "", 500, {
+      config: { generationAvailable: false, required: true, clientKey: "test-public-client-key" },
+      initialize: false,
+    });
+
+    await vi.waitFor(() => expect(getCaptchaNotice().hidden).toBe(true));
+    expect(document.querySelector('script[src*="smartcaptcha"]')).toBeNull();
+  });
+
   it("не показывает уведомление при недостоверной публичной конфигурации", async () => {
     await initializeApp("", 120, "", "", 500, {
       config: { generationAvailable: true, required: true },

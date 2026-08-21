@@ -396,7 +396,10 @@ export function initializeCaptcha() {
   setSubmitting(false);
   if (captchaNotice !== null) {
     void smartCaptchaInitializer.getPublicConfig().then((config) => {
-      captchaNotice.toggleAttribute("hidden", config?.required !== true);
+      captchaNotice.toggleAttribute(
+        "hidden",
+        config?.generationAvailable !== true || config.required !== true,
+      );
     });
   }
   form.addEventListener("submit", handleSubmit);
