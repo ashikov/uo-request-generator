@@ -11,7 +11,7 @@ const generationClientCookiePath = "/api/generate";
 type PreparedGenerationClientId = {
   clientId: string;
   hasValidClientCookie: boolean;
-  migrateValidClientCookie: () => void;
+  setCookieAfterRejection: () => void;
   setCookieAfterAdmission: () => void;
 };
 
@@ -26,28 +26,35 @@ export function prepareGenerationClientId(
     const unsignedCookie = request.unsignCookie(signedCookie);
     const clientIdValidation = generationClientIdSchema.safeParse(unsignedCookie.value);
     if (unsignedCookie.valid && clientIdValidation.success) {
-      const migrateValidClientCookie = () => {
+      const clearLegacyClientCookie = () => {
+        clearLegacyGenerationClientCookie(request, reply);
+      };
+
+      const setCookie = () => {
         // В Cookie header нет Path, поэтому для каждого valid ID идемпотентно заменяем legacy-вариант.
         setGenerationClientCookie(request, reply, clientIdValidation.data, now());
-        clearLegacyGenerationClientCookie(request, reply);
+        clearLegacyClientCookie();
       };
 
       return {
         clientId: clientIdValidation.data,
         hasValidClientCookie: true,
-        migrateValidClientCookie,
-        setCookieAfterAdmission: migrateValidClientCookie,
+        setCookieAfterRejection: setCookie,
+        setCookieAfterAdmission: setCookie,
       };
     }
   }
 
   const generatedClientId = generationClientIdSchema.parse(generateClientId());
+  const clearLegacyClientCookie =
+    signedCookie === undefined ? () => {} : () => clearLegacyGenerationClientCookie(request, reply);
   return {
     clientId: generatedClientId,
     hasValidClientCookie: false,
-    migrateValidClientCookie: () => {},
+    setCookieAfterRejection: clearLegacyClientCookie,
     setCookieAfterAdmission: () => {
       setGenerationClientCookie(request, reply, generatedClientId, now());
+      clearLegacyClientCookie();
     },
   };
 }
