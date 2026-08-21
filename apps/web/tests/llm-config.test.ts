@@ -271,40 +271,78 @@ describe("createLlmGateway", () => {
     expect(requestBody.input).toBeUndefined();
   });
 
-  it("выбирает заглушку при неполной конфигурации", () => {
-    expect(createLlmGateway({ LLM_API_KEY: "test-api-key" })).toBeInstanceOf(DisabledLlmGateway);
-    expect(
-      createLlmGateway({
-        LLM_API_URL: "https://provider.example/v1/chat/completions",
-        LLM_API_KEY: "test-api-key",
-        LLM_AUTH_SCHEME: "Bearer",
-        LLM_MODEL: "provider-model-name",
-      }),
-    ).toBeInstanceOf(DisabledLlmGateway);
+  it.each([
+    ["URL", { LLM_API_URL: "https://provider.example/v1/chat/completions" }],
+    ["API key", { LLM_API_KEY: "test-private-api-key" }],
+    ["model", { LLM_MODEL: "test-private-model" }],
+    ["provider", { LLM_PROVIDER: "provider-alpha" }],
+    ["auth scheme", { LLM_AUTH_SCHEME: "Bearer" }],
+    ["protocol", { LLM_API_PROTOCOL: "responses" }],
+    ["folder ID", { LLM_FOLDER_ID: "test-folder-id" }],
+  ])("отклоняет отдельно заданный %s", (_name, environment) => {
+    expect(() => createLlmGateway(environment)).toThrow("Invalid LLM configuration");
   });
 
-  it("выбирает заглушку при невалидном custom provider identifier", () => {
-    expect(
+  const completeCustomConfiguration = {
+    LLM_API_URL: "https://provider.example/v1/chat/completions",
+    LLM_API_KEY: "test-private-api-key",
+    LLM_AUTH_SCHEME: "Bearer",
+    LLM_MODEL: "test-private-model",
+    LLM_PROVIDER: "provider-alpha",
+  };
+
+  it.each([
+    ["provider", { ...completeCustomConfiguration, LLM_PROVIDER: undefined }],
+    ["model", { ...completeCustomConfiguration, LLM_MODEL: undefined }],
+    ["auth scheme", { ...completeCustomConfiguration, LLM_AUTH_SCHEME: undefined }],
+    ["API key", { ...completeCustomConfiguration, LLM_API_KEY: undefined }],
+  ])("отклоняет custom URL без %s", (_name, environment) => {
+    expect(() => createLlmGateway(environment)).toThrow("Invalid LLM configuration");
+  });
+
+  it.each([
+    [
+      "provider identifier",
+      { ...completeCustomConfiguration, LLM_PROVIDER: "provider identifier" },
+    ],
+    ["protocol", { ...completeCustomConfiguration, LLM_API_PROTOCOL: "completions" }],
+    ["URL", { ...completeCustomConfiguration, LLM_API_URL: "not-a-url" }],
+    ["empty API key", { ...completeCustomConfiguration, LLM_API_KEY: "" }],
+  ])("отклоняет невалидный %s", (_name, environment) => {
+    expect(() => createLlmGateway(environment)).toThrow("Invalid LLM configuration");
+  });
+
+  it("не раскрывает private configuration values в сообщении ошибки", () => {
+    const privateApiKey = "test-private-api-key-sentinel";
+    const privateUrl = "https://provider.example/private-endpoint";
+    const privateModel = "test-private-model-sentinel";
+
+    expect(() =>
       createLlmGateway({
-        LLM_API_URL: "https://provider.example/v1/chat/completions",
-        LLM_API_KEY: "test-api-key",
+        LLM_API_URL: privateUrl,
+        LLM_API_KEY: privateApiKey,
         LLM_AUTH_SCHEME: "Bearer",
-        LLM_MODEL: "provider-model-name",
+        LLM_MODEL: privateModel,
         LLM_PROVIDER: "provider identifier",
       }),
-    ).toBeInstanceOf(DisabledLlmGateway);
-  });
+    ).toThrow("Invalid LLM configuration");
 
-  it("выбирает заглушку при неизвестном протоколе", () => {
-    expect(
+    try {
       createLlmGateway({
-        LLM_API_PROTOCOL: "completions",
-        LLM_API_URL: "https://provider.example/v1/chat/completions",
-        LLM_API_KEY: "test-api-key",
+        LLM_API_URL: privateUrl,
+        LLM_API_KEY: privateApiKey,
         LLM_AUTH_SCHEME: "Bearer",
-        LLM_MODEL: "provider-model-name",
-        LLM_PROVIDER: "provider-alpha",
-      }),
-    ).toBeInstanceOf(DisabledLlmGateway);
+        LLM_MODEL: privateModel,
+        LLM_PROVIDER: "provider identifier",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).not.toContain(privateApiKey);
+      expect(message).not.toContain(privateUrl);
+      expect(message).not.toContain(privateModel);
+      return;
+    }
+
+    throw new Error("Ожидалась ошибка конфигурации LLM");
   });
 });
