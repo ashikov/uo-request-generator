@@ -12,9 +12,11 @@ export type SmartCaptchaConfig =
 
 export type PublicSmartCaptchaConfig =
   | {
+      generationAvailable: boolean;
       required: false;
     }
   | {
+      generationAvailable: boolean;
       required: true;
       clientKey: string;
     };
@@ -80,12 +82,16 @@ export function createSmartCaptchaConfig(
   };
 }
 
-export function toPublicSmartCaptchaConfig(config: SmartCaptchaConfig): PublicSmartCaptchaConfig {
+export function toPublicSmartCaptchaConfig(
+  config: SmartCaptchaConfig,
+  generationAvailable: boolean,
+): PublicSmartCaptchaConfig {
   if (config.mode === "disabled") {
-    return { required: false };
+    return { generationAvailable, required: false };
   }
 
   return {
+    generationAvailable,
     required: true,
     clientKey: config.clientKey,
   };

@@ -132,7 +132,7 @@ describe("copy button in app", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ required: false }),
+        json: () => Promise.resolve({ generationAvailable: true, required: false }),
       }),
     );
     const appModule = await import("../public/app.js");

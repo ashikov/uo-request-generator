@@ -76,13 +76,17 @@ describe("конфигурация SmartCaptcha", () => {
   it("не раскрывает серверный ключ в публичном представлении", () => {
     const serverKey = "test-private-server-key";
 
-    const publicConfig = toPublicSmartCaptchaConfig({
-      mode: "required",
-      clientKey: "test-public-client-key",
-      serverKey,
-    });
+    const publicConfig = toPublicSmartCaptchaConfig(
+      {
+        mode: "required",
+        clientKey: "test-public-client-key",
+        serverKey,
+      },
+      true,
+    );
 
     expect(publicConfig).toEqual({
+      generationAvailable: true,
       required: true,
       clientKey: "test-public-client-key",
     });
@@ -90,7 +94,8 @@ describe("конфигурация SmartCaptcha", () => {
   });
 
   it("возвращает узкое публичное представление отключённого режима", () => {
-    expect(toPublicSmartCaptchaConfig({ mode: "disabled" })).toEqual({
+    expect(toPublicSmartCaptchaConfig({ mode: "disabled" }, false)).toEqual({
+      generationAvailable: false,
       required: false,
     });
   });

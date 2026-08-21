@@ -56,6 +56,7 @@ async function initializeApp(
     initialize?: boolean;
   } = {},
 ): Promise<void> {
+  const publicConfig = captchaOptions.config ?? { generationAvailable: true, required: false };
   document.body.innerHTML = `
     <form id="request-form">
       <textarea
@@ -155,7 +156,7 @@ async function initializeApp(
     captchaOptions.fetch ??
       vi.fn().mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve(captchaOptions.config ?? { required: false }),
+        json: () => Promise.resolve(publicConfig),
       }),
   );
 
@@ -285,7 +286,7 @@ afterEach(() => {
 describe("уведомление SmartCaptcha", () => {
   it("показывает уведомление только при включённой CAPTCHA и не загружает внешний script", async () => {
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true, clientKey: "test-public-client-key" },
+      config: { generationAvailable: true, required: true, clientKey: "test-public-client-key" },
       initialize: false,
     });
 
@@ -301,7 +302,7 @@ describe("уведомление SmartCaptcha", () => {
 
   it("не показывает уведомление при недостоверной публичной конфигурации", async () => {
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true },
+      config: { generationAvailable: true, required: true },
       initialize: false,
     });
 
@@ -1144,11 +1145,31 @@ describe("обработка ответа генерации в приложен
     expect("smartCaptcha" in window).toBe(false);
   });
 
+  it("не запускает CAPTCHA и не отправляет форму при недоступной генерации", async () => {
+    vi.resetModules();
+    const captchaApi = createCaptchaApi();
+    await initializeApp("", 120, "", "", 500, {
+      config: { generationAvailable: false, required: true, clientKey: "test-public-client-key" },
+      api: captchaApi,
+    });
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockClear();
+    setFormValues();
+
+    submitForm();
+
+    await expectError("Генерация временно недоступна. Попробуйте позже");
+    expect(document.querySelector('script[src*="smartcaptcha"]')).toBeNull();
+    expect(captchaApi.render).not.toHaveBeenCalled();
+    expect(captchaApi.execute).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("не запускает CAPTCHA для невалидной формы", async () => {
     vi.resetModules();
     const captchaApi = createCaptchaApi();
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true, clientKey: "test-public-client-key" },
+      config: { generationAvailable: true, required: true, clientKey: "test-public-client-key" },
       api: captchaApi,
     });
     const fetchMock = vi.fn();
@@ -1166,7 +1187,7 @@ describe("обработка ответа генерации в приложен
     vi.resetModules();
     const captchaApi = createCaptchaApi();
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true, clientKey: "test-public-client-key" },
+      config: { generationAvailable: true, required: true, clientKey: "test-public-client-key" },
       api: captchaApi,
     });
     const fetchMock = vi.fn().mockResolvedValue({
@@ -1217,7 +1238,7 @@ describe("обработка ответа генерации в приложен
     vi.resetModules();
     const captchaApi = createCaptchaApi();
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true, clientKey: "test-public-client-key" },
+      config: { generationAvailable: true, required: true, clientKey: "test-public-client-key" },
       api: captchaApi,
     });
     const fetchMock = vi.fn();
@@ -1237,7 +1258,7 @@ describe("обработка ответа генерации в приложен
     vi.useFakeTimers();
     const captchaApi = createCaptchaApi();
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true, clientKey: "test-public-client-key" },
+      config: { generationAvailable: true, required: true, clientKey: "test-public-client-key" },
       api: captchaApi,
     });
     const fetchMock = vi.fn().mockResolvedValue({
@@ -1278,7 +1299,12 @@ describe("обработка ответа генерации в приложен
         }
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ required: true, clientKey: "test-public-client-key" }),
+          json: () =>
+            Promise.resolve({
+              generationAvailable: true,
+              required: true,
+              clientKey: "test-public-client-key",
+            }),
         });
       }
 
@@ -1319,7 +1345,12 @@ describe("обработка ответа генерации в приложен
       if (String(input) === "/api/captcha/config") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ required: true, clientKey: "test-public-client-key" }),
+          json: () =>
+            Promise.resolve({
+              generationAvailable: true,
+              required: true,
+              clientKey: "test-public-client-key",
+            }),
         });
       }
 
@@ -1404,7 +1435,7 @@ describe("обработка ответа генерации в приложен
     vi.resetModules();
     const captchaApi = createCaptchaApi();
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true, clientKey: "test-public-client-key" },
+      config: { generationAvailable: true, required: true, clientKey: "test-public-client-key" },
       api: captchaApi,
     });
     const fetchMock =
@@ -1428,7 +1459,7 @@ describe("обработка ответа генерации в приложен
     vi.resetModules();
     const captchaApi = createCaptchaApi();
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true, clientKey: "test-public-client-key" },
+      config: { generationAvailable: true, required: true, clientKey: "test-public-client-key" },
       api: captchaApi,
     });
     const fetchMock = vi.fn().mockResolvedValue({
@@ -1460,7 +1491,7 @@ describe("обработка ответа генерации в приложен
   it("не отправляет запрос при некорректной публичной конфигурации", async () => {
     vi.resetModules();
     await initializeApp("", 120, "", "", 500, {
-      config: { required: true },
+      config: { generationAvailable: true, required: true },
     });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
