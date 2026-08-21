@@ -438,7 +438,7 @@ export function registerGenerateRoute(
           hasValidClientCookie: preparedClientId.hasValidClientCookie,
         });
         if (!rateLimitDecision.allowed) {
-          pendingClientCookieSetters.set(reply, preparedClientId.migrateValidClientCookie);
+          pendingClientCookieSetters.set(reply, preparedClientId.setCookieAfterRejection);
           if (rateLimitDecision.retryAfterSeconds !== undefined) {
             reply.header("Retry-After", String(rateLimitDecision.retryAfterSeconds));
           }

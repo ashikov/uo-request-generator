@@ -441,6 +441,29 @@ describe("подписанная техническая cookie", () => {
     expectRateLimitError(await injectGenerate(app, { cookie: scopedCookiePair }));
   });
 
+  it("мигрирует valid legacy UUID даже при отклонении по дневной квоте", async () => {
+    const app = registerApp({
+      generationRateLimitConfig: rateLimitConfig({
+        ipRequestLimit: 100,
+        clientDailyLimit: 1,
+      }),
+    });
+    await app.ready();
+    const legacyCookie = signedCookieHeader(app, clientIds.first);
+
+    expect((await injectGenerate(app, { cookie: legacyCookie })).statusCode).toBe(200);
+
+    const rejectedResponse = await injectGenerate(app, { cookie: legacyCookie });
+    const rejectedCookies = cookieHeadersFrom(rejectedResponse);
+    const scopedCookie = cookieHeaderWithPath(rejectedCookies, "/api/generate");
+    const scopedValue = decodeURIComponent(scopedCookie.split(";")[0]?.split("=")[1] ?? "");
+
+    expectRateLimitError(rejectedResponse);
+    expect(app.unsignCookie(scopedValue)).toMatchObject({ valid: true, value: clientIds.first });
+    expect(cookieHeaderWithPath(rejectedCookies, "/")).toContain("Max-Age=0");
+    expectRateLimitError(await injectGenerate(app, { cookie: cookiePairFrom(scopedCookie) }));
+  });
+
   it("не истекает до UTC boundary и сбрасывает daily state после неё", async () => {
     let now = Date.UTC(2026, 6, 27, 23, 59, 59, 999);
     const app = registerApp({
@@ -525,7 +548,7 @@ describe("подписанная техническая cookie", () => {
   it.each([
     "unsigned",
     "damaged",
-  ] as const)("не принимает %s cookie и выдаёт новый идентификатор", async (kind) => {
+  ] as const)("заменяет %s legacy cookie и удаляет root-вариант", async (kind) => {
     const generateClientId = vi
       .fn()
       .mockReturnValueOnce(clientIds.first)
@@ -539,15 +562,48 @@ describe("подписанная техническая cookie", () => {
         : `${validCookie.slice(0, -1)}x`;
 
     const response = await injectGenerate(app, { cookie: invalidCookie });
-    const replacementCookie = cookieHeaderFrom(response);
-    const signedValue = decodeURIComponent(replacementCookie.split("=")[1] ?? "");
+    const responseCookies = cookieHeadersFrom(response);
+    const replacementCookie = cookieHeaderWithPath(responseCookies, "/api/generate");
+    const rootDeletion = cookieHeaderWithPath(responseCookies, "/");
+    const signedValue = decodeURIComponent(cookiePairFrom(replacementCookie).split("=")[1] ?? "");
 
     expect(app.unsignCookie(signedValue)).toMatchObject({
       valid: true,
       value: clientIds.second,
     });
+    expect(replacementCookie).toContain("HttpOnly");
+    expect(replacementCookie).toContain("SameSite=Strict");
+    expect(rootDeletion).toContain("Max-Age=0");
+    expect(rootDeletion).toContain("HttpOnly");
+    expect(rootDeletion).toContain("SameSite=Strict");
     expect(response.body).not.toContain(validCookie);
     expect(response.body).not.toContain(cookieSecret);
+  });
+
+  it("очищает invalid root cookie без replacement identity при limiter rejection", async () => {
+    const generateClientId = vi
+      .fn()
+      .mockReturnValueOnce(clientIds.first)
+      .mockReturnValueOnce(clientIds.second);
+    const app = registerApp({
+      generationRateLimitConfig: rateLimitConfig({
+        ipRequestLimit: 1,
+        clientDailyLimit: 100,
+      }),
+      generateGenerationClientId: generateClientId,
+    });
+
+    expect((await injectGenerate(app)).statusCode).toBe(200);
+    const response = await injectGenerate(app, {
+      cookie: `${generationClientCookieName}=${clientIds.second}`,
+    });
+    const responseCookies = cookieHeadersFrom(response);
+
+    expectRateLimitError(response);
+    expect(cookieHeaderWithPath(responseCookies, "/")).toContain("Max-Age=0");
+    expect(responseCookies).not.toContainEqual(expect.stringContaining("Path=/api/generate"));
+    expect(generateClientId).toHaveBeenCalledTimes(2);
+    expect(response.body).not.toContain(clientIds.second);
   });
 
   it("не устанавливает Secure по поддельному протоколу от источника вне allowlist", async () => {
@@ -675,7 +731,13 @@ describe("параллельные генерации клиента", () => {
 
     expectRateLimitError(rejectedResponse);
     expect(rejectedResponse.headers["retry-after"]).toBeUndefined();
-    expect(rejectedResponse.headers["set-cookie"]).toBeUndefined();
+    if (replacementRequestCookie === undefined) {
+      expect(rejectedResponse.headers["set-cookie"]).toBeUndefined();
+    } else {
+      const rejectedCookies = cookieHeadersFrom(rejectedResponse);
+      expect(cookieHeaderWithPath(rejectedCookies, "/")).toContain("Max-Age=0");
+      expect(rejectedCookies).not.toContainEqual(expect.stringContaining("Path=/api/generate"));
+    }
     expect(gateway.generateRequest).toHaveBeenCalledTimes(2);
 
     resolveGateway(generatedOutcome);
