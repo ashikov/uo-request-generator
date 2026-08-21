@@ -29,11 +29,15 @@ function startServerWithPartialLlmConfiguration(): Promise<{
   environment.PORT = "39891";
 
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
-      cwd: applicationDirectory,
-      env: environment,
-      stdio: ["ignore", "ignore", "pipe"],
-    });
+    const child = spawn(
+      process.execPath,
+      ["--conditions=development", "--import", "tsx", "src/server.ts"],
+      {
+        cwd: applicationDirectory,
+        env: environment,
+        stdio: ["ignore", "ignore", "pipe"],
+      },
+    );
     let stderr = "";
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -65,5 +69,6 @@ describe("startup с LLM-конфигурацией", () => {
     expect(result.stderr).not.toContain("startup-private-api-key-sentinel");
     expect(result.stderr).not.toContain("startup-private-model-sentinel");
     expect(result.stderr).not.toContain("https://provider.example/v1/chat/completions");
+    expect(result.stderr).not.toContain("ERR_MODULE_NOT_FOUND");
   });
 });
