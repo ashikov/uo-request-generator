@@ -46,6 +46,7 @@ export type GenerationFailedEvent = {
     | "internal_error";
   durationMs: number;
   httpStatus: 400 | 429 | 500 | 503;
+  providerHttpStatus?: number;
   llm?: LlmGenerationMetadata;
 };
 
