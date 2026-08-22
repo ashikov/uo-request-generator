@@ -8,7 +8,6 @@ import {
   generateRequestResultSchema,
   type GenerateRequestInput,
   type GenerateRequestOutcome,
-  type PrimaryRequestDraft,
 } from "@uo-request-generator/core";
 import {
   CHAT_COMPLETIONS_OUTPUT_TOKEN_PARAMETERS,
@@ -16,6 +15,7 @@ import {
   LLM_API_PROTOCOLS,
   type LlmProviderUsage,
   OpenAiCompatibleGateway,
+  type OpenAiCompatibleEvaluationObservation,
   type OpenAiCompatibleGatewayConfig,
 } from "@uo-request-generator/llm";
 import { z } from "zod";
@@ -66,7 +66,7 @@ type PlannedBenchmarkRequest = {
 
 export type BenchmarkPlan = {
   config: BenchmarkConfig;
-  commitSha: string;
+  sourceState: BenchmarkSourceState;
   scenarios: readonly TestScenario[];
   repeats: number;
   totalRequests: number;
@@ -120,10 +120,12 @@ type BenchmarkGateway = {
   generateRequestForEvaluation(input: GenerateRequestInput): Promise<BenchmarkGeneration>;
 };
 
-type BenchmarkObservation = {
-  draft?: PrimaryRequestDraft;
-  selectedNormativeModule?: string | null;
-};
+type BenchmarkObservation = OpenAiCompatibleEvaluationObservation;
+
+export type BenchmarkSourceState =
+  | { readonly status: "clean"; readonly commitSha: string }
+  | { readonly status: "dirty"; readonly tracked: boolean; readonly untracked: boolean }
+  | { readonly status: "unavailable" };
 
 type HardCheckResult = {
   expectation: string;
@@ -142,7 +144,7 @@ export type BenchmarkDependencies = {
   now(): Date;
   monotonicNow(): number;
   isInterrupted(): boolean;
-  commitSha(): string;
+  sourceState(): BenchmarkSourceState;
   createGateway(config: OpenAiCompatibleGatewayConfig): BenchmarkGateway;
 };
 
@@ -407,7 +409,7 @@ export function createBenchmarkPlan(
   selectedScenarios: readonly TestScenario[],
   repeats: number,
   timestamp: Date,
-  commitSha = "unavailable",
+  sourceState: BenchmarkSourceState = { status: "unavailable" },
 ): BenchmarkPlan {
   const requests: PlannedBenchmarkRequest[] = [];
 
@@ -432,7 +434,7 @@ export function createBenchmarkPlan(
 
   return {
     config,
-    commitSha,
+    sourceState,
     scenarios: selectedScenarios,
     repeats,
     totalRequests: requests.length,
@@ -449,6 +451,21 @@ function formatMoney(value: number, currency: string): string {
   return `${value.toFixed(6)} ${currency}`;
 }
 
+function formatSourceState(sourceState: BenchmarkSourceState): string {
+  switch (sourceState.status) {
+    case "clean":
+      return `clean (${sourceState.commitSha})`;
+    case "dirty":
+      return `dirty (tracked: ${sourceState.tracked ? "yes" : "no"}, untracked: ${sourceState.untracked ? "yes" : "no"})`;
+    case "unavailable":
+      return "unavailable";
+    default: {
+      const unsupportedSourceState: never = sourceState;
+      return unsupportedSourceState;
+    }
+  }
+}
+
 function writePlan(plan: BenchmarkPlan, writeLine: (message: string) => void): void {
   writeLine("LLM benchmark plan (provider requests: 0)");
   writeLine(`Protocol: ${plan.config.apiProtocol}`);
@@ -463,6 +480,7 @@ function writePlan(plan: BenchmarkPlan, writeLine: (message: string) => void): v
     `Scenarios (${String(plan.scenarios.length)}): ${plan.scenarios.map((scenario) => scenario.id).join(", ")}`,
   );
   writeLine(`Repeats: ${String(plan.repeats)}`);
+  writeLine(`Source state: ${formatSourceState(plan.sourceState)}`);
   writeLine(`Total requests: ${String(plan.totalRequests)}`);
   writeLine(`Max output tokens: ${String(plan.config.maxOutputTokens)}`);
   writeLine(
@@ -518,6 +536,8 @@ function automaticChecks(
     return [hardCheck("expectedOutcome: generated", false, `outcome: ${outcome.status}`)];
   }
 
+  const generatedObservation = observation?.draftOutcome === "generated" ? observation : undefined;
+
   const checks: HardCheckResult[] = [
     hardCheck("expectedOutcome: generated", true, "outcome: generated"),
   ];
@@ -547,7 +567,7 @@ function automaticChecks(
         break;
       }
       case "subject_kind": {
-        if (observation?.draft === undefined) {
+        if (generatedObservation === undefined) {
           checks.push(
             hardCheck(
               `subject.kind: ${expectation.expected ?? "null"}`,
@@ -557,7 +577,7 @@ function automaticChecks(
           );
           break;
         }
-        const observed = observation.draft.subject?.kind ?? null;
+        const observed = generatedObservation.draft.subject?.kind ?? null;
         checks.push(
           hardCheck(
             `subject.kind: ${expectation.expected ?? "null"}`,
@@ -568,7 +588,7 @@ function automaticChecks(
         break;
       }
       case "forbidden_subject_kind": {
-        if (observation?.draft === undefined) {
+        if (generatedObservation === undefined) {
           checks.push(
             hardCheck(
               `subject.kind is not ${expectation.forbidden}`,
@@ -578,7 +598,7 @@ function automaticChecks(
           );
           break;
         }
-        const observed = observation.draft.subject?.kind ?? null;
+        const observed = generatedObservation.draft.subject?.kind ?? null;
         checks.push(
           hardCheck(
             `subject.kind is not ${expectation.forbidden}`,
@@ -589,7 +609,7 @@ function automaticChecks(
         break;
       }
       case "selected_normative_module": {
-        if (observation?.selectedNormativeModule === undefined) {
+        if (generatedObservation === undefined) {
           checks.push(
             hardCheck(
               `selected normative module: ${expectation.expected ?? "none"}`,
@@ -599,7 +619,7 @@ function automaticChecks(
           );
           break;
         }
-        const observed = observation.selectedNormativeModule;
+        const observed = generatedObservation.selectedNormativeModule;
         checks.push(
           hardCheck(
             `selected normative module: ${expectation.expected ?? "none"}`,
@@ -610,11 +630,11 @@ function automaticChecks(
         break;
       }
       case "procedural_plan": {
-        if (observation?.draft === undefined) {
+        if (generatedObservation === undefined) {
           checks.push(hardCheck("actionPlan observation", false, "actionPlan: unavailable"));
           break;
         }
-        const actionPlan = observation?.draft?.actionPlan;
+        const actionPlan = generatedObservation.draft.actionPlan;
         const values: Array<[keyof typeof expectation, string | null]> = [
           ["preliminaryCheck", actionPlan?.preliminaryCheck ?? null],
           ["remedyActions", actionPlan?.remedyActions.length === 0 ? null : "present"],
@@ -689,15 +709,61 @@ function formatObservation(observation: BenchmarkObservation | undefined): strin
     return ["Deterministic observations: unavailable"];
   }
 
-  return [
-    "Validated structured output:",
-    "",
-    "```json",
-    JSON.stringify(observation.draft ?? { outcome: "multiple_issues" }, null, 2),
-    "```",
-    "",
-    `- Selected normative module: ${observation.selectedNormativeModule ?? "none"}`,
-  ];
+  switch (observation.draftOutcome) {
+    case "generated":
+      return [
+        "Validated structured output:",
+        "",
+        "```json",
+        JSON.stringify(observation.draft, null, 2),
+        "```",
+        "",
+        `- Selected normative module: ${observation.selectedNormativeModule ?? "none"}`,
+      ];
+    case "multiple_issues":
+      return [
+        "Validated structured output:",
+        "",
+        "```json",
+        JSON.stringify(observation.multipleIssuesDraft, null, 2),
+        "```",
+        "",
+        "- Selected normative module: unavailable",
+      ];
+    default: {
+      const unsupportedObservation: never = observation;
+      return unsupportedObservation;
+    }
+  }
+}
+
+function formatRepeatSummary(report: BenchmarkRunReport): string[] {
+  const lines = ["## Repeat summary", ""];
+
+  for (const model of report.plan.config.models) {
+    for (const scenario of report.plan.scenarios) {
+      const plannedRepeats = report.plan.requests.filter(
+        (request) => request.model.label === model.label && request.scenario.id === scenario.id,
+      ).length;
+      const completedRecords = report.records.filter(
+        (record) =>
+          record.request.model.label === model.label && record.request.scenario.id === scenario.id,
+      );
+      const hardFailingRepeats = completedRecords.filter(
+        (record) =>
+          record.failureKind !== undefined ||
+          record.error !== undefined ||
+          record.hardChecks === undefined ||
+          record.hardChecks.length === 0 ||
+          !hardChecksPassed(record.hardChecks),
+      ).length;
+      lines.push(
+        `- ${model.label} / ${scenario.id}: planned repeats ${String(plannedRepeats)}; completed repeats ${String(completedRecords.length)} / ${String(plannedRepeats)}; ${String(hardFailingRepeats)} / ${String(plannedRepeats)} hard-failing repeats`,
+      );
+    }
+  }
+
+  return lines;
 }
 
 function aggregateUsage(records: BenchmarkRequestRecord[]): {
@@ -742,7 +808,7 @@ function formatReport(report: BenchmarkRunReport): string {
     `- Timestamp: ${report.startedAt.toISOString()}`,
     `- Finished at: ${report.finishedAt.toISOString()}`,
     `- Status: ${report.status}`,
-    `- Commit SHA: ${report.plan.commitSha}`,
+    `- Source state: ${formatSourceState(report.plan.sourceState)}`,
     `- Protocol: ${report.plan.config.apiProtocol}`,
     `- Model labels: ${report.plan.config.models.map((model) => model.label).join(", ")}`,
     `- Scenarios: ${String(report.plan.scenarios.length)}`,
@@ -768,6 +834,8 @@ function formatReport(report: BenchmarkRunReport): string {
       (model) =>
         `- ${model.label}: input ${String(model.inputPricePerMillion)}, output ${String(model.outputPricePerMillion)} ${report.plan.config.currency} / 1M tokens`,
     ),
+    "",
+    ...formatRepeatSummary(report),
     "",
     "## Semantic review",
     "",
@@ -1030,12 +1098,19 @@ export async function runLlmBenchmark(
       selectedScenarios,
       options.repeats,
       dependencies.now(),
-      dependencies.commitSha(),
+      dependencies.sourceState(),
     );
     writePlan(plan, dependencies.writeLine);
 
     if (!options.run) {
       return 0;
+    }
+
+    if (plan.sourceState.status !== "clean") {
+      dependencies.writeLine(
+        "Платный запуск доступен только для clean source state. Выполнено 0 запросов.",
+      );
+      return 1;
     }
 
     if (!dependencies.isStdinTty) {
@@ -1069,15 +1144,33 @@ function writeLine(message: string): void {
   process.stdout.write(`${message}\n`);
 }
 
-function commitSha(): string {
+function sourceState(): BenchmarkSourceState {
   try {
-    return execFileSync("git", ["rev-parse", "HEAD"], {
+    const commitSha = execFileSync("git", ["rev-parse", "--verify", "HEAD"], {
       cwd: REPOSITORY_ROOT,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
+    const changes = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+      cwd: REPOSITORY_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => (line.startsWith("??") ? "untracked" : "tracked"));
+
+    if (changes.length === 0) {
+      return { status: "clean", commitSha };
+    }
+
+    return {
+      status: "dirty",
+      tracked: changes.includes("tracked"),
+      untracked: changes.includes("untracked"),
+    };
   } catch {
-    return "unavailable";
+    return { status: "unavailable" };
   }
 }
 
@@ -1115,7 +1208,7 @@ async function main(): Promise<void> {
       now: () => new Date(),
       monotonicNow: () => performance.now(),
       isInterrupted: () => interrupted,
-      commitSha,
+      sourceState,
       createGateway: (config) => new OpenAiCompatibleGateway(config),
     });
   } finally {
