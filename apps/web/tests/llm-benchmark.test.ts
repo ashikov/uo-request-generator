@@ -511,7 +511,7 @@ describe("LLM benchmark", () => {
 
     expect(selected).toEqual(scenarios);
     expect(selected[0]).toBe(scenarios[0]);
-    expect(selected).toHaveLength(14);
+    expect(selected).toHaveLength(17);
   });
 
   it("исключает local config и report directory из Git", () => {
