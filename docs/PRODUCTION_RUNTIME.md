@@ -11,7 +11,7 @@ deployment.
 
 ## Runtime-контракт
 
-`compose.production.yaml` запускает один контейнер `web` из переменной
+`compose.production.yaml` запускает один контейнер `request-generator` из переменной
 `PRODUCTION_IMAGE`. Compose не содержит `build` и не публикует backend-порт на
 host. Порт `3000` доступен только в явно заданной внешней Docker-сети
 `PRODUCTION_PROXY_NETWORK`.
@@ -52,7 +52,7 @@ Container healthcheck выполняет встроенный `fetch` Node.js к
 
 Backend не должен быть доступен публичному клиенту в обход reverse proxy.
 Reverse proxy подключается к той же внешней Docker-сети и обращается к сервису
-`web` на порт `3000`. Конфигурация конкретного proxy в репозиторий не входит.
+`request-generator` на порт `3000`. Конфигурация конкретного proxy в репозиторий не входит.
 
 Proxy обязан перезаписывать `X-Forwarded-For` и `X-Forwarded-Proto` значениями
 фактического входящего соединения, а не передавать пользовательские значения.
@@ -131,20 +131,20 @@ host должно быть достаточно места для текущег
 6. Загрузите image и выполните первый запуск без сборки исходников:
 
    ```bash
-   ./scripts/production-compose.sh pull web
-   ./scripts/production-compose.sh up -d --no-build web
+   ./scripts/production-compose.sh pull request-generator
+   ./scripts/production-compose.sh up -d --no-build --remove-orphans request-generator
    ```
 
 7. Проверьте состояние контейнера:
 
    ```bash
-   ./scripts/production-compose.sh ps web
+   ./scripts/production-compose.sh ps request-generator
    ```
 
 8. Проверьте container healthcheck отдельно:
 
    ```bash
-   CONTAINER_ID=$(./scripts/production-compose.sh ps -q web)
+   CONTAINER_ID=$(./scripts/production-compose.sh ps -q request-generator)
    docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$CONTAINER_ID"
    ```
 
@@ -153,7 +153,7 @@ host должно быть достаточно места для текущег
 9. Просмотрите только последние технические логи штатным средством Docker:
 
    ```bash
-   ./scripts/production-compose.sh logs --tail=100 web
+   ./scripts/production-compose.sh logs --tail=100 request-generator
    ```
 
    Не запускайте вывод environment или полной разрешённой Compose-конфигурации.
@@ -179,8 +179,8 @@ PREVIOUS_IMAGE=$PRODUCTION_IMAGE
 export PREVIOUS_IMAGE
 export PRODUCTION_IMAGE='registry.example/namespace/uo-request-generator@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
 ./scripts/production-compose.sh config --quiet
-./scripts/production-compose.sh pull web
-./scripts/production-compose.sh up -d --no-build web
+./scripts/production-compose.sh pull request-generator
+./scripts/production-compose.sh up -d --no-build --remove-orphans request-generator
 ```
 
 Повторите проверки `ps`, container healthcheck, последних логов и
@@ -196,8 +196,8 @@ export PRODUCTION_IMAGE='registry.example/namespace/uo-request-generator@sha256:
 ```bash
 export PRODUCTION_IMAGE="$PREVIOUS_IMAGE"
 ./scripts/production-compose.sh config --quiet
-./scripts/production-compose.sh pull web
-./scripts/production-compose.sh up -d --no-build web
+./scripts/production-compose.sh pull request-generator
+./scripts/production-compose.sh up -d --no-build --remove-orphans request-generator
 ```
 
 После rollback снова проверьте `ps`, значение `healthy`, последние логи и

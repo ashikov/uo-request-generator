@@ -1,5 +1,5 @@
 services:
-  web:
+  request-generator:
     build:
       context: .
       dockerfile: Dockerfile
@@ -46,12 +46,12 @@ services:
     init: true
     restart: "no"
     depends_on:
-      web:
+      request-generator:
         condition: service_healthy
     environment:
       HOME: /tmp/browser-home
       PLAYWRIGHT_ARTIFACT_DIRECTORY: /artifacts
-      PLAYWRIGHT_BASE_URL: http://web:3000
+      PLAYWRIGHT_BASE_URL: http://request-generator:3000
     volumes:
       - ./.browser-test-artifacts:/artifacts
     shm_size: 1gb

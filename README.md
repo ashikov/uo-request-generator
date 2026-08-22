@@ -484,9 +484,9 @@ JSON-строк.
 Просмотр текущих логов:
 
 ```bash
-docker compose logs web
-docker compose logs -f web
-docker compose logs --tail=100 web
+docker compose logs request-generator
+docker compose logs -f request-generator
+docker compose logs --tail=100 request-generator
 ```
 
 `docker compose logs` и `docker logs` — штатный способ просмотра и текущих, и
