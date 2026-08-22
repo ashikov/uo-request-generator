@@ -114,9 +114,15 @@ describe("test scenario fixtures", () => {
         { kind: "procedural_plan", preliminaryCheck: "absent", remedyActions: "present" },
       ]),
     });
-    expect(byId.get("impact-subject-subjective")?.provenance).toEqual({ issue: 203 });
-    expect(byId.get("impact-subject-objective")?.provenance).toEqual({ issue: 203 });
-    expect(byId.get("impact-subject-explicit-group")?.provenance).toEqual({ issue: 203 });
+    expect(
+      scenarios
+        .filter((scenario) => scenario.provenance?.issue === 203)
+        .map((scenario) => scenario.id),
+    ).toEqual([
+      "impact-subject-subjective",
+      "impact-subject-objective",
+      "impact-subject-explicit-group",
+    ]);
   });
 
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
