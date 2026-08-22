@@ -222,6 +222,14 @@ Route-level `onRequest` создаёт контекст генерации до 
 prompt и `durationMs` обращения к провайдеру. Верхнеуровневый `durationMs`
 остаётся длительностью всего HTTP-запроса.
 
+Событие `generation_failed` для внешнего ответа провайдера с non-2xx может
+дополнительно содержать только проверенный failure-only `providerHttpStatus`:
+целое число от 100 до 599, и только при статусе `provider_unavailable`. Для
+`timeout`, `network_error` и `invalid_response` это поле отсутствует. Это status
+ответа провайдера, а не публичный `httpStatus` ответа `/api/generate`. Например,
+публичный ответ может иметь status `503`. Поля не содержат сырых диагностических
+данных провайдера или пользователя.
+
 Usage нормализуется из фактического ответа провайдера в `inputTokens`,
 `outputTokens` и `totalTokens`. При отсутствии usage он равен `null` со статусом
 `missing`, а при частичных или невалидных данных — `null` со статусом `invalid`.
