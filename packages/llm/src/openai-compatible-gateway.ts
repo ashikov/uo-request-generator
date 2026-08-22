@@ -23,6 +23,7 @@ import {
   createRequestDraftSystemPromptHash,
   parseRequestDraft,
   REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
+  type RequestDraft,
 } from "./request-draft.js";
 
 export type OpenAiCompatibleGatewayConfig = {
@@ -70,10 +71,18 @@ export type OpenAiCompatibleGeneration =
   | OpenAiCompatibleGenerationSuccess
   | OpenAiCompatibleGenerationFailure;
 
-export type OpenAiCompatibleEvaluationObservation = {
-  draft?: PrimaryRequestDraft;
-  selectedNormativeModule?: string | null;
-};
+type MultipleIssuesRequestDraft = Extract<RequestDraft, { outcome: "multiple_issues" }>;
+
+export type OpenAiCompatibleEvaluationObservation =
+  | {
+      draftOutcome: "generated";
+      draft: PrimaryRequestDraft;
+      selectedNormativeModule: string | null;
+    }
+  | {
+      draftOutcome: "multiple_issues";
+      multipleIssuesDraft: MultipleIssuesRequestDraft;
+    };
 
 export type OpenAiCompatibleEvaluationGeneration =
   | (OpenAiCompatibleGenerationSuccess & {
@@ -85,10 +94,10 @@ export type OpenAiCompatibleEvaluationGeneration =
       usageStatus: LlmUsageStatus;
     });
 
-type UnannotatedGenerationSuccess = Omit<OpenAiCompatibleGenerationSuccess, "metadata"> &
-  OpenAiCompatibleEvaluationObservation & {
-    usageStatus: LlmUsageStatus;
-  };
+type UnannotatedGenerationSuccess = Omit<OpenAiCompatibleGenerationSuccess, "metadata"> & {
+  observation: OpenAiCompatibleEvaluationObservation;
+  usageStatus: LlmUsageStatus;
+};
 
 type UnannotatedGenerationFailure = Omit<OpenAiCompatibleGenerationFailure, "metadata"> & {
   usageStatus: LlmUsageStatus;
@@ -104,8 +113,7 @@ type TimedGeneration =
   | (InternalGenerationFailure & { providerDurationMs: number });
 type InternalGeneration =
   | (OpenAiCompatibleGenerationSuccess & {
-      draft?: PrimaryRequestDraft;
-      selectedNormativeModule?: string | null;
+      observation: OpenAiCompatibleEvaluationObservation;
       usageStatus: LlmUsageStatus;
       providerDurationMs: number;
     })
@@ -509,8 +517,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       const {
         usageStatus: _usageStatus,
         providerDurationMs: _providerDurationMs,
-        draft: _draft,
-        selectedNormativeModule: _selectedNormativeModule,
+        observation: _observation,
         ...success
       } = generation;
       return success;
@@ -545,17 +552,13 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     const {
       usageStatus: _usageStatus,
       providerDurationMs: _providerDurationMs,
-      draft,
-      selectedNormativeModule,
+      observation,
       ...success
     } = generation;
     return {
       ...success,
       systemPromptHash: success.metadata.systemPromptHash,
-      observation: {
-        ...(draft === undefined ? {} : { draft }),
-        ...(selectedNormativeModule === undefined ? {} : { selectedNormativeModule }),
-      },
+      observation,
     };
   }
 
@@ -701,6 +704,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
           {
             status: "success",
             outcome: { status: "multiple_issues" },
+            observation: {
+              draftOutcome: "multiple_issues",
+              multipleIssuesDraft: draft,
+            },
             ...usage,
           },
           completedProviderDurationMs,
@@ -720,8 +727,11 @@ export class OpenAiCompatibleGateway implements LlmGateway {
             status: "generated",
             result: renderPrimaryRequestDraft(primaryRequestDraft, input),
           },
-          draft: primaryRequestDraft,
-          selectedNormativeModule: selectedNormativeModule?.id ?? null,
+          observation: {
+            draftOutcome: "generated",
+            draft: primaryRequestDraft,
+            selectedNormativeModule: selectedNormativeModule?.id ?? null,
+          },
           ...usage,
         },
         completedProviderDurationMs,

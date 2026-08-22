@@ -795,6 +795,10 @@ describe("OpenAiCompatibleGateway", () => {
     if (generation.status !== "success") {
       throw new Error("Ожидался успешный generation result");
     }
+    expect(generation.observation.draftOutcome).toBe("generated");
+    if (generation.observation.draftOutcome !== "generated") {
+      throw new Error("Ожидался generated evaluation observation");
+    }
     expect(generation.observation.draft).toMatchObject({ subject: draft.subject });
     expect(generation.observation.selectedNormativeModule).toBe("common-area-lighting");
     expect(generation.systemPromptHash).toMatch(/^sha256:/u);
@@ -963,6 +967,32 @@ describe("OpenAiCompatibleGateway", () => {
     expect(JSON.stringify(result)).not.toContain(HOUSING_CODE_BASIS);
     expect(JSON.stringify(result)).not.toContain(MANAGEMENT_RULES_BASIS);
     expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("возвращает evaluation observation с фактическим validated multiple_issues draft", async () => {
+    createMockFetch(MULTIPLE_ISSUES_LLM_TEXT);
+
+    const generation = await createGateway().generateRequestForEvaluation(VALID_INPUT);
+
+    expect(generation.status).toBe("success");
+    if (generation.status !== "success") {
+      throw new Error("Ожидался успешный generation result");
+    }
+    expect(generation.outcome).toEqual({ status: "multiple_issues" });
+    expect(generation.observation).toEqual({
+      draftOutcome: "multiple_issues",
+      multipleIssuesDraft: {
+        outcome: "multiple_issues",
+        title: null,
+        problem: null,
+        circumstances: null,
+        impact: null,
+        verification: null,
+        subject: null,
+        actionPlan: null,
+        warnings: [],
+      },
+    });
   });
 
   it("отклоняет противоречивый multiple_issues и не раскрывает содержимое ответа", async () => {
