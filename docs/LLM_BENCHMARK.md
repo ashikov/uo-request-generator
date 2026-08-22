@@ -105,10 +105,19 @@ normative selection, что и production renderer. Они не выводятс
 ## План и платный запуск
 
 До первого запроса план показывает модели, scenarios, повторы, общее число
-запросов, output cap, pricing snapshot, максимальную оценочную стоимость и путь
-отчёта. Input оценивается консервативно как не более одного токена на байт
-полного UTF-8 request body с production prompt и schema. Это верхняя оценка для
-планирования расходов, а не точный provider billing.
+запросов, output cap, pricing snapshot, максимальную оценочную стоимость, путь
+отчёта и безопасное состояние исходников. Оно имеет только один из трёх видов:
+`clean` с commit SHA, `dirty` с отдельными признаками tracked и untracked
+изменений или `unavailable`. Пути изменённых файлов, raw porcelain, remotes и
+другие сведения о локальном окружении не выводятся и не сохраняются. Input
+оценивается консервативно как не более одного токена на байт полного UTF-8
+request body с production prompt и schema. Это верхняя оценка для планирования
+расходов, а не точный provider billing.
+
+Состояние считается `clean`, только если `git rev-parse --verify HEAD`
+успешно определил commit и `git status --porcelain=v1 --untracked-files=all`
+не вернул tracked или untracked изменений. Ошибка любой из этих проверок даёт
+`unavailable`.
 
 Фактический запуск требует одновременно `--run`, интерактивный stdin и точную
 фразу `RUN <число запросов>` после вывода плана:
@@ -117,17 +126,28 @@ normative selection, что и production renderer. Они не выводятс
 pnpm benchmark:llm -- --config .llm-benchmark.local.json --repeats 3 --run
 ```
 
-Любой другой ответ отменяет запуск с нулём запросов. Non-TTY запуск также
-отклоняется. Bypass-флагов нет.
+Paid run допускается только при `clean` source state с доступным commit SHA.
+Tracked или untracked изменения и невозможность определить состояние
+репозитория блокируют запуск до confirmation, создания gateway, записи отчёта и
+provider request. Любой другой ответ confirmation отменяет запуск с нулём
+запросов. Non-TTY запуск также отклоняется. Bypass-флагов нет.
 
 ## Отчёт
 
 После подтверждения Markdown-отчёт последовательно обновляется в
 `.tmp/llm-benchmark/`. Его можно передать независимому reviewer без локального
-окружения и истории разработки. В нём сохраняются timestamp, commit SHA,
+окружения и истории разработки. В нём сохраняются timestamp, clean commit SHA,
 безопасные model labels, prompt hash, pricing snapshot, plan и completed
 requests, repeats, usage, latency, estimated cost и общий hard PASS/FAIL
 summary.
+
+Отдельная repeat-сводка группируется по безопасному model label и scenario ID.
+Для каждой группы она явно показывает planned repeats, completed repeats и
+число completed hard-failing repeats относительно planned repeats. Завершённый
+repeat считается hard-failing при request error, общей ошибке provider,
+отсутствии hard checks или хотя бы одном `FAIL`. Не начатые repeats остаются
+неcompleted и сами по себе не увеличивают это число. Общий hard summary при
+неполном запуске по-прежнему остаётся fail closed.
 
 Для каждого scenario/repeat отчёт включает category, issue provenance,
 synthetic input, validated structured output, deterministic observations,
@@ -135,6 +155,10 @@ rendered result или контролируемую ошибку, каждый h
 и observed value, semantic expectations, duration, usage и cost. Model IDs,
 API URL, auth headers, credentials, raw provider response, реальные
 пользовательские данные и production infrastructure в отчёт не попадают.
+Для `multiple_issues` сохраняется фактически полученный и локально
+валидированный structured draft со всеми обязательными `null` и пустыми
+полями. Если evaluation observation отсутствует, отчёт помечает его как
+`unavailable` и не создаёт заменяющий объект.
 
 Если usage отсутствует, запрос и результат сохраняются, а usage и стоимость
 отмечаются как `unavailable`. Значения по длине ответа не выдумываются.
