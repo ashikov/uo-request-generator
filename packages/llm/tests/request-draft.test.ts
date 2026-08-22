@@ -195,6 +195,9 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       "При неизвестной причине remedyActions формулируй как необходимый результат, а не как конкретный способ ремонта",
     );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Конкретный способ ремонта допустим, только если его необходимость прямо следует из пользовательского факта или явно переданного desiredActions и не требует догадки о причине",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       "preliminaryCheck должен устанавливать причину в целом, не перечисляя без основания предполагаемые компоненты",
     );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
