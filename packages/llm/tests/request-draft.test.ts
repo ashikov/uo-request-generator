@@ -317,16 +317,23 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(lightingPromptRules.join("\n")).not.toContain(DOOR_SUBJECT_RULE);
   });
 
-  it("ограничивает cleaning subject уборкой только внутри помещений общего пользования", () => {
+  it("ограничивает cleaning subject уборкой помещений и загрязнений их элементов", () => {
     const prompt = createRequestDraftSystemPrompt("common_area_premises_cleaning");
 
     expect(prompt).toContain(CLEANING_SUBJECT_RULE);
     expect(prompt).toContain("подъезда, лестничной площадки, коридора или холла");
+    expect(prompt).toContain("удаление загрязнения");
+    expect(prompt).toContain("стен, дверей и других поверхностей");
+    expect(prompt).toContain("кабин лифтов");
+    expect(prompt).toContain("само по себе не является проблемой лифта, двери или конструкции");
     expect(prompt).toContain("внутри квартиры");
     expect(prompt).toContain("придомовой территории");
     expect(prompt).toContain("контейнерной площадки");
     expect(prompt).toContain("вывоза ТКО");
     expect(prompt).toContain("не утверждай антисанитарное состояние");
+    expect(prompt).toContain(
+      "помещение общего пользования многоквартирного дома либо элемент его общего имущества",
+    );
     expect(prompt).not.toContain(DOOR_SUBJECT_RULE);
     expect(prompt).not.toContain(LIGHTING_SUBJECT_RULE);
   });

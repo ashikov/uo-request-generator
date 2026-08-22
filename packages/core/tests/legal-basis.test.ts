@@ -515,7 +515,7 @@ describe("нормативный модуль освещения помещен�
 
 describe("нормативный модуль уборки помещений общего пользования", () => {
   const paragraph =
-    "Согласно подпункту «а» пункта 2 и подпункту «г» пункта 11 Правил содержания общего имущества в многоквартирном доме, утверждённых постановлением Правительства РФ от 13.08.2006 № 491, помещения, не являющиеся частями квартир и предназначенные для обслуживания более одного помещения, относятся к помещениям общего пользования, а содержание общего имущества включает уборку и санитарно-гигиеническую очистку таких помещений.";
+    "Согласно подпункту «а» пункта 2 и подпункту «г» пункта 11 Правил содержания общего имущества в многоквартирном доме, утверждённых постановлением Правительства РФ от 13.08.2006 № 491, помещения общего пользования относятся к общему имуществу дома, а его содержание включает уборку и санитарно-гигиеническую очистку таких помещений, включая очистку их поверхностей и размещённых в них элементов общего имущества.";
 
   function createCleaningDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
     return createDraft({
@@ -539,7 +539,7 @@ describe("нормативный модуль уборки помещений о
         requiresExplicitUserConfirmation: true,
         requiresVerifiedInputEvidence: true,
         limitation:
-          "Только уборка помещений общего пользования многоквартирного дома. Не применяется к уборке внутри квартиры, придомовой территории, контейнерной площадки или вывозу твёрдых коммунальных отходов.",
+          "Только уборка помещений общего пользования многоквартирного дома, в том числе удаление загрязнений с их стен, дверей и других поверхностей и с размещённых в них элементов общего имущества многоквартирного дома, например кабин лифтов. Не применяется к уборке внутри квартиры, придомовой территории, контейнерной площадки или вывозу твёрдых коммунальных отходов.",
       },
       paragraphs: [paragraph],
       sources: [
@@ -552,7 +552,7 @@ describe("нормативный модуль уборки помещений о
           validThrough: "2027-12-31",
         },
       ],
-      verifiedAt: "2026-08-17",
+      verifiedAt: "2026-08-21",
     });
   });
 
@@ -608,37 +608,95 @@ describe("нормативный модуль уборки помещений о
     expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
   });
 
+  it.each([
+    [
+      "загрязнение в кабине исправного лифта",
+      {
+        description:
+          "В кабине грузового лифта несколько дней остаётся загрязнение и неприятный запах. Сам лифт работает.",
+        location: "второй подъезд",
+        desiredActions: "Убрать загрязнение из кабины грузового лифта.",
+      },
+      "В кабине грузового лифта несколько дней остаётся загрязнение и неприятный запах. Сам лифт работает.",
+      "Убрать загрязнение из кабины грузового лифта.",
+    ],
+    [
+      "загрязнение на исправной входной двери",
+      {
+        description:
+          "На входной двери несколько дней остаётся загрязнение и неприятный запах. Дверь открывается и закрывается нормально.",
+        location: "второй подъезд",
+        desiredActions: "Очистить входную дверь от загрязнения.",
+      },
+      "На входной двери несколько дней остаётся загрязнение и неприятный запах. Дверь открывается и закрывается нормально.",
+      "Очистить входную дверь от загрязнения.",
+    ],
+    [
+      "загрязнение стены в подъезде",
+      {
+        description: "На стене в подъезде несколько дней остаётся загрязнение и неприятный запах.",
+        location: "второй подъезд",
+        desiredActions: "Очистить стену от загрязнения.",
+      },
+      "На стене в подъезде несколько дней остаётся загрязнение и неприятный запах.",
+      "Очистить стену от загрязнения.",
+    ],
+  ])("подключает cleaning module при загрязнении элемента общего имущества: %s", (_caseName, input, descriptionQuote, desiredActionQuote) => {
+    const confirmedInput = {
+      ...input,
+      confirmedProblemSubject: "common_area_premises_cleaning" as const,
+    };
+    const result = renderPrimaryRequestDraft(
+      createCleaningDraft({
+        title: "Не удалено загрязнение в помещении общего пользования",
+        problem: input.description,
+        subject: {
+          kind: "common_area_premises_cleaning",
+          evidence: [
+            { sourceField: "description", quote: descriptionQuote },
+            { sourceField: "desiredActions", quote: desiredActionQuote },
+          ],
+        },
+      }),
+      confirmedInput,
+    );
+
+    expect(result.body.split(paragraph)).toHaveLength(2);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
+  });
+
   it("не выводит URL, metadata и процедурные действия из нормативного модуля", () => {
     const result = renderPrimaryRequestDraft(createCleaningDraft(), CONFIRMED_CLEANING_INPUT);
     const serializedModule = JSON.stringify(COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE);
 
     expect(result.body).not.toContain("government.ru");
-    expect(result.body).not.toContain("2026-08-17");
+    expect(result.body).not.toContain("2026-08-21");
     expect(result.body).not.toContain("common-area-cleaning");
     expect(serializedModule).not.toContain("actionPlan");
     expect(serializedModule).not.toContain("remedyActions");
   });
 
-  it("учитывает новый максимальный legal block в budget без усечения", () => {
-    const expectedMaximumBlock = [COMMON_LEGAL_BASIS_BLOCK, paragraph].join("\n\n");
-    const minimalDraft = createCleaningDraft({
-      problem: "а.",
-      actionPlan: { preliminaryCheck: null, remedyActions: ["б."], resultCheck: null },
-    });
-    const minimalBodyLength = renderPrimaryRequestDraft(minimalDraft).body.length;
-    const maximumProblemWithoutSpecificBasis =
-      generateRequestLimits.result.bodyMax - minimalBodyLength + minimalDraft.problem.length;
-    const draftFittingWithoutModule = createCleaningDraft({
-      problem: `${"а".repeat(maximumProblemWithoutSpecificBasis - 1)}.`,
-      actionPlan: minimalDraft.actionPlan,
-    });
+  it("учитывает cleaning module в максимальном budget и применяет не более одного модуля", () => {
+    const specificModules = [
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+      COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+      COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+      COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
+    ];
+    const expectedMaximumSpecificLength = Math.max(
+      ...specificModules.map((module) => module.paragraphs.join("\n\n").length),
+    );
+    const result = renderPrimaryRequestDraft(createCleaningDraft(), CONFIRMED_CLEANING_INPUT);
 
-    expect(primaryRequestLegalBasisLimits.maximumBlockLength).toBe(expectedMaximumBlock.length);
-    expect(primaryRequestDraftSchema.safeParse(draftFittingWithoutModule).success).toBe(false);
-    expect(() =>
-      renderPrimaryRequestDraft(draftFittingWithoutModule, CONFIRMED_CLEANING_INPUT),
-    ).toThrow();
-    expect(draftFittingWithoutModule.problem).toHaveLength(maximumProblemWithoutSpecificBasis);
+    expect(primaryRequestLegalBasisLimits.maximumBlockLength).toBe(
+      COMMON_LEGAL_BASIS_BLOCK.length + "\n\n".length + expectedMaximumSpecificLength,
+    );
+    expect(result.body.length).toBeLessThanOrEqual(generateRequestLimits.result.bodyMax);
+    expect(specificModules.filter((module) => result.body.includes(module.paragraphs[0]))).toEqual([
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+    ]);
   });
 });
 
@@ -759,6 +817,8 @@ describe("нормативный модуль кровли многокварт�
       COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
       COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
       COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+      COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
     ];
     const expectedMaximumSpecificLength = Math.max(
       ...specificModules.map((module) => module.paragraphs.join("\n\n").length),
