@@ -113,6 +113,7 @@ type BenchmarkGeneration =
       failureKind: "request" | "provider";
       statusCode?: number;
       usage?: LlmProviderUsage;
+      systemPromptHash?: string;
     };
 
 type BenchmarkGateway = {
@@ -726,12 +727,15 @@ function formatReport(report: BenchmarkRunReport): string {
   const durationMs = Math.max(0, report.finishedAt.getTime() - report.startedAt.getTime());
   const usage = aggregateUsage(report.records);
   const hardChecks = report.records.flatMap((record) => record.hardChecks ?? []);
-  const hardSummary =
-    hardChecks.length === 0
-      ? "unavailable"
-      : hardChecksPassed(hardChecks)
-        ? `PASS (${String(hardChecks.length)} / ${String(hardChecks.length)})`
-        : `FAIL (${String(hardChecks.filter((check) => check.status === "PASS").length)} / ${String(hardChecks.length)})`;
+  const passedHardChecks = hardChecks.filter((check) => check.status === "PASS").length;
+  const hardChecksAreComplete =
+    report.status === "completed" &&
+    report.records.length === report.plan.totalRequests &&
+    report.records.every((record) => (record.hardChecks?.length ?? 0) > 0) &&
+    hardChecksPassed(hardChecks);
+  const hardSummary = hardChecksAreComplete
+    ? `PASS (${String(passedHardChecks)} / ${String(hardChecks.length)})`
+    : `FAIL (${String(passedHardChecks)} / ${String(hardChecks.length)})`;
   const lines = [
     "# Локальный LLM benchmark",
     "",
@@ -910,9 +914,12 @@ async function executeBenchmark(
         record = {
           request,
           durationMs,
-          error: generation.error,
+          error: generation.failureKind === "request" ? "request failed" : "provider unavailable",
           failureKind: generation.failureKind,
           ...(generation.statusCode === undefined ? {} : { statusCode: generation.statusCode }),
+          ...(generation.systemPromptHash === undefined
+            ? {}
+            : { systemPromptHash: generation.systemPromptHash }),
           ...usageMetadata,
         };
         hasErrors = true;
