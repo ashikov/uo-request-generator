@@ -1,4 +1,8 @@
-import type { GenerateRequestInput, GenerateRequestOutcome } from "@uo-request-generator/core";
+import type {
+  GenerateRequestInput,
+  GenerateRequestOutcome,
+  PrimaryRequestDraft,
+} from "@uo-request-generator/core";
 import { readFileSync } from "node:fs";
 import { OpenAiCompatibleGateway } from "@uo-request-generator/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +58,21 @@ const GENERATED_OUTCOME: GenerateRequestOutcome = {
   },
 };
 
+const EVALUATION_DRAFT: PrimaryRequestDraft = {
+  title: "Не работает освещение",
+  problem: "На лестничной площадке не работает освещение.",
+  circumstances: null,
+  impact: null,
+  verification: null,
+  subject: null,
+  actionPlan: {
+    preliminaryCheck: null,
+    remedyActions: ["Проверить и восстановить освещение"],
+    resultCheck: null,
+  },
+  warnings: [],
+};
+
 function dependencies(overrides: Partial<BenchmarkDependencies> = {}): BenchmarkDependencies {
   return {
     environment: {
@@ -71,8 +90,9 @@ function dependencies(overrides: Partial<BenchmarkDependencies> = {}): Benchmark
     now: () => new Date("2026-08-13T04:00:00.000Z"),
     monotonicNow: vi.fn().mockReturnValueOnce(10).mockReturnValueOnce(25),
     isInterrupted: () => false,
+    commitSha: () => "test-commit",
     createGateway: vi.fn(() => ({
-      generateRequestWithMetadata: vi.fn().mockResolvedValue({
+      generateRequestForEvaluation: vi.fn().mockResolvedValue({
         status: "success",
         outcome: GENERATED_OUTCOME,
         usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -263,7 +283,7 @@ describe("LLM benchmark", () => {
   it("показывает maximum cost до первого provider request", async () => {
     const events: string[] = [];
     const gateway = {
-      generateRequestWithMetadata: vi.fn(async () => {
+      generateRequestForEvaluation: vi.fn(async () => {
         events.push("request");
         return { status: "success" as const, outcome: GENERATED_OUTCOME };
       }),
@@ -285,7 +305,7 @@ describe("LLM benchmark", () => {
   });
 
   it("продолжает benchmark после request-level failure без retry", async () => {
-    const generateRequestWithMetadata = vi
+    const generateRequestForEvaluation = vi
       .fn()
       .mockResolvedValueOnce({
         status: "failure",
@@ -296,12 +316,12 @@ describe("LLM benchmark", () => {
       .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
-      createGateway: vi.fn(() => ({ generateRequestWithMetadata })),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
     });
 
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
 
-    expect(generateRequestWithMetadata).toHaveBeenCalledTimes(2);
+    expect(generateRequestForEvaluation).toHaveBeenCalledTimes(2);
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Status: completed");
     expect(report).toContain("Failure kind: request");
@@ -310,26 +330,26 @@ describe("LLM benchmark", () => {
   });
 
   it("останавливает новые requests при общей недоступности provider", async () => {
-    const generateRequestWithMetadata = vi.fn().mockResolvedValue({
+    const generateRequestForEvaluation = vi.fn().mockResolvedValue({
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
     });
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
-      createGateway: vi.fn(() => ({ generateRequestWithMetadata })),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
     });
 
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
 
-    expect(generateRequestWithMetadata).toHaveBeenCalledOnce();
+    expect(generateRequestForEvaluation).toHaveBeenCalledOnce();
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Status: provider_unavailable");
     expect(report).toContain("Completed requests: 1 / 2");
   });
 
   it("учитывает usage failed request в строке и aggregate cost", async () => {
-    const generateRequestWithMetadata = vi
+    const generateRequestForEvaluation = vi
       .fn()
       .mockResolvedValueOnce({
         status: "failure",
@@ -340,12 +360,12 @@ describe("LLM benchmark", () => {
       .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
-      createGateway: vi.fn(() => ({ generateRequestWithMetadata })),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
     });
 
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
 
-    expect(generateRequestWithMetadata).toHaveBeenCalledTimes(2);
+    expect(generateRequestForEvaluation).toHaveBeenCalledTimes(2);
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Actual aggregate usage: input 100, output 50, total 150");
     expect(report).toContain("Actual estimated cost for requests with usage: 0.002000 RUB");
@@ -426,12 +446,12 @@ describe("LLM benchmark", () => {
   });
 
   it("не записывает API key и raw error в report или stdout", async () => {
-    const generateRequestWithMetadata = vi
+    const generateRequestForEvaluation = vi
       .fn()
       .mockRejectedValue(new Error(`Authorization: Bearer ${API_KEY}`));
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
-      createGateway: vi.fn(() => ({ generateRequestWithMetadata })),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
     });
 
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
@@ -443,8 +463,98 @@ describe("LLM benchmark", () => {
     expect(output).not.toContain(API_KEY);
   });
 
+  it("передаёт independent semantic review безопасный label и hard summary без provider model ID", async () => {
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Model labels: current, candidate");
+    expect(report).toContain("Scenarios: 1");
+    expect(report).toContain("Hard checks: PASS");
+    expect(report).toContain("Сохранить: на лестничной площадке не работает освещение.");
+    expect(report).toContain("Не добавлять: факт травмы.");
+    expect(report).not.toContain("model-current");
+    expect(report).not.toContain("model-candidate");
+  });
+
+  it("показывает structured observation и каждый hard check отдельно", async () => {
+    const generateRequestForEvaluation = vi.fn().mockResolvedValue({
+      status: "success",
+      outcome: GENERATED_OUTCOME,
+      observation: { draft: EVALUATION_DRAFT, selectedNormativeModule: null },
+      systemPromptHash: "safe-prompt-hash",
+    });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Validated structured output:");
+    expect(report).toContain('"actionPlan"');
+    expect(report).toContain("PASS: warning presence: absent");
+    expect(report).toContain("Prompt hash: safe-prompt-hash");
+  });
+
+  it("проверяет subject и normative module по structured observation, а не rendered text", async () => {
+    const draft: PrimaryRequestDraft = {
+      ...EVALUATION_DRAFT,
+      subject: {
+        kind: "common_area_premises_cleaning",
+        evidence: [{ sourceField: "description", quote: "исправной кабине лифта" }],
+      },
+    };
+    const generateRequestForEvaluation = vi.fn().mockResolvedValue({
+      status: "success",
+      outcome: GENERATED_OUTCOME,
+      observation: { draft, selectedNormativeModule: "common-area-cleaning" },
+    });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--scenario", "cleaning-elevator-cabin"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("PASS: subject.kind: common_area_premises_cleaning");
+    expect(report).toContain("PASS: subject.kind is not common_area_elevator");
+    expect(report).toContain("PASS: selected normative module: common-area-cleaning");
+    expect(report).toContain(
+      "Issue provenance: [#200](https://github.com/ashikov/uo-request-generator/issues/200)",
+    );
+  });
+
+  it("считает missing structured observation hard failure", async () => {
+    const generateRequestForEvaluation = vi.fn().mockResolvedValue({
+      status: "success",
+      outcome: GENERATED_OUTCOME,
+    });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--scenario", "cleaning-elevator-cabin"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("FAIL: subject.kind: common_area_premises_cleaning");
+    expect(report).toContain("selected normative module: unavailable");
+  });
+
   it("сохраняет usage для поддерживаемого ответа и допускает его отсутствие", async () => {
-    const generateRequestWithMetadata = vi
+    const generateRequestForEvaluation = vi
       .fn()
       .mockResolvedValueOnce({
         status: "success",
@@ -454,7 +564,7 @@ describe("LLM benchmark", () => {
       .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
-      createGateway: vi.fn(() => ({ generateRequestWithMetadata })),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
     });
 
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
@@ -466,26 +576,26 @@ describe("LLM benchmark", () => {
 
   it("сохраняет partial report и не запускает новые requests после interruption", async () => {
     let interrupted = false;
-    const generateRequestWithMetadata = vi.fn(async (_input: GenerateRequestInput) => {
+    const generateRequestForEvaluation = vi.fn(async (_input: GenerateRequestInput) => {
       interrupted = true;
       return { status: "success" as const, outcome: GENERATED_OUTCOME };
     });
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       isInterrupted: () => interrupted,
-      createGateway: vi.fn(() => ({ generateRequestWithMetadata })),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
     });
 
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
 
-    expect(generateRequestWithMetadata).toHaveBeenCalledOnce();
+    expect(generateRequestForEvaluation).toHaveBeenCalledOnce();
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Completed requests: 1 / 2");
     expect(report).toContain("Status: interrupted");
   });
 
   it("останавливается и сообщает точное число requests при ошибке записи report", async () => {
-    const generateRequestWithMetadata = vi
+    const generateRequestForEvaluation = vi
       .fn()
       .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
     const writeFile = vi
@@ -495,12 +605,12 @@ describe("LLM benchmark", () => {
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       writeFile,
-      createGateway: vi.fn(() => ({ generateRequestWithMetadata })),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
     });
 
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
 
-    expect(generateRequestWithMetadata).toHaveBeenCalledOnce();
+    expect(generateRequestForEvaluation).toHaveBeenCalledOnce();
     expect(runtime.writeLine).toHaveBeenCalledWith(
       "Не удалось обновить локальный отчёт. Выполнено 1 из 2 запросов.",
     );
@@ -511,7 +621,7 @@ describe("LLM benchmark", () => {
 
     expect(selected).toEqual(scenarios);
     expect(selected[0]).toBe(scenarios[0]);
-    expect(selected).toHaveLength(20);
+    expect(selected).toHaveLength(27);
   });
 
   it("исключает local config и report directory из Git", () => {

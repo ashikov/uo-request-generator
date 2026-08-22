@@ -325,33 +325,38 @@ function inputEvidenceMatches(
   });
 }
 
-export function selectSpecificLegalBasisParagraphs(
+export function selectSpecificLegalBasisModule(
   subject: PrimaryRequestSubject,
   input: GenerateRequestInput | undefined,
-): readonly string[] {
+): LegalBasisModule | undefined {
   if (
     input === undefined ||
     subject === null ||
     input.confirmedProblemSubject !== subject.kind ||
     !inputEvidenceMatches(input, subject)
   ) {
-    return [];
+    return undefined;
   }
 
   switch (subject.kind) {
     case COMMON_AREA_DOOR_CONFIRMED_SUBJECT:
-      return COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs;
+      return COMMON_AREA_DOOR_LEGAL_BASIS_MODULE;
     case COMMON_AREA_LIGHTING_CONFIRMED_SUBJECT:
-      return COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs;
+      return COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE;
     case COMMON_AREA_CLEANING_CONFIRMED_SUBJECT:
-      return COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.paragraphs;
+      return COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE;
     case COMMON_AREA_ROOF_CONFIRMED_SUBJECT:
-      return COMMON_AREA_ROOF_LEGAL_BASIS_MODULE.paragraphs;
+      return COMMON_AREA_ROOF_LEGAL_BASIS_MODULE;
     case COMMON_AREA_VENTILATION_CONFIRMED_SUBJECT:
-      return COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE.paragraphs;
+      return COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE;
     case COMMON_AREA_ELEVATOR_CONFIRMED_SUBJECT:
-      return COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs;
+      return COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE;
   }
+}
 
-  return [];
+export function selectSpecificLegalBasisParagraphs(
+  subject: PrimaryRequestSubject,
+  input: GenerateRequestInput | undefined,
+): readonly string[] {
+  return selectSpecificLegalBasisModule(subject, input)?.paragraphs ?? [];
 }

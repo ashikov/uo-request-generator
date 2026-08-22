@@ -1,5 +1,6 @@
 import {
   renderPrimaryRequestDraft,
+  selectSpecificLegalBasisModule,
   type GenerateRequestInput,
   type GenerateRequestOutcome,
   type LlmGateway,
@@ -7,6 +8,7 @@ import {
   type LlmGenerationMetadata,
   type LlmUsage,
   type LlmUsageStatus,
+  type PrimaryRequestDraft,
 } from "@uo-request-generator/core";
 import { z } from "zod";
 import {
@@ -68,9 +70,22 @@ export type OpenAiCompatibleGeneration =
   | OpenAiCompatibleGenerationSuccess
   | OpenAiCompatibleGenerationFailure;
 
-type UnannotatedGenerationSuccess = Omit<OpenAiCompatibleGenerationSuccess, "metadata"> & {
-  usageStatus: LlmUsageStatus;
+export type OpenAiCompatibleEvaluationObservation = {
+  draft?: PrimaryRequestDraft;
+  selectedNormativeModule?: string | null;
 };
+
+export type OpenAiCompatibleEvaluationGeneration =
+  | (OpenAiCompatibleGenerationSuccess & {
+      observation: OpenAiCompatibleEvaluationObservation;
+      systemPromptHash: string;
+    })
+  | OpenAiCompatibleGenerationFailure;
+
+type UnannotatedGenerationSuccess = Omit<OpenAiCompatibleGenerationSuccess, "metadata"> &
+  OpenAiCompatibleEvaluationObservation & {
+    usageStatus: LlmUsageStatus;
+  };
 
 type UnannotatedGenerationFailure = Omit<OpenAiCompatibleGenerationFailure, "metadata"> & {
   usageStatus: LlmUsageStatus;
@@ -86,6 +101,8 @@ type TimedGeneration =
   | (InternalGenerationFailure & { providerDurationMs: number });
 type InternalGeneration =
   | (OpenAiCompatibleGenerationSuccess & {
+      draft?: PrimaryRequestDraft;
+      selectedNormativeModule?: string | null;
       usageStatus: LlmUsageStatus;
       providerDurationMs: number;
     })
@@ -486,7 +503,14 @@ export class OpenAiCompatibleGateway implements LlmGateway {
   ): Promise<OpenAiCompatibleGeneration> {
     const generation = await this.executeGeneration(input);
     if (generation.status === "success") {
-      return generation;
+      const {
+        usageStatus: _usageStatus,
+        providerDurationMs: _providerDurationMs,
+        draft: _draft,
+        selectedNormativeModule: _selectedNormativeModule,
+        ...success
+      } = generation;
+      return success;
     }
 
     const {
@@ -496,6 +520,37 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       ...failure
     } = generation;
     return failure;
+  }
+
+  async generateRequestForEvaluation(
+    input: GenerateRequestInput,
+  ): Promise<OpenAiCompatibleEvaluationGeneration> {
+    const generation = await this.executeGeneration(input);
+    if (generation.status === "failure") {
+      const {
+        productionError: _productionError,
+        usageStatus: _usageStatus,
+        providerDurationMs: _providerDurationMs,
+        ...failure
+      } = generation;
+      return failure;
+    }
+
+    const {
+      usageStatus: _usageStatus,
+      providerDurationMs: _providerDurationMs,
+      draft,
+      selectedNormativeModule,
+      ...success
+    } = generation;
+    return {
+      ...success,
+      systemPromptHash: success.metadata.systemPromptHash,
+      observation: {
+        ...(draft === undefined ? {} : { draft }),
+        ...(selectedNormativeModule === undefined ? {} : { selectedNormativeModule }),
+      },
+    };
   }
 
   private async executeGeneration(input: GenerateRequestInput): Promise<InternalGeneration> {
@@ -647,6 +702,10 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       }
 
       const { outcome: _outcome, ...primaryRequestDraft } = draft;
+      const selectedNormativeModule = selectSpecificLegalBasisModule(
+        primaryRequestDraft.subject,
+        input,
+      );
 
       return withProviderDuration(
         {
@@ -655,6 +714,8 @@ export class OpenAiCompatibleGateway implements LlmGateway {
             status: "generated",
             result: renderPrimaryRequestDraft(primaryRequestDraft, input),
           },
+          draft: primaryRequestDraft,
+          selectedNormativeModule: selectedNormativeModule?.id ?? null,
           ...usage,
         },
         completedProviderDurationMs,

@@ -774,6 +774,32 @@ describe("OpenAiCompatibleGateway", () => {
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
+  it("возвращает manual-eval observation из того же validated draft и deterministic selection", async () => {
+    const description =
+      "В общем коридоре многоквартирного дома не работает освещение несколько дней.";
+    const draft = {
+      ...VALID_DRAFT,
+      subject: {
+        kind: "common_area_premises_lighting",
+        evidence: [{ sourceField: "description", quote: description }],
+      },
+    };
+    createMockFetch(createLlmText(draft));
+
+    const generation = await createGateway().generateRequestForEvaluation({
+      description,
+      confirmedProblemSubject: "common_area_premises_lighting",
+    });
+
+    expect(generation.status).toBe("success");
+    if (generation.status !== "success") {
+      throw new Error("Ожидался успешный generation result");
+    }
+    expect(generation.observation.draft).toMatchObject({ subject: draft.subject });
+    expect(generation.observation.selectedNormativeModule).toBe("common-area-lighting");
+    expect(generation.systemPromptHash).toMatch(/^sha256:/u);
+  });
+
   it("добавляет cleaning module ровно один раз для подтверждённого синтетического subject", async () => {
     const description = "В подъезде грязно, уборка не проводится около двух недель.";
     const location = "первый подъезд";

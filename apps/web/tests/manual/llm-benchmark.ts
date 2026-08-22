@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -7,6 +8,7 @@ import {
   generateRequestResultSchema,
   type GenerateRequestInput,
   type GenerateRequestOutcome,
+  type PrimaryRequestDraft,
 } from "@uo-request-generator/core";
 import {
   CHAT_COMPLETIONS_OUTPUT_TOKEN_PARAMETERS,
@@ -64,6 +66,7 @@ type PlannedBenchmarkRequest = {
 
 export type BenchmarkPlan = {
   config: BenchmarkConfig;
+  commitSha: string;
   scenarios: readonly TestScenario[];
   repeats: number;
   totalRequests: number;
@@ -78,7 +81,9 @@ type BenchmarkRequestRecord = {
   outcome?: GenerateRequestOutcome;
   usage?: LlmProviderUsage;
   actualEstimatedCost?: number;
-  automaticCheck?: string;
+  hardChecks?: HardCheckResult[];
+  observation?: BenchmarkObservation;
+  systemPromptHash?: string;
   error?: string;
   failureKind?: "request" | "provider";
   statusCode?: number;
@@ -99,6 +104,8 @@ type BenchmarkGeneration =
       status: "success";
       outcome: GenerateRequestOutcome;
       usage?: LlmProviderUsage;
+      observation?: BenchmarkObservation;
+      systemPromptHash?: string;
     }
   | {
       status: "failure";
@@ -109,7 +116,18 @@ type BenchmarkGeneration =
     };
 
 type BenchmarkGateway = {
-  generateRequestWithMetadata(input: GenerateRequestInput): Promise<BenchmarkGeneration>;
+  generateRequestForEvaluation(input: GenerateRequestInput): Promise<BenchmarkGeneration>;
+};
+
+type BenchmarkObservation = {
+  draft?: PrimaryRequestDraft;
+  selectedNormativeModule?: string | null;
+};
+
+type HardCheckResult = {
+  expectation: string;
+  status: "PASS" | "FAIL";
+  observed: string;
 };
 
 export type BenchmarkDependencies = {
@@ -123,6 +141,7 @@ export type BenchmarkDependencies = {
   now(): Date;
   monotonicNow(): number;
   isInterrupted(): boolean;
+  commitSha(): string;
   createGateway(config: OpenAiCompatibleGatewayConfig): BenchmarkGateway;
 };
 
@@ -387,6 +406,7 @@ export function createBenchmarkPlan(
   selectedScenarios: readonly TestScenario[],
   repeats: number,
   timestamp: Date,
+  commitSha = "unavailable",
 ): BenchmarkPlan {
   const requests: PlannedBenchmarkRequest[] = [];
 
@@ -411,6 +431,7 @@ export function createBenchmarkPlan(
 
   return {
     config,
+    commitSha,
     scenarios: selectedScenarios,
     repeats,
     totalRequests: requests.length,
@@ -473,50 +494,170 @@ function providerConfig(
   };
 }
 
-function automaticCheck(scenario: TestScenario, outcome: GenerateRequestOutcome): string {
+function hardCheck(expectation: string, passed: boolean, observed: string): HardCheckResult {
+  return { expectation, status: passed ? "PASS" : "FAIL", observed };
+}
+
+function automaticChecks(
+  scenario: TestScenario,
+  outcome: GenerateRequestOutcome,
+  observation: BenchmarkObservation | undefined,
+): HardCheckResult[] {
   if (scenario.expectedOutcome === "multiple_issues") {
-    return outcome.status === "multiple_issues"
-      ? "passed"
-      : "failed: outcome не соответствует expectedOutcome";
+    return [
+      hardCheck(
+        "expectedOutcome: multiple_issues",
+        outcome.status === "multiple_issues",
+        `outcome: ${outcome.status}`,
+      ),
+    ];
   }
 
   if (outcome.status !== "generated") {
-    return "failed: outcome не соответствует expectedOutcome";
+    return [hardCheck("expectedOutcome: generated", false, `outcome: ${outcome.status}`)];
   }
 
+  const checks: HardCheckResult[] = [
+    hardCheck("expectedOutcome: generated", true, "outcome: generated"),
+  ];
   const result = generateRequestResultSchema.safeParse(outcome.result);
   if (!result.success) {
-    return "failed: результат не соответствует публичному контракту";
+    return [...checks, hardCheck("public result contract", false, "result: invalid")];
   }
 
   const generatedResultError = findGeneratedResultError(result.data);
   if (generatedResultError !== undefined) {
-    return `failed: ${generatedResultError}`;
+    return [...checks, hardCheck("public result format", false, generatedResultError)];
   }
 
-  const hasWarnings = result.data.warnings.length > 0;
-  return hasWarnings === scenario.expectWarning
-    ? "passed"
-    : "failed: наличие warnings не соответствует expectation";
+  checks.push(hardCheck("public result format", true, "result: valid"));
+
+  for (const expectation of scenario.hardExpectations) {
+    switch (expectation.kind) {
+      case "warning_presence": {
+        const hasWarnings = result.data.warnings.length > 0;
+        checks.push(
+          hardCheck(
+            `warning presence: ${expectation.expected ? "present" : "absent"}`,
+            hasWarnings === expectation.expected,
+            `warnings: ${hasWarnings ? "present" : "absent"}`,
+          ),
+        );
+        break;
+      }
+      case "subject_kind": {
+        if (observation?.draft === undefined) {
+          checks.push(
+            hardCheck(
+              `subject.kind: ${expectation.expected ?? "null"}`,
+              false,
+              "subject.kind: unavailable",
+            ),
+          );
+          break;
+        }
+        const observed = observation.draft.subject?.kind ?? null;
+        checks.push(
+          hardCheck(
+            `subject.kind: ${expectation.expected ?? "null"}`,
+            observed === expectation.expected,
+            `subject.kind: ${observed ?? "null"}`,
+          ),
+        );
+        break;
+      }
+      case "forbidden_subject_kind": {
+        if (observation?.draft === undefined) {
+          checks.push(
+            hardCheck(
+              `subject.kind is not ${expectation.forbidden}`,
+              false,
+              "subject.kind: unavailable",
+            ),
+          );
+          break;
+        }
+        const observed = observation.draft.subject?.kind ?? null;
+        checks.push(
+          hardCheck(
+            `subject.kind is not ${expectation.forbidden}`,
+            observed !== expectation.forbidden,
+            `subject.kind: ${observed ?? "null"}`,
+          ),
+        );
+        break;
+      }
+      case "selected_normative_module": {
+        if (observation?.selectedNormativeModule === undefined) {
+          checks.push(
+            hardCheck(
+              `selected normative module: ${expectation.expected ?? "none"}`,
+              false,
+              "selected normative module: unavailable",
+            ),
+          );
+          break;
+        }
+        const observed = observation.selectedNormativeModule;
+        checks.push(
+          hardCheck(
+            `selected normative module: ${expectation.expected ?? "none"}`,
+            observed === expectation.expected,
+            `selected normative module: ${observed ?? "none"}`,
+          ),
+        );
+        break;
+      }
+      case "procedural_plan": {
+        if (observation?.draft === undefined) {
+          checks.push(hardCheck("actionPlan observation", false, "actionPlan: unavailable"));
+          break;
+        }
+        const actionPlan = observation?.draft?.actionPlan;
+        const values: Array<[keyof typeof expectation, string | null]> = [
+          ["preliminaryCheck", actionPlan?.preliminaryCheck ?? null],
+          ["remedyActions", actionPlan?.remedyActions.length === 0 ? null : "present"],
+          ["resultCheck", actionPlan?.resultCheck ?? null],
+        ];
+
+        for (const [field, actual] of values) {
+          const expected = expectation[field];
+          if (expected === undefined) {
+            continue;
+          }
+          const isPresent = actual !== null;
+          checks.push(
+            hardCheck(
+              `actionPlan.${field}: ${expected}`,
+              expected === "present" ? isPresent : !isPresent,
+              `actionPlan.${field}: ${isPresent ? "present" : "absent"}`,
+            ),
+          );
+        }
+        break;
+      }
+    }
+  }
+
+  return checks;
+}
+
+function hardChecksPassed(checks: readonly HardCheckResult[]): boolean {
+  return checks.every((check) => check.status === "PASS");
 }
 
 function formatInput(input: GenerateRequestInput): string {
   return JSON.stringify(input, null, 2);
 }
 
-function formatExpectations(scenario: TestScenario): string[] {
-  if (scenario.expectedOutcome === "multiple_issues") {
-    return ["- expectedOutcome: multiple_issues"];
+function formatHardChecks(checks: readonly HardCheckResult[] | undefined): string[] {
+  if (checks === undefined || checks.length === 0) {
+    return ["- (не выполнены)"];
   }
 
-  return [
-    "- expectedOutcome: generated",
-    `- expectWarning: ${scenario.expectWarning ? "да" : "нет"}`,
-    "- mustPreserveFacts:",
-    ...scenario.mustPreserveFacts.map((fact) => `  - ${fact}`),
-    "- mustNotInvent:",
-    ...scenario.mustNotInvent.map((fact) => `  - ${fact}`),
-  ];
+  return checks.map(
+    (check) => `- ${check.status}: ${check.expectation}; observed: ${check.observed}`,
+  );
 }
 
 function formatOutcome(outcome: GenerateRequestOutcome): string[] {
@@ -539,6 +680,22 @@ function formatOutcome(outcome: GenerateRequestOutcome): string[] {
     ...(outcome.result.warnings.length === 0
       ? ["- (нет)"]
       : outcome.result.warnings.map((warning) => `- ${warning}`)),
+  ];
+}
+
+function formatObservation(observation: BenchmarkObservation | undefined): string[] {
+  if (observation === undefined) {
+    return ["Deterministic observations: unavailable"];
+  }
+
+  return [
+    "Validated structured output:",
+    "",
+    "```json",
+    JSON.stringify(observation.draft ?? { outcome: "multiple_issues" }, null, 2),
+    "```",
+    "",
+    `- Selected normative module: ${observation.selectedNormativeModule ?? "none"}`,
   ];
 }
 
@@ -568,19 +725,29 @@ function aggregateUsage(records: BenchmarkRequestRecord[]): {
 function formatReport(report: BenchmarkRunReport): string {
   const durationMs = Math.max(0, report.finishedAt.getTime() - report.startedAt.getTime());
   const usage = aggregateUsage(report.records);
+  const hardChecks = report.records.flatMap((record) => record.hardChecks ?? []);
+  const hardSummary =
+    hardChecks.length === 0
+      ? "unavailable"
+      : hardChecksPassed(hardChecks)
+        ? `PASS (${String(hardChecks.length)} / ${String(hardChecks.length)})`
+        : `FAIL (${String(hardChecks.filter((check) => check.status === "PASS").length)} / ${String(hardChecks.length)})`;
   const lines = [
     "# Локальный LLM benchmark",
     "",
     `- Timestamp: ${report.startedAt.toISOString()}`,
     `- Finished at: ${report.finishedAt.toISOString()}`,
     `- Status: ${report.status}`,
+    `- Commit SHA: ${report.plan.commitSha}`,
     `- Protocol: ${report.plan.config.apiProtocol}`,
-    `- Models: ${report.plan.config.models.map((model) => `${model.label} (${model.model})`).join(", ")}`,
+    `- Model labels: ${report.plan.config.models.map((model) => model.label).join(", ")}`,
+    `- Scenarios: ${String(report.plan.scenarios.length)}`,
     `- Scenario IDs: ${report.plan.scenarios.map((scenario) => scenario.id).join(", ")}`,
     `- Repeats: ${String(report.plan.repeats)}`,
     `- Planned requests: ${String(report.plan.totalRequests)}`,
     `- Completed requests: ${String(report.records.length)} / ${String(report.plan.totalRequests)}`,
     `- Max output tokens: ${String(report.plan.config.maxOutputTokens)}`,
+    `- Hard checks: ${hardSummary}`,
     `- Estimated maximum cost: ${formatMoney(report.plan.maximumCost, report.plan.config.currency)}`,
     `- Total duration: ${durationMs.toFixed(0)} ms`,
     `- Usage available: ${String(usage.usageRequests)} / ${String(report.records.length)}`,
@@ -598,9 +765,9 @@ function formatReport(report: BenchmarkRunReport): string {
         `- ${model.label}: input ${String(model.inputPricePerMillion)}, output ${String(model.outputPricePerMillion)} ${report.plan.config.currency} / 1M tokens`,
     ),
     "",
-    "## Ручная смысловая оценка",
+    "## Semantic review",
     "",
-    "Проверьте сохранение explicit facts, приоритет consequences и desiredActions, допустимость safe inferred impact, отсутствие каскада драматичных рисков, обоснованность procedural enrichment, отсутствие искусственного раздувания простого дефекта и корректный outcome для несвязанных проблем.",
+    "Для каждого repeat оцените semantic expectations независимо от hard checks. Проверяйте сохранение explicit facts, отсутствие новых установленных фактов и неподтверждённых способов ремонта, согласованность structured draft с deterministic observations и отсутствие искусственного раздувания простого дефекта.",
     "",
     "Структурный успех и exit code не подтверждают смысловое качество.",
   ];
@@ -610,9 +777,16 @@ function formatReport(report: BenchmarkRunReport): string {
       "",
       `## Request ${String(index + 1)}: ${record.request.model.label} / ${record.request.scenario.id} / repeat ${String(record.request.repeat)}`,
       "",
-      `- Model ID: ${record.request.model.model}`,
+      `- Category: ${record.request.scenario.category}`,
+      ...(record.request.scenario.provenance === undefined
+        ? []
+        : [
+            `- Issue provenance: [#${String(record.request.scenario.provenance.issue)}](https://github.com/ashikov/uo-request-generator/issues/${String(record.request.scenario.provenance.issue)})`,
+          ]),
       `- Duration: ${record.durationMs.toFixed(0)} ms`,
-      `- Automatic checks: ${record.automaticCheck ?? "not completed"}`,
+      ...(record.systemPromptHash === undefined
+        ? []
+        : [`- Prompt hash: ${record.systemPromptHash}`]),
       ...(record.usage === undefined
         ? ["- Usage: unavailable", "- Actual estimated cost: unavailable"]
         : [
@@ -629,8 +803,13 @@ function formatReport(report: BenchmarkRunReport): string {
       formatInput(record.request.scenario.input),
       "```",
       "",
+      "Hard checks:",
+      ...formatHardChecks(record.hardChecks),
+      "",
       "Semantic expectations:",
-      ...formatExpectations(record.request.scenario),
+      ...record.request.scenario.semanticExpectations.map((expectation) => `- ${expectation}`),
+      "",
+      ...formatObservation(record.observation),
       "",
       ...(record.outcome === undefined ? [] : formatOutcome(record.outcome)),
     );
@@ -713,7 +892,7 @@ async function executeBenchmark(
     let stopAfterRecord = false;
 
     try {
-      const generation = await gateway.generateRequestWithMetadata(request.scenario.input);
+      const generation = await gateway.generateRequestForEvaluation(request.scenario.input);
       const durationMs = dependencies.monotonicNow() - requestStartedAt;
       const usageMetadata =
         generation.usage === undefined
@@ -739,14 +918,23 @@ async function executeBenchmark(
         hasErrors = true;
         stopAfterRecord = generation.failureKind === "provider";
       } else {
+        const hardChecks = automaticChecks(
+          request.scenario,
+          generation.outcome,
+          generation.observation,
+        );
         record = {
           request,
           durationMs,
           outcome: generation.outcome,
           ...usageMetadata,
-          automaticCheck: automaticCheck(request.scenario, generation.outcome),
+          ...(generation.observation === undefined ? {} : { observation: generation.observation }),
+          ...(generation.systemPromptHash === undefined
+            ? {}
+            : { systemPromptHash: generation.systemPromptHash }),
+          hardChecks,
         };
-        if (record.automaticCheck !== "passed") {
+        if (!hardChecksPassed(hardChecks)) {
           hasErrors = true;
         }
       }
@@ -835,6 +1023,7 @@ export async function runLlmBenchmark(
       selectedScenarios,
       options.repeats,
       dependencies.now(),
+      dependencies.commitSha(),
     );
     writePlan(plan, dependencies.writeLine);
 
@@ -873,6 +1062,18 @@ function writeLine(message: string): void {
   process.stdout.write(`${message}\n`);
 }
 
+function commitSha(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: REPOSITORY_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "unavailable";
+  }
+}
+
 async function confirm(prompt: string): Promise<string> {
   const reader = createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -907,6 +1108,7 @@ async function main(): Promise<void> {
       now: () => new Date(),
       monotonicNow: () => performance.now(),
       isInterrupted: () => interrupted,
+      commitSha,
       createGateway: (config) => new OpenAiCompatibleGateway(config),
     });
   } finally {

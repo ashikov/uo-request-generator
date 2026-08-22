@@ -1,4 +1,4 @@
-import type { GenerateRequestInput } from "../src/index.js";
+import type { ConfirmedProblemSubject, GenerateRequestInput } from "../src/index.js";
 
 export type ScenarioCategory =
   | "only_required_description"
@@ -16,7 +16,25 @@ export type ScenarioCategory =
   | "compatible_location"
   | "impact_subject_preservation"
   | "unconfirmed_remedy"
-  | "multiple_unrelated_issues";
+  | "multiple_unrelated_issues"
+  | "cleaning"
+  | "lighting"
+  | "unknown_remedy"
+  | "explicit_remedy";
+
+export type HardExpectation =
+  | { kind: "warning_presence"; expected: boolean }
+  | { kind: "subject_kind"; expected: ConfirmedProblemSubject | null }
+  | { kind: "forbidden_subject_kind"; forbidden: ConfirmedProblemSubject }
+  | { kind: "selected_normative_module"; expected: string | null }
+  | {
+      kind: "procedural_plan";
+      preliminaryCheck?: "present" | "absent";
+      remedyActions?: "present" | "absent";
+      resultCheck?: "present" | "absent";
+    };
+
+export type IssueProvenance = { issue: 200 | 201 | 202 | 203 };
 
 type TestScenarioBase = {
   id: string;
@@ -30,16 +48,31 @@ export type TestScenario =
       mustPreserveFacts: string[];
       mustNotInvent: string[];
       expectWarning: boolean;
+      hardExpectations: readonly HardExpectation[];
+      semanticExpectations: readonly string[];
+      provenance?: IssueProvenance;
     })
   | (TestScenarioBase & {
       expectedOutcome: "multiple_issues";
+      hardExpectations: readonly HardExpectation[];
+      semanticExpectations: readonly string[];
+      provenance?: IssueProvenance;
     });
+
+type LegacyTestScenario =
+  | (TestScenarioBase & {
+      expectedOutcome: "generated";
+      mustPreserveFacts: string[];
+      mustNotInvent: string[];
+      expectWarning: boolean;
+    })
+  | (TestScenarioBase & { expectedOutcome: "multiple_issues" });
 
 const commonDoorConfirm: Partial<GenerateRequestInput> = {
   confirmedProblemSubject: "common_area_entrance_door",
 };
 
-export const scenarios: TestScenario[] = [
+const scenarioDefinitions: LegacyTestScenario[] = [
   {
     id: "only-description",
     category: "only_required_description",
@@ -423,4 +456,183 @@ export const scenarios: TestScenario[] = [
         "На детской площадке сломаны качели, торчат острые болты. А ещё в соседнем дворе кто-то бросил старый диван возле мусорных баков, и он уже неделю там валяется.",
     },
   },
+];
+
+function toTestScenario(scenario: LegacyTestScenario): TestScenario {
+  if (scenario.expectedOutcome === "multiple_issues") {
+    return {
+      ...scenario,
+      hardExpectations: [],
+      semanticExpectations: [
+        "Не объединять две самостоятельные наблюдаемые проблемы в одну заявку.",
+      ],
+    };
+  }
+
+  return {
+    ...scenario,
+    hardExpectations: [{ kind: "warning_presence", expected: scenario.expectWarning }],
+    semanticExpectations: [
+      ...scenario.mustPreserveFacts.map((expectation) => `Сохранить: ${expectation}.`),
+      ...scenario.mustNotInvent.map((expectation) => `Не добавлять: ${expectation}.`),
+    ],
+  };
+}
+
+const commonCleaningHardExpectations: readonly HardExpectation[] = [
+  { kind: "warning_presence", expected: false },
+  { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+  { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+  { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
+  { kind: "selected_normative_module", expected: "common-area-cleaning" },
+];
+
+const regressionScenarios: TestScenario[] = [
+  {
+    id: "cleaning-elevator-cabin",
+    category: "cleaning",
+    provenance: { issue: 200 },
+    expectedOutcome: "generated",
+    input: {
+      description: "В исправной кабине лифта загрязнены пол и стены. Требуется уборка.",
+      confirmedProblemSubject: "common_area_premises_cleaning",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: commonCleaningHardExpectations,
+    semanticExpectations: [
+      "Не переинтерпретировать загрязнение исправной кабины лифта как техническую неисправность лифта.",
+      "Сохранить проблему как уборку помещения общего пользования.",
+    ],
+  },
+  {
+    id: "cleaning-entrance-door",
+    category: "cleaning",
+    provenance: { issue: 200 },
+    expectedOutcome: "generated",
+    input: {
+      description:
+        "Технически исправная входная дверь загрязнена, но нормально открывается и закрывается.",
+      confirmedProblemSubject: "common_area_premises_cleaning",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: commonCleaningHardExpectations,
+    semanticExpectations: [
+      "Не назначать технический ремонт двери только из-за её загрязнения.",
+      "Сохранить подтверждённую применимость уборки.",
+    ],
+  },
+  {
+    id: "cleaning-common-area-wall",
+    category: "cleaning",
+    provenance: { issue: 200 },
+    expectedOutcome: "generated",
+    input: {
+      description:
+        "На стене в помещении общего пользования загрязнение. Повреждений стены не указано.",
+      confirmedProblemSubject: "common_area_premises_cleaning",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: commonCleaningHardExpectations,
+    semanticExpectations: [
+      "Не придумывать повреждение стены или иной технический дефект.",
+      "Описать проблему как уборку загрязнения.",
+    ],
+  },
+  {
+    id: "lighting-elevator-cabin",
+    category: "lighting",
+    provenance: { issue: 201 },
+    expectedOutcome: "generated",
+    input: {
+      description:
+        "В кабине лифта отсутствует освещение. Техническая неисправность лифта не подтверждена.",
+      confirmedProblemSubject: "common_area_premises_lighting",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: [
+      { kind: "warning_presence", expected: false },
+      { kind: "subject_kind", expected: "common_area_premises_lighting" },
+      { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+      { kind: "selected_normative_module", expected: "common-area-lighting" },
+    ],
+    semanticExpectations: [
+      "Не терять предмет освещения только из-за места проявления в кабине лифта.",
+      "Не превращать отсутствие света само по себе в техническую проблему лифта.",
+    ],
+  },
+  {
+    id: "unknown-remedy-lighting",
+    category: "unknown_remedy",
+    provenance: { issue: 202 },
+    expectedOutcome: "generated",
+    input: {
+      description: "Освещение в помещении общего пользования не работает. Причина неизвестна.",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: [
+      { kind: "warning_presence", expected: false },
+      { kind: "procedural_plan", preliminaryCheck: "present", remedyActions: "present" },
+    ],
+    semanticExpectations: [
+      "Не назначать конкретный способ ремонта при неизвестной причине.",
+      "Предварительная проверка может устанавливать неизвестное обстоятельство.",
+      "Действия по устранению должны описывать требуемый результат, а не неподтверждённый метод ремонта.",
+    ],
+  },
+  {
+    id: "unknown-remedy-functional-defect",
+    category: "unknown_remedy",
+    provenance: { issue: 202 },
+    expectedOutcome: "generated",
+    input: {
+      description: "Вентиляция в помещении общего пользования не работает. Причина неизвестна.",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: [
+      { kind: "warning_presence", expected: false },
+      { kind: "procedural_plan", preliminaryCheck: "present", remedyActions: "present" },
+    ],
+    semanticExpectations: [
+      "Не превращать неизвестную причину функционального дефекта в конкретный способ ремонта.",
+      "Сохранить различие между проверкой причины и требуемым результатом устранения.",
+    ],
+  },
+  {
+    id: "confirmed-remedy-door-handle",
+    category: "explicit_remedy",
+    provenance: { issue: 202 },
+    expectedOutcome: "generated",
+    input: {
+      description: "На входной двери отсутствует ручка.",
+      desiredActions: "Прошу установить дверную ручку.",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: [
+      { kind: "warning_presence", expected: false },
+      { kind: "procedural_plan", preliminaryCheck: "absent", remedyActions: "present" },
+    ],
+    semanticExpectations: [
+      "Не терять прямо подтверждённое конкретное действие по установке дверной ручки.",
+      "Не раздувать очевидный дефект ненужной диагностикой.",
+    ],
+  },
+];
+
+export const scenarios: TestScenario[] = [
+  ...scenarioDefinitions.map(toTestScenario),
+  ...regressionScenarios,
 ];
