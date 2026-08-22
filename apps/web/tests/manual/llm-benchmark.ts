@@ -86,7 +86,7 @@ type BenchmarkRequestRecord = {
   systemPromptHash?: string;
   error?: string;
   failureKind?: "request" | "provider";
-  statusCode?: number;
+  providerHttpStatus?: number;
 };
 
 type BenchmarkRunStatus = "running" | "completed" | "interrupted" | "provider_unavailable";
@@ -111,7 +111,7 @@ type BenchmarkGeneration =
       status: "failure";
       error: "request failed" | "provider unavailable";
       failureKind: "request" | "provider";
-      statusCode?: number;
+      providerHttpStatus?: number;
       usage?: LlmProviderUsage;
       systemPromptHash?: string;
     };
@@ -867,7 +867,9 @@ function formatReport(report: BenchmarkRunReport): string {
           ]),
       ...(record.error === undefined ? [] : [`- Error: ${record.error}`]),
       ...(record.failureKind === undefined ? [] : [`- Failure kind: ${record.failureKind}`]),
-      ...(record.statusCode === undefined ? [] : [`- HTTP status: ${String(record.statusCode)}`]),
+      ...(record.providerHttpStatus === undefined
+        ? []
+        : [`- HTTP status: ${String(record.providerHttpStatus)}`]),
       "",
       "Input:",
       "",
@@ -984,7 +986,9 @@ async function executeBenchmark(
           durationMs,
           error: generation.failureKind === "request" ? "request failed" : "provider unavailable",
           failureKind: generation.failureKind,
-          ...(generation.statusCode === undefined ? {} : { statusCode: generation.statusCode }),
+          ...(generation.providerHttpStatus === undefined
+            ? {}
+            : { providerHttpStatus: generation.providerHttpStatus }),
           ...(generation.systemPromptHash === undefined
             ? {}
             : { systemPromptHash: generation.systemPromptHash }),
