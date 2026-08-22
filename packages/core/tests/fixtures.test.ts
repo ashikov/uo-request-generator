@@ -165,8 +165,16 @@ describe("test scenario fixtures", () => {
       expect.arrayContaining(["крыша как источник протечки", "труба как источник протечки"]),
     );
 
+    expect(simpleDefect.input).toEqual({
+      description: "На входной двери отсутствует ручка.",
+    });
+    expect(simpleDefect.mustPreserveFacts).toContain("установка отсутствующей ручки");
     expect(simpleDefect.mustNotInvent).toEqual(
-      expect.arrayContaining(["необоснованное практическое значение или риск"]),
+      expect.arrayContaining([
+        "обязательная диагностика причины",
+        "искусственная цепочка диагностика → ремонт → проверка",
+        "необоснованное практическое значение или риск",
+      ]),
     );
 
     expect(subjectiveImpact.mustNotInvent).toEqual(
