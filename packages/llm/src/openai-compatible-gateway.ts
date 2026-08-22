@@ -80,7 +80,10 @@ export type OpenAiCompatibleEvaluationGeneration =
       observation: OpenAiCompatibleEvaluationObservation;
       systemPromptHash: string;
     })
-  | OpenAiCompatibleGenerationFailure;
+  | (Omit<OpenAiCompatibleGenerationFailure, "metadata"> & {
+      systemPromptHash: string;
+      usageStatus: LlmUsageStatus;
+    });
 
 type UnannotatedGenerationSuccess = Omit<OpenAiCompatibleGenerationSuccess, "metadata"> &
   OpenAiCompatibleEvaluationObservation & {
@@ -529,11 +532,14 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     if (generation.status === "failure") {
       const {
         productionError: _productionError,
-        usageStatus: _usageStatus,
         providerDurationMs: _providerDurationMs,
+        metadata,
         ...failure
       } = generation;
-      return failure;
+      return {
+        ...failure,
+        systemPromptHash: metadata.systemPromptHash,
+      };
     }
 
     const {
