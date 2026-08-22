@@ -63,7 +63,7 @@ type OpenAiCompatibleGenerationFailure = {
   error: "request failed" | "provider unavailable";
   failureStatus: LlmGenerationFailureStatus;
   metadata: LlmGenerationMetadata;
-  statusCode?: number;
+  readonly providerHttpStatus?: number;
   usage?: LlmProviderUsage;
 };
 
@@ -417,14 +417,16 @@ function createFailureStatus(productionError: Error): LlmGenerationFailureStatus
   return "provider_unavailable";
 }
 
-function classifyHttpFailure(statusCode: number): "request" | "provider" {
-  return statusCode === 400 || statusCode === 404 || statusCode === 422 ? "request" : "provider";
+function classifyHttpFailure(providerHttpStatus: number): "request" | "provider" {
+  return providerHttpStatus === 400 || providerHttpStatus === 404 || providerHttpStatus === 422
+    ? "request"
+    : "provider";
 }
 
 function createGenerationFailure(
   failureKind: "request" | "provider",
   productionError: Error,
-  metadata: { statusCode?: number } & Partial<UsageExtraction> = {},
+  metadata: { providerHttpStatus?: number } & Partial<UsageExtraction> = {},
 ): InternalGenerationFailure {
   return {
     status: "failure",
@@ -432,7 +434,9 @@ function createGenerationFailure(
     error: failureKind === "request" ? "request failed" : "provider unavailable",
     failureStatus: createFailureStatus(productionError),
     productionError,
-    ...(metadata.statusCode === undefined ? {} : { statusCode: metadata.statusCode }),
+    ...(metadata.providerHttpStatus === undefined
+      ? {}
+      : { providerHttpStatus: metadata.providerHttpStatus }),
     ...(metadata.usage === undefined ? {} : { usage: metadata.usage }),
     usageStatus: metadata.usageStatus ?? "missing",
   };
@@ -632,9 +636,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     } catch {
       if (signal.aborted) {
         return withProviderDuration(
-          createGenerationFailure("provider", new GenerationTimeoutError(), {
-            statusCode: response.status,
-          }),
+          createGenerationFailure("provider", new GenerationTimeoutError()),
           providerDurationMs(),
         );
       }
@@ -645,7 +647,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
         : new GenerationProviderUnavailableError();
       return withProviderDuration(
         createGenerationFailure(failureKind, productionError, {
-          statusCode: response.status,
+          ...(response.ok ? {} : { providerHttpStatus: response.status }),
         }),
         providerDurationMs(),
       );
@@ -660,7 +662,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
           classifyHttpFailure(response.status),
           new GenerationProviderUnavailableError(),
           {
-            statusCode: response.status,
+            providerHttpStatus: response.status,
             ...usage,
           },
         ),

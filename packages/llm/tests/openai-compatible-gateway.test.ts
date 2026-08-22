@@ -573,7 +573,7 @@ describe("OpenAiCompatibleGateway", () => {
       status: "failure",
       failureKind: "request",
       error: "request failed",
-      statusCode,
+      providerHttpStatus: statusCode,
     });
   });
 
@@ -588,7 +588,8 @@ describe("OpenAiCompatibleGateway", () => {
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
-      statusCode,
+      failureStatus: "provider_unavailable",
+      providerHttpStatus: statusCode,
     });
   });
 
@@ -610,6 +611,7 @@ describe("OpenAiCompatibleGateway", () => {
         durationMs: expect.any(Number),
       },
     });
+    expect(generation).not.toHaveProperty("providerHttpStatus");
   });
 
   it("классифицирует реальный AbortSignal.timeout до HTTP-ответа", async () => {
@@ -626,11 +628,15 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
       GenerationTimeoutError,
     );
-    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toMatchObject({
+    const generation = await gateway.generateRequestWithMetadata(VALID_INPUT);
+
+    expect(generation).toMatchObject({
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
+      failureStatus: "timeout",
     });
+    expect(generation).not.toHaveProperty("providerHttpStatus");
   });
 
   it("классифицирует реальный AbortSignal.timeout при чтении body", async () => {
@@ -651,12 +657,42 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
       GenerationTimeoutError,
     );
-    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toMatchObject({
+    const generation = await gateway.generateRequestWithMetadata(VALID_INPUT);
+
+    expect(generation).toMatchObject({
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
-      statusCode: 200,
+      failureStatus: "timeout",
     });
+    expect(generation).not.toHaveProperty("providerHttpStatus");
+  });
+
+  it("не возвращает HTTP-статус non-2xx при timeout чтения body", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const signal = init?.signal;
+      if (!(signal instanceof AbortSignal)) {
+        throw new Error("Ожидался AbortSignal");
+      }
+
+      const response = new Response(JSON.stringify({}), { status: 503 });
+      vi.spyOn(response, "json").mockImplementation(
+        async () => await rejectWhenSignalTimesOut(signal),
+      );
+      return response;
+    });
+
+    const generation = await createGateway({ timeoutMs: 5 }).generateRequestWithMetadata(
+      VALID_INPUT,
+    );
+
+    expect(generation).toMatchObject({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider unavailable",
+      failureStatus: "timeout",
+    });
+    expect(generation).not.toHaveProperty("providerHttpStatus");
   });
 
   it("бросает ошибку при пустом ответе", async () => {
@@ -1084,12 +1120,15 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
       GenerationInvalidResponseError,
     );
-    await expect(gateway.generateRequestWithMetadata(VALID_INPUT)).resolves.toMatchObject({
+    const generation = await gateway.generateRequestWithMetadata(VALID_INPUT);
+
+    expect(generation).toMatchObject({
       status: "failure",
       failureKind: "request",
       error: "request failed",
-      statusCode: 200,
+      failureStatus: "invalid_response",
     });
+    expect(generation).not.toHaveProperty("providerHttpStatus");
   });
 
   it("бросает GenerationInvalidResponseError при невалидной структуре ответа API", async () => {
