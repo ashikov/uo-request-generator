@@ -329,6 +329,134 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Outcome: `generated`");
   });
 
+  it("reports aggregate hard-check failure and exit 1 when a request failure precedes success", async () => {
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "request",
+        error: "first-request-failure",
+        statusCode: 422,
+      })
+      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(exitCode).toBe(1);
+    expect(report).toContain("Status: completed");
+    expect(report).toContain("Failure kind: request");
+    expect(report).toContain("Hard checks: FAIL");
+  });
+
+  it("reports aggregate hard-check failure and exit 1 for a provider partial run", async () => {
+    const generateRequestForEvaluation = vi.fn().mockResolvedValue({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider-partial-run-failure",
+    });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(exitCode).toBe(1);
+    expect(report).toContain("Status: provider_unavailable");
+    expect(report).toContain("Completed requests: 1 / 2");
+    expect(report).toContain("Hard checks: FAIL");
+  });
+
+  it("reports aggregate hard-check failure and exit 1 for an interrupted incomplete run", async () => {
+    let interrupted = false;
+    const generateRequestForEvaluation = vi.fn(async (_input: GenerateRequestInput) => {
+      interrupted = true;
+      return { status: "success" as const, outcome: GENERATED_OUTCOME };
+    });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      isInterrupted: () => interrupted,
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(exitCode).toBe(1);
+    expect(report).toContain("Status: interrupted");
+    expect(report).toContain("Completed requests: 1 / 2");
+    expect(report).toContain("Hard checks: FAIL");
+  });
+
+  it("reports aggregate hard-check pass and exit 0 only for a fully completed successful run", async () => {
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME })
+      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(exitCode).toBe(0);
+    expect(report).toContain("Status: completed");
+    expect(report).toContain("Completed requests: 2 / 2");
+    expect(report).toContain("Hard checks: PASS");
+  });
+
+  it("records a failed generation prompt hash without provider metadata or raw errors", async () => {
+    const safeSystemPromptHash = "sha256:prompt-9f4c2a";
+    const rawProviderError = `provider rejected model-current at https://provider.example/v1/responses with Bearer ${API_KEY}`;
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "request",
+        error: rawProviderError,
+        systemPromptHash: safeSystemPromptHash,
+      })
+      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(exitCode).toBe(1);
+    expect(report).toContain(`Prompt hash: ${safeSystemPromptHash}`);
+    expect(report).not.toContain("model-current");
+    expect(report).not.toContain("https://provider.example/v1/responses");
+    expect(report).not.toContain(API_KEY);
+    expect(report).not.toContain("Bearer");
+    expect(report).not.toContain(rawProviderError);
+  });
+
   it("останавливает новые requests при общей недоступности provider", async () => {
     const generateRequestForEvaluation = vi.fn().mockResolvedValue({
       status: "failure",
@@ -621,7 +749,7 @@ describe("LLM benchmark", () => {
 
     expect(selected).toEqual(scenarios);
     expect(selected[0]).toBe(scenarios[0]);
-    expect(selected).toHaveLength(27);
+    expect(selected).toHaveLength(26);
   });
 
   it("исключает local config и report directory из Git", () => {
