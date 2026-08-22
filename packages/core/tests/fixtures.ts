@@ -15,6 +15,7 @@ export type ScenarioCategory =
   | "conflicting_location"
   | "compatible_location"
   | "impact_subject_preservation"
+  | "unconfirmed_remedy"
   | "multiple_unrelated_issues";
 
 type TestScenarioBase = {
@@ -355,6 +356,61 @@ export const scenarios: TestScenario[] = [
       "большому числу жильцов",
       "другой группе людей",
     ],
+    expectWarning: false,
+  },
+  {
+    id: "unconfirmed-remedy-lighting",
+    category: "unconfirmed_remedy",
+    expectedOutcome: "generated",
+    input: {
+      description: "В кабине лифта не работает освещение.",
+      desiredActions: "Восстановить освещение.",
+    },
+    mustPreserveFacts: [
+      "восстановление освещения в кабине лифта",
+      "установление причины отсутствия освещения только при необходимости",
+    ],
+    mustNotInvent: [
+      "замена лампы",
+      "замена проводки",
+      "замена выключателя",
+      "закрытый перечень предполагаемых причин",
+    ],
+    expectWarning: false,
+  },
+  {
+    id: "unconfirmed-remedy-door",
+    category: "unconfirmed_remedy",
+    expectedOutcome: "generated",
+    input: {
+      description: "Входная дверь открывается с большим усилием.",
+      desiredActions: "Восстановить нормальное открывание двери.",
+    },
+    mustPreserveFacts: [
+      "восстановление нормального открывания двери",
+      "установление причины затруднённого открывания только при необходимости",
+    ],
+    mustNotInvent: [
+      "регулировка петель",
+      "замена доводчика",
+      "ремонт замка",
+      "смазка конкретного механизма",
+    ],
+    expectWarning: false,
+  },
+  {
+    id: "confirmed-remedy-door-handle",
+    category: "unconfirmed_remedy",
+    expectedOutcome: "generated",
+    input: {
+      description: "На входной двери отсутствует ручка.",
+      desiredActions: "Установить ручку на входную дверь.",
+    },
+    mustPreserveFacts: [
+      "установка ручки на входную дверь",
+      "конкретное действие, непосредственно следующее из отсутствия ручки",
+    ],
+    mustNotInvent: ["обязательная диагностика двери", "неподтверждённая причина отсутствия ручки"],
     expectWarning: false,
   },
   {
