@@ -14,6 +14,7 @@ export {
   type LlmApiProtocol,
   type LlmProviderUsage,
   type OpenAiCompatibleGeneration,
+  type OpenAiCompatibleEvaluationObservation,
   type OpenAiCompatibleGatewayConfig,
   type OpenAiCompatibleRequestBodyConfig,
 } from "./openai-compatible-gateway.js";
