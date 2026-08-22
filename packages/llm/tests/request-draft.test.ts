@@ -191,6 +191,15 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       "не заполняй procedural plan до пяти пунктов искусственно",
     );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "При неизвестной причине remedyActions формулируй как необходимый результат, а не как конкретный способ ремонта",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "preliminaryCheck должен устанавливать причину в целом, не перечисляя без основания предполагаемые компоненты",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не называй в preliminaryCheck компонент, механизм, признак или возможную причину, если они прямо не указаны во входе",
+    );
   });
 
   it("оставляет multiple_issues без частичного actionPlan", () => {

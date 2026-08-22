@@ -17,6 +17,7 @@ const REQUIRED_CATEGORIES: ScenarioCategory[] = [
   "conflicting_location",
   "compatible_location",
   "impact_subject_preservation",
+  "unconfirmed_remedy",
   "multiple_unrelated_issues",
 ];
 
@@ -85,7 +86,7 @@ describe("test scenario fixtures", () => {
   });
 
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(17);
+    expect(scenarios).toHaveLength(20);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
@@ -96,6 +97,9 @@ describe("test scenario fixtures", () => {
     const subjectiveImpact = byId.get("impact-subject-subjective");
     const objectiveImpact = byId.get("impact-subject-objective");
     const explicitGroupImpact = byId.get("impact-subject-explicit-group");
+    const unconfirmedLightingRemedy = byId.get("unconfirmed-remedy-lighting");
+    const unconfirmedDoorRemedy = byId.get("unconfirmed-remedy-door");
+    const confirmedDoorHandleRemedy = byId.get("confirmed-remedy-door-handle");
 
     for (const scenario of [
       lighting,
@@ -106,6 +110,9 @@ describe("test scenario fixtures", () => {
       subjectiveImpact,
       objectiveImpact,
       explicitGroupImpact,
+      unconfirmedLightingRemedy,
+      unconfirmedDoorRemedy,
+      confirmedDoorHandleRemedy,
     ]) {
       expect(scenario?.expectedOutcome).toBe("generated");
     }
@@ -118,7 +125,10 @@ describe("test scenario fixtures", () => {
       simpleDefect?.expectedOutcome !== "generated" ||
       subjectiveImpact?.expectedOutcome !== "generated" ||
       objectiveImpact?.expectedOutcome !== "generated" ||
-      explicitGroupImpact?.expectedOutcome !== "generated"
+      explicitGroupImpact?.expectedOutcome !== "generated" ||
+      unconfirmedLightingRemedy?.expectedOutcome !== "generated" ||
+      unconfirmedDoorRemedy?.expectedOutcome !== "generated" ||
+      confirmedDoorHandleRemedy?.expectedOutcome !== "generated"
     ) {
       throw new Error("Ожидались generated-сценарии смыслового обогащения");
     }
@@ -172,6 +182,22 @@ describe("test scenario fixtures", () => {
     expect(explicitGroupImpact.mustNotInvent).toEqual(
       expect.arrayContaining(["всем жителям трудно открыть дверь", "большому числу жильцов"]),
     );
+    expect(unconfirmedLightingRemedy.mustPreserveFacts).toContain(
+      "восстановление освещения в кабине лифта",
+    );
+    expect(unconfirmedLightingRemedy.mustNotInvent).toEqual(
+      expect.arrayContaining(["замена лампы", "замена проводки", "замена выключателя"]),
+    );
+    expect(unconfirmedDoorRemedy.mustPreserveFacts).toContain(
+      "восстановление нормального открывания двери",
+    );
+    expect(unconfirmedDoorRemedy.mustNotInvent).toEqual(
+      expect.arrayContaining(["регулировка петель", "замена доводчика", "ремонт замка"]),
+    );
+    expect(confirmedDoorHandleRemedy.mustPreserveFacts).toContain(
+      "установка ручки на входную дверь",
+    );
+    expect(confirmedDoorHandleRemedy.mustNotInvent).toContain("обязательная диагностика двери");
   });
 
   it("фиксирует смысловой контракт места без механического повтора в действиях", () => {
@@ -266,6 +292,10 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
   impact_subject_preservation: {
     present: ["description", "consequences"],
     absent: ["location", "desiredActions", "confirmedProblemSubject"],
+  },
+  unconfirmed_remedy: {
+    present: ["description", "desiredActions"],
+    absent: ["location", "consequences", "confirmedProblemSubject"],
   },
   multiple_unrelated_issues: {
     present: ["description"],
