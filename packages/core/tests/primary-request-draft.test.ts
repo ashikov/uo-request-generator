@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+  COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
   generateRequestLimits,
   primaryRequestDraftLimits,
@@ -22,12 +28,24 @@ const HOUSING_CODE_BASIS =
   "В соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.";
 const MANAGEMENT_RULES_BASIS =
   "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.";
+// Схема резервирует место под самый длинный предметный абзац независимо от
+// применённого модуля, поэтому точная граница body достижима только с ним
+const LONGEST_SPECIFIC_MODULE = [
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+  COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
+].reduce((longest, module) =>
+  module.paragraphs.join("\n\n").length > longest.paragraphs.join("\n\n").length ? module : longest,
+);
 const BODY_LIMIT_INPUT = {
   description: "а".repeat(10),
-  confirmedProblemSubject: "common_area_premises_cleaning" as const,
+  confirmedProblemSubject: LONGEST_SPECIFIC_MODULE.applicability.subject,
 } as const;
 const BODY_LIMIT_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
-  kind: "common_area_premises_cleaning",
+  kind: LONGEST_SPECIFIC_MODULE.applicability.subject,
   evidence: [{ sourceField: "description", quote: BODY_LIMIT_INPUT.description }],
 };
 
