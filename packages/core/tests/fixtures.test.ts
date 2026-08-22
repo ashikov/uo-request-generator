@@ -84,7 +84,7 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("сохраняет synthetic regression cases из #200, #201 и #202 с typed expectations", () => {
+  it("сохраняет synthetic regression cases из #200, #201, #202 и #203 с typed expectations", () => {
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
 
     expect(byId.get("cleaning-elevator-cabin")).toMatchObject({
@@ -114,10 +114,13 @@ describe("test scenario fixtures", () => {
         { kind: "procedural_plan", preliminaryCheck: "absent", remedyActions: "present" },
       ]),
     });
+    expect(byId.get("impact-subject-subjective")?.provenance).toEqual({ issue: 203 });
+    expect(byId.get("impact-subject-objective")?.provenance).toEqual({ issue: 203 });
+    expect(byId.get("impact-subject-explicit-group")?.provenance).toEqual({ issue: 203 });
   });
 
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(27);
+    expect(scenarios).toHaveLength(26);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");

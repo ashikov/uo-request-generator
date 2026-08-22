@@ -65,8 +65,13 @@ type LegacyTestScenario =
       mustPreserveFacts: string[];
       mustNotInvent: string[];
       expectWarning: boolean;
+      provenance?: IssueProvenance;
+      hardExpectations?: readonly HardExpectation[];
     })
-  | (TestScenarioBase & { expectedOutcome: "multiple_issues" });
+  | (TestScenarioBase & {
+      expectedOutcome: "multiple_issues";
+      provenance?: IssueProvenance;
+    });
 
 const commonDoorConfirm: Partial<GenerateRequestInput> = {
   confirmedProblemSubject: "common_area_entrance_door",
@@ -340,6 +345,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
   {
     id: "impact-subject-subjective",
     category: "impact_subject_preservation",
+    provenance: { issue: 203 },
     expectedOutcome: "generated",
     input: {
       description: "В кабине лифта не работает освещение.",
@@ -357,6 +363,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
   {
     id: "impact-subject-objective",
     category: "impact_subject_preservation",
+    provenance: { issue: 203 },
     expectedOutcome: "generated",
     input: {
       description: "На лестничной площадке не работает освещение.",
@@ -376,6 +383,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
   {
     id: "impact-subject-explicit-group",
     category: "impact_subject_preservation",
+    provenance: { issue: 203 },
     expectedOutcome: "generated",
     input: {
       description: "Входная дверь подъезда открывается с усилием.",
@@ -435,6 +443,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
   {
     id: "confirmed-remedy-door-handle",
     category: "unconfirmed_remedy",
+    provenance: { issue: 202 },
     expectedOutcome: "generated",
     input: {
       description: "На входной двери отсутствует ручка.",
@@ -446,6 +455,9 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     ],
     mustNotInvent: ["обязательная диагностика двери", "неподтверждённая причина отсутствия ручки"],
     expectWarning: false,
+    hardExpectations: [
+      { kind: "procedural_plan", preliminaryCheck: "absent", remedyActions: "present" },
+    ],
   },
   {
     id: "multiple-issues",
@@ -471,7 +483,10 @@ function toTestScenario(scenario: LegacyTestScenario): TestScenario {
 
   return {
     ...scenario,
-    hardExpectations: [{ kind: "warning_presence", expected: scenario.expectWarning }],
+    hardExpectations: [
+      { kind: "warning_presence", expected: scenario.expectWarning },
+      ...(scenario.hardExpectations ?? []),
+    ],
     semanticExpectations: [
       ...scenario.mustPreserveFacts.map((expectation) => `Сохранить: ${expectation}.`),
       ...scenario.mustNotInvent.map((expectation) => `Не добавлять: ${expectation}.`),
@@ -607,27 +622,6 @@ const regressionScenarios: TestScenario[] = [
     semanticExpectations: [
       "Не превращать неизвестную причину функционального дефекта в конкретный способ ремонта.",
       "Сохранить различие между проверкой причины и требуемым результатом устранения.",
-    ],
-  },
-  {
-    id: "confirmed-remedy-door-handle",
-    category: "explicit_remedy",
-    provenance: { issue: 202 },
-    expectedOutcome: "generated",
-    input: {
-      description: "На входной двери отсутствует ручка.",
-      desiredActions: "Прошу установить дверную ручку.",
-    },
-    mustPreserveFacts: [],
-    mustNotInvent: [],
-    expectWarning: false,
-    hardExpectations: [
-      { kind: "warning_presence", expected: false },
-      { kind: "procedural_plan", preliminaryCheck: "absent", remedyActions: "present" },
-    ],
-    semanticExpectations: [
-      "Не терять прямо подтверждённое конкретное действие по установке дверной ручки.",
-      "Не раздувать очевидный дефект ненужной диагностикой.",
     ],
   },
 ];
