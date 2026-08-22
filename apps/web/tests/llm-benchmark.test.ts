@@ -90,7 +90,7 @@ function dependencies(overrides: Partial<BenchmarkDependencies> = {}): Benchmark
     now: () => new Date("2026-08-13T04:00:00.000Z"),
     monotonicNow: vi.fn().mockReturnValueOnce(10).mockReturnValueOnce(25),
     isInterrupted: () => false,
-    commitSha: () => "test-commit",
+    sourceState: () => ({ status: "clean", commitSha: "test-commit" }),
     createGateway: vi.fn(() => ({
       generateRequestForEvaluation: vi.fn().mockResolvedValue({
         status: "success",
@@ -121,6 +121,58 @@ describe("LLM benchmark", () => {
 
     expect(runtime.createGateway).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(runtime.writeFile).not.toHaveBeenCalled();
+    expect(runtime.confirm).not.toHaveBeenCalled();
+    expect(runtime.writeLine).toHaveBeenCalledWith("Source state: clean (test-commit)");
+  });
+
+  it("показывает безопасное dirty source state в plan mode без платных side effects", async () => {
+    const runtime = dependencies({
+      sourceState: () => ({ status: "dirty", tracked: true, untracked: true }),
+    });
+
+    await expect(runLlmBenchmark(["--config", CONFIG_PATH], runtime)).resolves.toBe(0);
+
+    expect(runtime.writeLine).toHaveBeenCalledWith(
+      "Source state: dirty (tracked: yes, untracked: yes)",
+    );
+    expect(runtime.confirm).not.toHaveBeenCalled();
+    expect(runtime.createGateway).not.toHaveBeenCalled();
+    expect(runtime.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("допускает paid run только для clean source state", async () => {
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await expect(
+      runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime),
+    ).resolves.toBe(0);
+
+    expect(runtime.confirm).toHaveBeenCalledOnce();
+    expect(generateRequestForEvaluation).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["dirty", { status: "dirty" as const, tracked: true, untracked: false }],
+    ["unavailable", { status: "unavailable" as const }],
+  ])("блокирует paid run для %s source state до всех платных side effects", async (_name, sourceState) => {
+    const runtime = dependencies({
+      sourceState: () => sourceState,
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+    });
+
+    await expect(
+      runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime),
+    ).resolves.toBe(1);
+
+    expect(runtime.confirm).not.toHaveBeenCalled();
+    expect(runtime.createGateway).not.toHaveBeenCalled();
     expect(runtime.writeFile).not.toHaveBeenCalled();
   });
 
@@ -377,6 +429,12 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Status: provider_unavailable");
     expect(report).toContain("Completed requests: 1 / 2");
     expect(report).toContain("Hard checks: FAIL");
+    expect(report).toContain(
+      "current / only-description: planned repeats 1; completed repeats 1 / 1; 1 / 1 hard-failing repeats",
+    );
+    expect(report).toContain(
+      "candidate / only-description: planned repeats 1; completed repeats 0 / 1; 0 / 1 hard-failing repeats",
+    );
   });
 
   it("reports aggregate hard-check failure and exit 1 for an interrupted incomplete run", async () => {
@@ -401,6 +459,12 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Status: interrupted");
     expect(report).toContain("Completed requests: 1 / 2");
     expect(report).toContain("Hard checks: FAIL");
+    expect(report).toContain(
+      "current / only-description: planned repeats 1; completed repeats 1 / 1; 0 / 1 hard-failing repeats",
+    );
+    expect(report).toContain(
+      "candidate / only-description: planned repeats 1; completed repeats 0 / 1; 0 / 1 hard-failing repeats",
+    );
   });
 
   it("reports aggregate hard-check pass and exit 0 only for a fully completed successful run", async () => {
@@ -423,6 +487,79 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Status: completed");
     expect(report).toContain("Completed requests: 2 / 2");
     expect(report).toContain("Hard checks: PASS");
+  });
+
+  it("aggregates all successful repeats separately by safe model label and scenario", async () => {
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 6"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1", "--repeats", "3"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain(
+      "current / only-description: planned repeats 3; completed repeats 3 / 3; 0 / 3 hard-failing repeats",
+    );
+    expect(report).toContain(
+      "candidate / only-description: planned repeats 3; completed repeats 3 / 3; 0 / 3 hard-failing repeats",
+    );
+  });
+
+  it("isolates one hard-check failure among three repeats from the other model label", async () => {
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME })
+      .mockResolvedValueOnce({ status: "success", outcome: { status: "multiple_issues" } })
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 6"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1", "--repeats", "3"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain(
+      "current / only-description: planned repeats 3; completed repeats 3 / 3; 1 / 3 hard-failing repeats",
+    );
+    expect(report).toContain(
+      "candidate / only-description: planned repeats 3; completed repeats 3 / 3; 0 / 3 hard-failing repeats",
+    );
+  });
+
+  it("counts a request-level failure as one completed hard-failing repeat", async () => {
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+      })
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 6"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1", "--repeats", "3"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain(
+      "current / only-description: planned repeats 3; completed repeats 3 / 3; 1 / 3 hard-failing repeats",
+    );
   });
 
   it("records a failed generation prompt hash without provider metadata or raw errors", async () => {
@@ -550,6 +687,12 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Failure kind: request");
     expect(report).toContain("Usage: input 100, output 50, total 150");
     expect(report).toContain("Outcome: `generated`");
+    expect(report).toContain(
+      "current / only-description: planned repeats 1; completed repeats 1 / 1; 1 / 1 hard-failing repeats",
+    );
+    expect(report).toContain(
+      "candidate / only-description: planned repeats 1; completed repeats 1 / 1; 0 / 1 hard-failing repeats",
+    );
   });
 
   it("не использует LLM_MODEL и передаёт в gateway только явно выбранные model IDs", async () => {
@@ -612,7 +755,11 @@ describe("LLM benchmark", () => {
     const generateRequestForEvaluation = vi.fn().mockResolvedValue({
       status: "success",
       outcome: GENERATED_OUTCOME,
-      observation: { draft: EVALUATION_DRAFT, selectedNormativeModule: null },
+      observation: {
+        draftOutcome: "generated",
+        draft: EVALUATION_DRAFT,
+        selectedNormativeModule: null,
+      },
       systemPromptHash: "safe-prompt-hash",
     });
     const runtime = dependencies({
@@ -640,7 +787,11 @@ describe("LLM benchmark", () => {
     const generateRequestForEvaluation = vi.fn().mockResolvedValue({
       status: "success",
       outcome: GENERATED_OUTCOME,
-      observation: { draft, selectedNormativeModule: "common-area-cleaning" },
+      observation: {
+        draftOutcome: "generated",
+        draft,
+        selectedNormativeModule: "common-area-cleaning",
+      },
     });
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
@@ -679,6 +830,39 @@ describe("LLM benchmark", () => {
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("FAIL: subject.kind: common_area_premises_cleaning");
     expect(report).toContain("selected normative module: unavailable");
+  });
+
+  it("сохраняет фактический validated multiple_issues draft со всеми пустыми полями", async () => {
+    const multipleIssuesDraft = {
+      outcome: "multiple_issues" as const,
+      title: null,
+      problem: null,
+      circumstances: null,
+      impact: null,
+      verification: null,
+      subject: null,
+      actionPlan: null,
+      warnings: [],
+    };
+    const generateRequestForEvaluation = vi.fn().mockResolvedValue({
+      status: "success",
+      outcome: { status: "multiple_issues" },
+      observation: { draftOutcome: "multiple_issues", multipleIssuesDraft },
+    });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--scenario", "multiple-issues"],
+      runtime,
+    );
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain(JSON.stringify(multipleIssuesDraft, null, 2));
+    expect(report).toContain('"title": null');
+    expect(report).toContain('"warnings": []');
   });
 
   it("сохраняет usage для поддерживаемого ответа и допускает его отсутствие", async () => {
