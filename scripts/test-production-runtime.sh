@@ -60,13 +60,13 @@ wait_until_healthy() {
       return 0
     fi
     if [[ "$status" == "unhealthy" ]]; then
-      compose logs --tail=100 web >&2 || true
+      compose logs --tail=100 request-generator >&2 || true
       fail "container became unhealthy"
     fi
     sleep 1
   done
 
-  compose logs --tail=100 web >&2 || true
+  compose logs --tail=100 request-generator >&2 || true
   fail "container did not become healthy before timeout"
 }
 
@@ -122,7 +122,7 @@ fi
 
 cat >"$TEMP_DIRECTORY/override.yaml" <<'YAML'
 services:
-  web:
+  request-generator:
     build: .
     image: alpine:latest
 YAML
@@ -152,27 +152,28 @@ PRODUCTION_IMAGE="$PRODUCTION_IMAGE" \
 COMPOSE_OUTPUT="$COMPOSE_OUTPUT" EXPECTED_IMAGE="$FIRST_IMAGE" EXPECTED_NETWORK="$PROXY_NETWORK" node <<'NODE'
 const fs = require("node:fs");
 const config = JSON.parse(fs.readFileSync(process.env.COMPOSE_OUTPUT, "utf8"));
-const web = config.services?.web;
-if (!web || Object.keys(config.services).length !== 1) throw new Error("expected exactly one web service");
-if ("build" in web) throw new Error("production service must not contain build");
-if ("ports" in web) throw new Error("production service must not publish host ports");
-if (web.image !== process.env.EXPECTED_IMAGE) throw new Error("unexpected image reference");
-if (!Array.isArray(web.expose) || !web.expose.includes("3000")) throw new Error("port 3000 must be exposed internally");
-if (web.restart !== "unless-stopped") throw new Error("unexpected restart policy");
-if (web.stop_grace_period !== "15s") throw new Error("stop_grace_period must be 15s");
-if (web.read_only !== true) throw new Error("root filesystem must be read-only");
-if (web.init !== true) throw new Error("Compose init must be enabled");
-if (web.user !== "node") throw new Error("service must run as node");
-if (!Array.isArray(web.cap_drop) || !web.cap_drop.includes("ALL")) throw new Error("all capabilities must be dropped");
-if (!Array.isArray(web.security_opt) || !web.security_opt.includes("no-new-privileges:true")) throw new Error("no-new-privileges must be enabled");
-if (!Number.isSafeInteger(web.pids_limit) || web.pids_limit <= 0) throw new Error("positive pids_limit is required");
-if ("mem_limit" in web || "cpus" in web) throw new Error("unmeasured resource limits must not be set");
-if ("tmpfs" in web) throw new Error("application does not require tmpfs");
-const attachedNetworks = Object.keys(web.networks ?? {});
+const services = config.services ?? {};
+const requestGenerator = services["request-generator"];
+if (!requestGenerator || Object.keys(services).length !== 1 || "web" in services) throw new Error("expected exactly one request-generator service");
+if ("build" in requestGenerator) throw new Error("production service must not contain build");
+if ("ports" in requestGenerator) throw new Error("production service must not publish host ports");
+if (requestGenerator.image !== process.env.EXPECTED_IMAGE) throw new Error("unexpected image reference");
+if (!Array.isArray(requestGenerator.expose) || !requestGenerator.expose.includes("3000")) throw new Error("port 3000 must be exposed internally");
+if (requestGenerator.restart !== "unless-stopped") throw new Error("unexpected restart policy");
+if (requestGenerator.stop_grace_period !== "15s") throw new Error("stop_grace_period must be 15s");
+if (requestGenerator.read_only !== true) throw new Error("root filesystem must be read-only");
+if (requestGenerator.init !== true) throw new Error("Compose init must be enabled");
+if (requestGenerator.user !== "node") throw new Error("service must run as node");
+if (!Array.isArray(requestGenerator.cap_drop) || !requestGenerator.cap_drop.includes("ALL")) throw new Error("all capabilities must be dropped");
+if (!Array.isArray(requestGenerator.security_opt) || !requestGenerator.security_opt.includes("no-new-privileges:true")) throw new Error("no-new-privileges must be enabled");
+if (!Number.isSafeInteger(requestGenerator.pids_limit) || requestGenerator.pids_limit <= 0) throw new Error("positive pids_limit is required");
+if ("mem_limit" in requestGenerator || "cpus" in requestGenerator) throw new Error("unmeasured resource limits must not be set");
+if ("tmpfs" in requestGenerator) throw new Error("application does not require tmpfs");
+const attachedNetworks = Object.keys(requestGenerator.networks ?? {});
 if (attachedNetworks.length !== 1 || attachedNetworks[0] !== "reverse-proxy") throw new Error("service must use only the reverse-proxy network");
 const network = config.networks?.["reverse-proxy"];
 if (!network || network.external !== true || network.name !== process.env.EXPECTED_NETWORK) throw new Error("reverse-proxy network must be explicitly named and external");
-if (!web.healthcheck?.test?.join(" ").includes("/api/health")) throw new Error("healthcheck must use /api/health");
+if (!requestGenerator.healthcheck?.test?.join(" ").includes("/api/health")) throw new Error("healthcheck must use /api/health");
 NODE
 
 printf 'Checking that .env files are excluded from the build context...\n'
@@ -212,8 +213,8 @@ printf 'Starting production Compose on an isolated network...\n'
 docker network create --internal "$PROXY_NETWORK" >/dev/null
 NETWORK_CREATED=true
 compose up -d --no-build --pull never
-CONTAINER_ID=$(compose ps -q web)
-[[ -n "$CONTAINER_ID" ]] || fail "web container was not created"
+CONTAINER_ID=$(compose ps -q request-generator)
+[[ -n "$CONTAINER_ID" ]] || fail "request-generator container was not created"
 wait_until_healthy
 assert_container_image "$FIRST_IMAGE" "$FIRST_IMAGE_ID"
 
@@ -238,31 +239,31 @@ if docker exec "$CONTAINER_ID" touch /tmp/runtime-contract-write-probe \
 fi
 
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
-  -e "fetch('http://web:3000/api/health').then(async response => { if (!response.ok || (await response.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"
+  -e "fetch('http://request-generator:3000/api/health').then(async response => { if (!response.ok || (await response.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
-  -e "fetch('http://web:3000/vendor/bootstrap/bootstrap.min.css').then(async response => { const body = await response.text(); if (!response.ok || !response.headers.get('content-type')?.includes('text/css') || !/Bootstrap\\s+v5\\.3\\.8/.test(body)) process.exit(1) }).catch(() => process.exit(1))"
+  -e "fetch('http://request-generator:3000/vendor/bootstrap/bootstrap.min.css').then(async response => { const body = await response.text(); if (!response.ok || !response.headers.get('content-type')?.includes('text/css') || !/Bootstrap\\s+v5\\.3\\.8/.test(body)) process.exit(1) }).catch(() => process.exit(1))"
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
-  -e "fetch('http://web:3000/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description: 'Тестовое описание неисправности без персональных данных' }) }).then(async response => { const body = await response.json(); if (response.status !== 503 || body.error?.code !== 'generation_provider_unavailable') process.exit(1) }).catch(() => process.exit(1))"
+  -e "fetch('http://request-generator:3000/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description: 'Тестовое описание неисправности без персональных данных' }) }).then(async response => { const body = await response.json(); if (response.status !== 503 || body.error?.code !== 'generation_provider_unavailable') process.exit(1) }).catch(() => process.exit(1))"
 
 printf 'Checking graceful SIGTERM and restart...\n'
-compose stop web
+compose stop request-generator
 [[ "$(docker inspect --format '{{.State.ExitCode}}' "$CONTAINER_ID")" == "0" ]] || fail "container did not stop cleanly after SIGTERM"
 compose up -d --no-build --pull never
-CONTAINER_ID=$(compose ps -q web)
+CONTAINER_ID=$(compose ps -q request-generator)
 wait_until_healthy
 assert_container_image "$FIRST_IMAGE" "$FIRST_IMAGE_ID"
 
 printf 'Replacing the full SHA image reference...\n'
 PRODUCTION_IMAGE="$SECOND_IMAGE"
 compose up -d --no-build --pull never --force-recreate
-CONTAINER_ID=$(compose ps -q web)
+CONTAINER_ID=$(compose ps -q request-generator)
 wait_until_healthy
 assert_container_image "$SECOND_IMAGE" "$SECOND_IMAGE_ID"
 
 printf 'Rolling back to the previous image reference...\n'
 PRODUCTION_IMAGE="$FIRST_IMAGE"
 compose up -d --no-build --pull never --force-recreate
-CONTAINER_ID=$(compose ps -q web)
+CONTAINER_ID=$(compose ps -q request-generator)
 wait_until_healthy
 assert_container_image "$FIRST_IMAGE" "$FIRST_IMAGE_ID"
 
