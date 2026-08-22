@@ -75,7 +75,7 @@ test("сохраняет layout-инварианты от формы до дли
   const unexpectedExternalRequests: string[] = [];
   page.on("request", (request) => {
     const requestUrl = request.url();
-    if (/^https?:/.test(requestUrl) && !requestUrl.startsWith("http://web:3000/")) {
+    if (/^https?:/.test(requestUrl) && !requestUrl.startsWith("http://request-generator:3000/")) {
       unexpectedExternalRequests.push(requestUrl);
     }
   });

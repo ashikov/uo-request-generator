@@ -21,7 +21,7 @@ export default defineConfig({
     ["html", { outputFolder: artifactPath("playwright-report"), open: "never" }],
   ],
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://web:3000",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://request-generator:3000",
     browserName: "chromium",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",

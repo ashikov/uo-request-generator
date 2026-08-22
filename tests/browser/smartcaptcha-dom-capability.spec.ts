@@ -100,7 +100,7 @@ test("доказывает техническую возможность same-do
     const requestUrl = request.url();
     if (
       /^https?:/.test(requestUrl) &&
-      !requestUrl.startsWith("http://web:3000/") &&
+      !requestUrl.startsWith("http://request-generator:3000/") &&
       !smartCaptchaScriptUrlPattern.test(requestUrl)
     ) {
       unexpectedExternalRequests.push(requestUrl);
