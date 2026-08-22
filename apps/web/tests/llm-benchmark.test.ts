@@ -363,7 +363,7 @@ describe("LLM benchmark", () => {
         status: "failure",
         failureKind: "request",
         error: "request failed",
-        statusCode: 400,
+        providerHttpStatus: 400,
       })
       .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
     const runtime = dependencies({
@@ -388,7 +388,7 @@ describe("LLM benchmark", () => {
         status: "failure",
         failureKind: "request",
         error: "first-request-failure",
-        statusCode: 422,
+        providerHttpStatus: 422,
       })
       .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
     const runtime = dependencies({
