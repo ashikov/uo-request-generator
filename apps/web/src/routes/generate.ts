@@ -59,6 +59,7 @@ type GenerationTerminalStatus =
   | {
       event: "generation_failed";
       status: GenerationFailedEvent["status"];
+      providerHttpStatus?: number;
     };
 
 declare module "fastify" {
@@ -151,6 +152,24 @@ function ensureGenerationContext(
   return context;
 }
 
+function selectLlmGenerationMetadata(metadata: LlmGenerationMetadata): LlmGenerationMetadata {
+  return {
+    provider: metadata.provider,
+    model: metadata.model,
+    usage:
+      metadata.usage === null
+        ? null
+        : {
+            inputTokens: metadata.usage.inputTokens,
+            outputTokens: metadata.usage.outputTokens,
+            totalTokens: metadata.usage.totalTokens,
+          },
+    usageStatus: metadata.usageStatus,
+    systemPromptHash: metadata.systemPromptHash,
+    durationMs: metadata.durationMs,
+  };
+}
+
 function writeTerminalEvent(
   context: GenerationRequestContext,
   terminalStatus: GenerationTerminalStatus,
@@ -167,7 +186,7 @@ function writeTerminalEvent(
     requestId: context.requestId,
     timestamp: new Date().toISOString(),
     durationMs: Math.round(performance.now() - context.startedAt),
-    ...(llmMetadata === undefined ? {} : { llm: llmMetadata }),
+    ...(llmMetadata === undefined ? {} : { llm: selectLlmGenerationMetadata(llmMetadata) }),
   };
 
   if (terminalStatus.event === "generation_rejected") {
@@ -179,7 +198,15 @@ function writeTerminalEvent(
     throw new Error("generation_failed cannot use HTTP 413");
   }
 
-  writeGenerationEvent({ ...terminalStatus, ...eventDetails, httpStatus });
+  writeGenerationEvent({
+    event: "generation_failed",
+    status: terminalStatus.status,
+    ...eventDetails,
+    httpStatus,
+    ...(terminalStatus.providerHttpStatus === undefined
+      ? {}
+      : { providerHttpStatus: terminalStatus.providerHttpStatus }),
+  });
 }
 
 function writeSuccessEvent(
@@ -199,7 +226,7 @@ function writeSuccessEvent(
     status: "generated",
     durationMs: Math.round(performance.now() - context.startedAt),
     httpStatus: 200,
-    ...(llmMetadata === undefined ? {} : { llm: llmMetadata }),
+    ...(llmMetadata === undefined ? {} : { llm: selectLlmGenerationMetadata(llmMetadata) }),
   });
 }
 
@@ -241,12 +268,28 @@ function sendMetadataGatewayFailure(
   context: GenerationRequestContext,
   writeGenerationEvent: GenerationEventWriter,
   llmMetadata: LlmGenerationMetadata,
+  providerHttpStatus: unknown,
 ): FastifyReply {
+  const validProviderHttpStatus =
+    failureStatus === "provider_unavailable" &&
+    typeof providerHttpStatus === "number" &&
+    Number.isInteger(providerHttpStatus) &&
+    providerHttpStatus >= 100 &&
+    providerHttpStatus <= 599 &&
+    (providerHttpStatus < 200 || providerHttpStatus > 299)
+      ? providerHttpStatus
+      : undefined;
   return sendApiErrorWithEvent(
     reply,
     configuredProviderUnavailableApiError,
     context,
-    { event: "generation_failed", status: failureStatus },
+    validProviderHttpStatus === undefined
+      ? { event: "generation_failed", status: failureStatus }
+      : {
+          event: "generation_failed",
+          status: failureStatus,
+          providerHttpStatus: validProviderHttpStatus,
+        },
     writeGenerationEvent,
     llmMetadata,
   );
@@ -519,6 +562,7 @@ export function registerGenerateRoute(
               context,
               options.writeGenerationEvent,
               generation.generation.metadata,
+              generation.generation.providerHttpStatus,
             );
           }
 

@@ -1,4 +1,9 @@
-import type { LlmGateway } from "@uo-request-generator/core";
+import type {
+  LlmGateway,
+  LlmGatewayGeneration,
+  LlmGenerationFailureStatus,
+  LlmGenerationMetadata,
+} from "@uo-request-generator/core";
 import {
   DisabledLlmGateway,
   GenerationInvalidResponseError,
@@ -51,6 +56,48 @@ type TerminalEventShape = {
   status: string;
   httpStatus: number;
 };
+
+type LlmGenerationMetadataWithDiagnostics = LlmGenerationMetadata & {
+  providerBody?: unknown;
+  providerMessage?: unknown;
+  providerUrl?: unknown;
+  providerHeaders?: unknown;
+  providerApiKey?: unknown;
+  providerAuthorization?: unknown;
+  systemPrompt?: unknown;
+  prompt?: unknown;
+  userInput?: unknown;
+  generatedText?: unknown;
+};
+
+type MetadataFailureCase = {
+  caseName: string;
+  failureStatus: LlmGenerationFailureStatus;
+  providerHttpStatus: unknown;
+  expectedProviderHttpStatus: number | undefined;
+};
+
+function createMetadataGatewayFailure(
+  failureStatus: LlmGenerationFailureStatus,
+  metadata: LlmGenerationMetadata,
+  providerHttpStatus: unknown,
+): LlmGateway {
+  const generation: Extract<LlmGatewayGeneration, { status: "failure" }> = {
+    status: "failure",
+    failureStatus,
+    metadata,
+  };
+  Object.defineProperty(generation, "providerHttpStatus", {
+    value: providerHttpStatus,
+    enumerable: true,
+  });
+  return {
+    generateRequest: vi.fn<LlmGateway["generateRequest"]>(),
+    generateRequestWithMetadata: vi
+      .fn<NonNullable<LlmGateway["generateRequestWithMetadata"]>>()
+      .mockResolvedValue(generation),
+  };
+}
 
 function expectEventPair(
   events: GenerationLogEvent[],
@@ -270,6 +317,165 @@ describe("структурированные события POST /api/generate",
       event: "generation_failed",
       status: "timeout",
       llm: llmMetadata,
+    });
+  });
+
+  it.each([
+    {
+      caseName: "корректном HTTP status ошибки provider",
+      failureStatus: "provider_unavailable",
+      providerHttpStatus: 429,
+      expectedProviderHttpStatus: 429,
+    },
+    {
+      caseName: "успешном HTTP status provider",
+      failureStatus: "provider_unavailable",
+      providerHttpStatus: 200,
+      expectedProviderHttpStatus: undefined,
+    },
+    {
+      caseName: "строковом HTTP status",
+      failureStatus: "provider_unavailable",
+      providerHttpStatus: "429",
+      expectedProviderHttpStatus: undefined,
+    },
+    {
+      caseName: "дробном HTTP status",
+      failureStatus: "provider_unavailable",
+      providerHttpStatus: 429.5,
+      expectedProviderHttpStatus: undefined,
+    },
+    {
+      caseName: "выходящем за HTTP range status",
+      failureStatus: "provider_unavailable",
+      providerHttpStatus: 600,
+      expectedProviderHttpStatus: undefined,
+    },
+    {
+      caseName: "timeout с HTTP status provider",
+      failureStatus: "timeout",
+      providerHttpStatus: 429,
+      expectedProviderHttpStatus: undefined,
+    },
+    {
+      caseName: "network error с HTTP status provider",
+      failureStatus: "network_error",
+      providerHttpStatus: 429,
+      expectedProviderHttpStatus: undefined,
+    },
+    {
+      caseName: "invalid response с HTTP status provider",
+      failureStatus: "invalid_response",
+      providerHttpStatus: 429,
+      expectedProviderHttpStatus: undefined,
+    },
+  ] satisfies readonly MetadataFailureCase[])("сохраняет providerHttpStatus только при $caseName", async ({
+    failureStatus,
+    providerHttpStatus,
+    expectedProviderHttpStatus,
+  }) => {
+    const metadataGateway = createMetadataGatewayFailure(
+      failureStatus,
+      {
+        provider: "test-provider",
+        model: "test-model",
+        usage: null,
+        usageStatus: "missing",
+        systemPromptHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        durationMs: 1,
+      },
+      providerHttpStatus,
+    );
+    const { app, events } = createCapturingApp({ llmGateway: metadataGateway });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    const requestId = expectGenerationProviderError(
+      response,
+      "Генерация временно недоступна. Попробуйте позже",
+    );
+    expect(events[1]).toMatchObject({
+      event: "generation_failed",
+      requestId,
+      status: failureStatus,
+      httpStatus: 503,
+    });
+    if (expectedProviderHttpStatus === undefined) {
+      expect(events[1]).not.toHaveProperty("providerHttpStatus");
+      return;
+    }
+    expect(events[1]).toMatchObject({ providerHttpStatus: expectedProviderHttpStatus });
+  });
+
+  it("не раскрывает diagnostics metadata-capable gateway в public response или events", async () => {
+    const privateProviderBody = "private-provider-body-sentinel";
+    const privateProviderMessage = "private-provider-message-sentinel";
+    const privateProviderUrl = "https://private-provider-url-sentinel.example";
+    const privateProviderHeaders = "private-provider-headers-sentinel";
+    const privateApiKey = "private-api-key-sentinel";
+    const privateAuthorization = "Bearer private-authorization-sentinel";
+    const privatePrompt = "private-prompt-sentinel";
+    const privateUserInput = "private-user-input-sentinel";
+    const privateGeneratedText = "private-generated-text-sentinel";
+    const metadataWithDiagnostics: LlmGenerationMetadataWithDiagnostics = {
+      provider: "test-provider",
+      model: "test-model",
+      usage: null,
+      usageStatus: "missing",
+      systemPromptHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      durationMs: 1,
+      providerBody: privateProviderBody,
+      providerMessage: privateProviderMessage,
+      providerUrl: privateProviderUrl,
+      providerHeaders: {
+        authorization: privateAuthorization,
+        "x-api-key": privateApiKey,
+        "x-private": privateProviderHeaders,
+      },
+      providerApiKey: privateApiKey,
+      providerAuthorization: privateAuthorization,
+      systemPrompt: privatePrompt,
+      prompt: privatePrompt,
+      userInput: privateUserInput,
+      generatedText: privateGeneratedText,
+    };
+    const metadataGateway = createMetadataGatewayFailure(
+      "provider_unavailable",
+      metadataWithDiagnostics,
+      429,
+    );
+    const { app, events } = createCapturingApp({ llmGateway: metadataGateway });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(503);
+    const requestId = expectGenerationProviderError(
+      response,
+      "Генерация временно недоступна. Попробуйте позже",
+    );
+    const serializedPublicResponse = response.body;
+    const serializedEvents = events.map((event) => JSON.stringify(event)).join("\n");
+    for (const privateValue of [
+      privateProviderBody,
+      privateProviderMessage,
+      privateProviderUrl,
+      privateProviderHeaders,
+      privateApiKey,
+      privateAuthorization,
+      privatePrompt,
+      privateUserInput,
+      privateGeneratedText,
+    ]) {
+      expect(serializedPublicResponse).not.toContain(privateValue);
+      expect(serializedEvents).not.toContain(privateValue);
+    }
+    expect(events[1]).toMatchObject({
+      event: "generation_failed",
+      requestId,
+      status: "provider_unavailable",
+      httpStatus: 503,
+      providerHttpStatus: 429,
     });
   });
 
