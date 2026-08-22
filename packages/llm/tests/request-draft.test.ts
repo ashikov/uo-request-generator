@@ -141,6 +141,18 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("сохраняет явные последствия и ограничивает безопасный вывод", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("consequences имеют приоритет");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "При нормализации явно переданных consequences сохраняй указанного субъекта и фактический объём последствия",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Если consequences не называют субъектов или группу людей, не приписывай последствия людям",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Перед возвратом impact проверь, что каждое упоминание человека, группы, их чувств, реакции, количества или массовости прямо есть во входе",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Не удаляй явно переданное ощущение только потому, что consequences не называют группу людей",
+    );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("не превращай риск в событие");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("скрытое повреждение");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("отсутствующее во вводе оборудование");

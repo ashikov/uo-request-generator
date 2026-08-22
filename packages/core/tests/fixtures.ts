@@ -14,6 +14,7 @@ export type ScenarioCategory =
   | "location_preservation"
   | "conflicting_location"
   | "compatible_location"
+  | "impact_subject_preservation"
   | "multiple_unrelated_issues";
 
 type TestScenarioBase = {
@@ -299,6 +300,61 @@ export const scenarios: TestScenario[] = [
     },
     mustPreserveFacts: ["дверь не закрывается полностью", "подъезд 3", "этаж 4"],
     mustNotInvent: ["конфликт места", "другой подъезд", "причина неисправности"],
+    expectWarning: false,
+  },
+  {
+    id: "impact-subject-subjective",
+    category: "impact_subject_preservation",
+    expectedOutcome: "generated",
+    input: {
+      description: "В кабине лифта не работает освещение.",
+      consequences: "В кабине темно и страшно.",
+    },
+    mustPreserveFacts: ["темнота в кабине лифта", "субъективный дискомфорт без новой группы людей"],
+    mustNotInvent: [
+      "страх пассажиров",
+      "страх жильцов",
+      "опасения других пользователей",
+      "массовое чувство страха",
+    ],
+    expectWarning: false,
+  },
+  {
+    id: "impact-subject-objective",
+    category: "impact_subject_preservation",
+    expectedOutcome: "generated",
+    input: {
+      description: "На лестничной площадке не работает освещение.",
+      consequences: "Вечером проход плохо виден.",
+    },
+    mustPreserveFacts: [
+      "ограниченная видимость прохода в вечернее время",
+      "нейтральная профессиональная формулировка ограниченной видимости без новой группы людей",
+    ],
+    mustNotInvent: [
+      "затруднение прохода жильцов",
+      "массовое неудобство",
+      "неопределённое количество затронутых людей",
+    ],
+    expectWarning: false,
+  },
+  {
+    id: "impact-subject-explicit-group",
+    category: "impact_subject_preservation",
+    expectedOutcome: "generated",
+    input: {
+      description: "Входная дверь подъезда открывается с усилием.",
+      consequences: "Пожилым жильцам трудно открыть дверь.",
+    },
+    mustPreserveFacts: [
+      "пожилым жильцам трудно открыть дверь",
+      "явно указанная группа людей сохранена без расширения",
+    ],
+    mustNotInvent: [
+      "всем жителям трудно открыть дверь",
+      "большому числу жильцов",
+      "другой группе людей",
+    ],
     expectWarning: false,
   },
   {
