@@ -31,6 +31,7 @@ export {
   primaryRequestLegalBasisLimits,
   primaryRequestSubjectLimits,
   primaryRequestSubjectSchema,
+  selectSpecificLegalBasisModule,
   type PrimaryRequestSubject,
 } from "./legal-basis.js";
 export {

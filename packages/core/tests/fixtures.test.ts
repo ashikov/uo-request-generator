@@ -48,16 +48,15 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("generated-сценарии содержат инварианты готового текста", () => {
+  it("generated-сценарии содержат hard и semantic expectations", () => {
     const generatedScenarios = scenarios.filter(
       (scenario) => scenario.expectedOutcome === "generated",
     );
 
     expect(generatedScenarios.length).toBeGreaterThan(0);
     for (const scenario of generatedScenarios) {
-      expect(scenario.mustPreserveFacts.length).toBeGreaterThan(0);
-      expect(scenario.mustNotInvent.length).toBeGreaterThan(0);
-      expect(typeof scenario.expectWarning).toBe("boolean");
+      expect(scenario.hardExpectations.length).toBeGreaterThan(0);
+      expect(scenario.semanticExpectations.length).toBeGreaterThan(0);
     }
   });
 
@@ -85,8 +84,40 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("сохраняет synthetic regression cases из #200, #201 и #202 с typed expectations", () => {
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+
+    expect(byId.get("cleaning-elevator-cabin")).toMatchObject({
+      provenance: { issue: 200 },
+      hardExpectations: expect.arrayContaining([
+        { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+        { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+        { kind: "selected_normative_module", expected: "common-area-cleaning" },
+      ]),
+    });
+    expect(byId.get("cleaning-entrance-door")).toMatchObject({ provenance: { issue: 200 } });
+    expect(byId.get("cleaning-common-area-wall")).toMatchObject({ provenance: { issue: 200 } });
+    expect(byId.get("lighting-elevator-cabin")).toMatchObject({
+      provenance: { issue: 201 },
+      hardExpectations: expect.arrayContaining([
+        { kind: "subject_kind", expected: "common_area_premises_lighting" },
+        { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+      ]),
+    });
+    expect(byId.get("unknown-remedy-lighting")).toMatchObject({ provenance: { issue: 202 } });
+    expect(byId.get("unknown-remedy-functional-defect")).toMatchObject({
+      provenance: { issue: 202 },
+    });
+    expect(byId.get("confirmed-remedy-door-handle")).toMatchObject({
+      provenance: { issue: 202 },
+      hardExpectations: expect.arrayContaining([
+        { kind: "procedural_plan", preliminaryCheck: "absent", remedyActions: "present" },
+      ]),
+    });
+  });
+
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(20);
+    expect(scenarios).toHaveLength(27);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
@@ -308,6 +339,22 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
   multiple_unrelated_issues: {
     present: ["description"],
     absent: ["location", "consequences", "desiredActions", "confirmedProblemSubject"],
+  },
+  cleaning: {
+    present: ["description", "confirmedProblemSubject"],
+    absent: ["location", "consequences", "desiredActions"],
+  },
+  lighting: {
+    present: ["description", "confirmedProblemSubject"],
+    absent: ["location", "consequences", "desiredActions"],
+  },
+  unknown_remedy: {
+    present: ["description"],
+    absent: ["location", "consequences", "desiredActions", "confirmedProblemSubject"],
+  },
+  explicit_remedy: {
+    present: ["description", "desiredActions"],
+    absent: ["location", "consequences", "confirmedProblemSubject"],
   },
 };
 
