@@ -40,7 +40,11 @@ export default defineConfig({
     },
     {
       name: "mobile-390x844",
-      testMatch: ["**/responsive-layout.spec.ts", "**/critical-flow.spec.ts"],
+      testMatch: [
+        "**/responsive-layout.spec.ts",
+        "**/critical-flow.spec.ts",
+        "**/smartcaptcha-dom-capability.spec.ts",
+      ],
       use: { viewport: { width: 390, height: 844 } },
     },
     {
@@ -55,7 +59,11 @@ export default defineConfig({
     },
     {
       name: "desktop-1280x800",
-      testMatch: ["**/responsive-layout.spec.ts", "**/critical-flow.spec.ts"],
+      testMatch: [
+        "**/responsive-layout.spec.ts",
+        "**/critical-flow.spec.ts",
+        "**/smartcaptcha-dom-capability.spec.ts",
+      ],
       use: { viewport: { width: 1280, height: 800 } },
     },
   ],
