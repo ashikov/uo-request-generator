@@ -1312,6 +1312,33 @@ describe("OpenAiCompatibleGateway", () => {
       });
     });
 
+    it("возвращает безопасную projection failure для evaluation", async () => {
+      createResponsesMockFetch({
+        status: "incomplete",
+        output_text: VALID_LLM_TEXT,
+        usage: { input_tokens: 90, output_tokens: 45, total_tokens: 135 },
+      });
+
+      const generation =
+        await createGateway(responsesConfig).generateRequestForEvaluation(VALID_INPUT);
+      const serializedGeneration = JSON.stringify(generation);
+
+      expect(generation).toMatchObject({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+        failureStatus: "invalid_response",
+        usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
+        usageStatus: "available",
+        systemPromptHash: createRequestDraftSystemPromptHash(
+          createRequestDraftSystemPrompt(undefined),
+        ),
+      });
+      expect(generation).not.toHaveProperty("metadata");
+      expect(serializedGeneration).not.toContain("test-provider");
+      expect(serializedGeneration).not.toContain("test-model");
+    });
+
     it("сохраняет usage при локальной валидации ответа", async () => {
       createResponsesMockFetch({
         status: "completed",
