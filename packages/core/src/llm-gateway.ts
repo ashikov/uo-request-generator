@@ -41,6 +41,7 @@ export type LlmGatewayGeneration =
   | {
       status: "failure";
       failureStatus: LlmGenerationFailureStatus;
+      readonly providerHttpStatus?: number;
       metadata: LlmGenerationMetadata;
     };
 
