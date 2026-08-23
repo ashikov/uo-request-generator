@@ -60,6 +60,10 @@ async function expectCoreLayout(page: Page): Promise<void> {
     { name: "область результата", locator: page.locator("#result-area") },
     { name: "пояснение о самостоятельной отправке", locator: page.locator("#submission-notice") },
     {
+      name: "рекомендация о минимизации данных",
+      locator: page.locator("#data-minimization-notice"),
+    },
+    {
       name: "служебное сообщение",
       locator: page.getByText("Проверьте готовую заявку перед отправкой", { exact: false }),
     },
@@ -88,9 +92,11 @@ test("сохраняет layout-инварианты от формы до дли
   });
 
   let generationRequestCount = 0;
+  const submittedPayloads: unknown[] = [];
   await page.route(generateUrlPattern, async (route) => {
     generationRequestCount++;
     expect(route.request().method()).toBe("POST");
+    submittedPayloads.push(route.request().postDataJSON());
 
     if (generationRequestCount === 1) {
       await route.fulfill({
@@ -125,6 +131,11 @@ test("сохраняет layout-инварианты от формы до дли
   await expect(page.locator("#submission-notice")).toBeVisible();
   await expect(page.locator("#request-form")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator("#captcha-notice")).toBeHidden();
+  const minimizationNotice = page.locator("#data-minimization-notice");
+  await expect(minimizationNotice).toBeVisible();
+  await expect(minimizationNotice).toHaveText(
+    "Если без них можно описать проблему, лучше не указывать ФИО, телефон, точный адрес и сведения о других людях.",
+  );
 
   const fields = [
     page.getByLabel("Описание проблемы Обязательное поле"),
@@ -155,6 +166,10 @@ test("сохраняет layout-инварианты от формы до дли
       "#description-hint, #location-hint, #consequences-hint, #desired-actions-hint",
     ),
   });
+  await expectTextWraps({ name: "рекомендация о минимизации данных", locator: minimizationNotice });
+  await expectWithinViewportHorizontally(page, [
+    { name: "рекомендация о минимизации данных", locator: minimizationNotice },
+  ]);
   await expectReachableByScrolling(page, {
     name: "поле желаемых действий",
     locator: page.locator("#desired-actions"),
@@ -244,5 +259,6 @@ test("сохраняет layout-инварианты от формы до дли
   await expectNoHorizontalDocumentOverflow(page);
 
   expect(generationRequestCount).toBe(2);
+  expect(submittedPayloads).toEqual([fullFormValues, fullFormValues]);
   expect(unexpectedExternalRequests).toEqual([]);
 });

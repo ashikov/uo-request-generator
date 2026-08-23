@@ -72,6 +72,24 @@ describe("публичная страница", () => {
     expect(html).toContain("Дополнительные сведения");
   });
 
+  it("содержит ненавязчивую рекомендацию о минимизации данных перед полями формы", async () => {
+    const html = await readFile(join(publicDirectory, "index.html"), "utf8");
+    const pageText = html.replace(/\s+/g, " ");
+    const formStart = html.indexOf('<form id="request-form"');
+    const descriptionField = html.indexOf('id="description"');
+    const notice =
+      "Если без них можно описать проблему, лучше не указывать ФИО, телефон, точный адрес и сведения о других людях.";
+
+    expect(html).toMatch(/<p id="data-minimization-notice" class="form-text mb-0">[\s\S]*<\/p>/);
+    expect(pageText).toContain(notice);
+    expect(formStart).toBeGreaterThanOrEqual(0);
+    expect(descriptionField).toBeGreaterThan(formStart);
+    expect(html.indexOf("data-minimization-notice")).toBeLessThan(descriptionField);
+    expect(html).not.toMatch(
+      /<input[^>]+id="data-minimization-notice"|<textarea[^>]+id="data-minimization-notice"|<input[^>]+type="checkbox"[^>]*data-minimization-notice/,
+    );
+  });
+
   it("содержит необязательный выбор предмета проблемы с понятным пояснением", async () => {
     const html = await readFile(join(publicDirectory, "index.html"), "utf8");
 
