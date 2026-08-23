@@ -15,6 +15,7 @@ export type ScenarioCategory =
   | "conflicting_location"
   | "compatible_location"
   | "impact_subject_preservation"
+  | "impact_normalization"
   | "unconfirmed_remedy"
   | "multiple_unrelated_issues"
   | "cleaning"
@@ -34,7 +35,7 @@ export type HardExpectation =
       resultCheck?: "present" | "absent";
     };
 
-export type IssueProvenance = { issue: 200 | 201 | 202 | 203 };
+export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 219 };
 
 type TestScenarioBase = {
   id: string;
@@ -629,6 +630,52 @@ const regressionScenarios: TestScenario[] = [
     semanticExpectations: [
       "Не превращать неизвестную причину функционального дефекта в конкретный способ ремонта.",
       "Сохранить различие между проверкой причины и требуемым результатом устранения.",
+    ],
+  },
+  {
+    id: "impact-natural-lift-consequence",
+    category: "impact_normalization",
+    provenance: { issue: 219 },
+    expectedOutcome: "generated",
+    input: {
+      description: "Лифт не работает.",
+      location: "второй подъезд",
+      consequences: "Приходится подниматься вручную.",
+      desiredActions: "Нужно починить лифт.",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: [{ kind: "warning_presence", expected: false }],
+    semanticExpectations: [
+      "Сохранить смысл явно переданного последствия: из-за неработающего лифта приходится подниматься без его использования.",
+      "Сформулировать последствие естественно для перемещения человека без требования дословно копировать пользовательскую лексику.",
+      "Вывести последствие один раз в impact и не повторять его в circumstances или другой динамической роли без отдельного необходимого смысла.",
+      "Не добавлять пользователей, жильцов, пассажиров или другую не указанную во входе группу людей.",
+      "Не добавлять новые факты, обстоятельства или последствия.",
+    ],
+  },
+  {
+    id: "impact-natural-manual-door-operation",
+    category: "impact_normalization",
+    provenance: { issue: 219 },
+    expectedOutcome: "generated",
+    input: {
+      description: "Автоматическая дверь в общем помещении не открывается автоматически.",
+      location: "тамбур второго подъезда",
+      consequences: "Дверь приходится открывать вручную.",
+      desiredActions: "Нужно восстановить автоматическое открывание двери.",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: [{ kind: "warning_presence", expected: false }],
+    semanticExpectations: [
+      "Сохранить явно переданное последствие: дверь приходится открывать вручную.",
+      "Считать ручное открывание двери естественным описанием этого действия и не заменять его механически.",
+      "Вывести последствие один раз в impact и не повторять его в circumstances или другой динамической роли без отдельного необходимого смысла.",
+      "Не добавлять пользователей, жильцов или другую не указанную во входе группу людей.",
+      "Не добавлять новые факты, обстоятельства или последствия.",
     ],
   },
 ];

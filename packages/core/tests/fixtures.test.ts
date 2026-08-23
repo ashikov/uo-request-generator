@@ -17,6 +17,7 @@ const REQUIRED_CATEGORIES: ScenarioCategory[] = [
   "conflicting_location",
   "compatible_location",
   "impact_subject_preservation",
+  "impact_normalization",
   "unconfirmed_remedy",
   "multiple_unrelated_issues",
 ];
@@ -133,8 +134,49 @@ describe("test scenario fixtures", () => {
     ]);
   });
 
+  it("сохраняет synthetic regression cases из #219 без хрупких текстовых hard checks", () => {
+    const issue219Scenarios = scenarios.filter((scenario) => scenario.provenance?.issue === 219);
+    const byId = new Map(issue219Scenarios.map((scenario) => [scenario.id, scenario]));
+    const liftConsequence = byId.get("impact-natural-lift-consequence");
+    const manualDoorOperation = byId.get("impact-natural-manual-door-operation");
+
+    expect(issue219Scenarios.map((scenario) => scenario.id)).toEqual([
+      "impact-natural-lift-consequence",
+      "impact-natural-manual-door-operation",
+    ]);
+    expect(liftConsequence).toMatchObject({
+      category: "impact_normalization",
+      provenance: { issue: 219 },
+      expectedOutcome: "generated",
+      input: {
+        description: "Лифт не работает.",
+        location: "второй подъезд",
+        consequences: "Приходится подниматься вручную.",
+        desiredActions: "Нужно починить лифт.",
+      },
+      hardExpectations: [{ kind: "warning_presence", expected: false }],
+    });
+    expect(manualDoorOperation).toMatchObject({
+      category: "impact_normalization",
+      provenance: { issue: 219 },
+      expectedOutcome: "generated",
+      input: {
+        description: "Автоматическая дверь в общем помещении не открывается автоматически.",
+        location: "тамбур второго подъезда",
+        consequences: "Дверь приходится открывать вручную.",
+        desiredActions: "Нужно восстановить автоматическое открывание двери.",
+      },
+      hardExpectations: [{ kind: "warning_presence", expected: false }],
+    });
+
+    for (const scenario of issue219Scenarios) {
+      expect(scenario.semanticExpectations).toHaveLength(5);
+      expect(scenario.hardExpectations).toEqual([{ kind: "warning_presence", expected: false }]);
+    }
+  });
+
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(26);
+    expect(scenarios).toHaveLength(28);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
@@ -348,6 +390,10 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
   impact_subject_preservation: {
     present: ["description", "consequences"],
     absent: ["location", "desiredActions", "confirmedProblemSubject"],
+  },
+  impact_normalization: {
+    present: ["description", "location", "consequences", "desiredActions"],
+    absent: ["confirmedProblemSubject"],
   },
   unconfirmed_remedy: {
     present: ["description", "desiredActions"],
