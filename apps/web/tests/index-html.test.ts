@@ -40,6 +40,12 @@ describe("публичная страница", () => {
   it("содержит необязательные поля контекста с доступными подсказками и счётчиками", async () => {
     const html = await readFile(join(publicDirectory, "index.html"), "utf8");
 
+    expect(html).toMatch(/for="location"[\s\S]*Где это произошло/);
+    expect(html).toMatch(/id="location"[\s\S]*maxlength="120"/);
+    expect(html).toContain('aria-describedby="location-hint location-count"');
+    expect(html).toContain('id="location-hint"');
+    expect(html).toMatch(/id="location-count"[^>]*aria-live="polite"/);
+
     expect(html).toMatch(/for="consequences"[\s\S]*Известные последствия/);
     expect(html).toMatch(/id="consequences"[\s\S]*maxlength="500"/);
     expect(html).toContain('aria-describedby="consequences-hint consequences-count"');
@@ -51,6 +57,17 @@ describe("публичная страница", () => {
     expect(html).toContain('aria-describedby="desired-actions-hint desired-actions-count"');
     expect(html).toContain('id="desired-actions-hint"');
     expect(html).toMatch(/id="desired-actions-count"[^>]*aria-live="polite"/);
+
+    expect(html).toMatch(/id="location-hint">\s*Например: подъезд или этаж\s*<\/span>/);
+    expect(html).toMatch(
+      /id="consequences-hint"\s*>\s*Укажите только уже известные последствия проблемы\s*<\/span\s*>/,
+    );
+    expect(html).toMatch(
+      /id="desired-actions-hint"\s*>\s*Укажите, что должна сделать УО, если это известно\s*<\/span\s*>/,
+    );
+    expect(html).not.toMatch(
+      /id="(?:location|consequences|desired-actions)-hint"[\s\S]*?Необязательно/,
+    );
   });
 
   it("содержит скрытое до проверки конфигурации уведомление SmartCaptcha", async () => {
@@ -70,6 +87,10 @@ describe("публичная страница", () => {
     expect(html).toMatch(/<section[^>]*aria-labelledby="optional-fields-title"/);
     expect(html).toContain('id="optional-fields-title"');
     expect(html).toContain("Дополнительные сведения");
+    expect(html).toContain(
+      '<span class="badge text-bg-light border text-body-secondary">Необязательно</span>',
+    );
+    expect(html).toContain("Заполните только то, что уже известно");
   });
 
   it("содержит ненавязчивую рекомендацию о минимизации данных перед полями формы", async () => {
