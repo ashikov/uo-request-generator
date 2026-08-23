@@ -565,12 +565,18 @@ const regressionScenarios: TestScenario[] = [
     provenance: { issue: 201 },
     expectedOutcome: "generated",
     input: {
-      description:
-        "В кабине лифта отсутствует освещение. Техническая неисправность лифта не подтверждена.",
+      description: "В кабине лифта не работает освещение.",
+      location: "второй подъезд",
+      consequences: "В кабине темно.",
+      desiredActions: "Восстановить освещение.",
       confirmedProblemSubject: "common_area_premises_lighting",
     },
-    mustPreserveFacts: [],
-    mustNotInvent: [],
+    mustPreserveFacts: ["отсутствие освещения в кабине лифта", "в кабине темно"],
+    mustNotInvent: [
+      "техническая неисправность лифта",
+      "неисправность лампы, проводки, выключателя или другого конкретного элемента",
+      "замена лампы или другой неподтверждённый способ ремонта",
+    ],
     expectWarning: false,
     hardExpectations: [
       { kind: "warning_presence", expected: false },
@@ -581,6 +587,7 @@ const regressionScenarios: TestScenario[] = [
     semanticExpectations: [
       "Не терять предмет освещения только из-за места проявления в кабине лифта.",
       "Не превращать отсутствие света само по себе в техническую проблему лифта.",
+      "При неизвестной причине требовать восстановить освещение без выбора конкретного способа ремонта.",
     ],
   },
   {

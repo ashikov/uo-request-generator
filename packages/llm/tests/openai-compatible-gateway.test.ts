@@ -810,6 +810,88 @@ describe("OpenAiCompatibleGateway", () => {
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
+  it("сохраняет lighting subject для отсутствия освещения в кабине без elevator module", async () => {
+    const input = {
+      description: "В кабине лифта не работает освещение.",
+      location: "второй подъезд",
+      consequences: "В кабине темно.",
+      desiredActions: "Восстановить освещение.",
+      confirmedProblemSubject: "common_area_premises_lighting" as const,
+    };
+    const draft = {
+      ...VALID_DRAFT,
+      title: "Не работает освещение в кабине лифта",
+      problem: "Во втором подъезде в кабине лифта не работает освещение.",
+      impact: "В кабине темно.",
+      subject: {
+        kind: "common_area_premises_lighting",
+        evidence: [{ sourceField: "description", quote: input.description }],
+      },
+      actionPlan: {
+        preliminaryCheck: "При необходимости установить причину отсутствия освещения",
+        remedyActions: [input.desiredActions],
+        resultCheck: "Проверить работу освещения после восстановления",
+      },
+    };
+    const mockFetch = createMockFetch(createLlmText(draft));
+
+    const result = await createGateway().generateRequest(input);
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body).toContain(COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.result.body).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.result.body).not.toContain("Заменить лампу");
+    expect(result.result.body).not.toContain("неисправность проводки");
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ content: string }>;
+    };
+    expect(requestBody.messages[0]?.content).toContain("включая кабину лифта");
+    expect(requestBody.messages[0]?.content).toContain(
+      "Отсутствие освещения в кабине лифта само по себе не подтверждает техническую проблему лифта",
+    );
+  });
+
+  it.each([
+    {
+      caseName: "противоречивом lighting evidence",
+      input: {
+        description: "Освещение в кабине лифта работает.",
+        confirmedProblemSubject: "common_area_premises_lighting" as const,
+      },
+      excludedParagraph: COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0],
+      promptRule:
+        "Если вход сообщает, что освещение работает, или сведения противоречат предмету освещения, укажи subject: null",
+    },
+    {
+      caseName: "одном только отсутствии света при подтверждении лифта",
+      input: {
+        description: "В кабине лифта не работает освещение.",
+        confirmedProblemSubject: "common_area_elevator" as const,
+      },
+      excludedParagraph: COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0],
+      promptRule: "Отсутствие освещения в кабине лифта само по себе не подтверждает этот kind",
+    },
+  ])("остаётся fail closed при $caseName", async ({ input, excludedParagraph, promptRule }) => {
+    const mockFetch = createMockFetch(createLlmText(VALID_DRAFT));
+
+    const result = await createGateway().generateRequest(input);
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.body).not.toContain(excludedParagraph);
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ content: string }>;
+    };
+    expect(requestBody.messages[0]?.content).toContain(promptRule);
+  });
+
   it("возвращает manual-eval observation из того же validated draft и deterministic selection", async () => {
     const description =
       "В общем коридоре многоквартирного дома не работает освещение несколько дней.";
