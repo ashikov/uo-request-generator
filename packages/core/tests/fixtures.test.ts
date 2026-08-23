@@ -99,9 +99,17 @@ describe("test scenario fixtures", () => {
     expect(byId.get("cleaning-common-area-wall")).toMatchObject({ provenance: { issue: 200 } });
     expect(byId.get("lighting-elevator-cabin")).toMatchObject({
       provenance: { issue: 201 },
+      input: {
+        description: "В кабине лифта не работает освещение.",
+        location: "второй подъезд",
+        consequences: "В кабине темно.",
+        desiredActions: "Восстановить освещение.",
+        confirmedProblemSubject: "common_area_premises_lighting",
+      },
       hardExpectations: expect.arrayContaining([
         { kind: "subject_kind", expected: "common_area_premises_lighting" },
         { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+        { kind: "selected_normative_module", expected: "common-area-lighting" },
       ]),
     });
     expect(byId.get("unknown-remedy-lighting")).toMatchObject({ provenance: { issue: 202 } });
@@ -354,8 +362,14 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
     absent: ["location", "consequences", "desiredActions"],
   },
   lighting: {
-    present: ["description", "confirmedProblemSubject"],
-    absent: ["location", "consequences", "desiredActions"],
+    present: [
+      "description",
+      "location",
+      "consequences",
+      "desiredActions",
+      "confirmedProblemSubject",
+    ],
+    absent: [],
   },
   unknown_remedy: {
     present: ["description"],

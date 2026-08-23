@@ -40,6 +40,16 @@ const CONFIRMED_LIGHTING_INPUT = {
   ...LIGHTING_INPUT,
   confirmedProblemSubject: "common_area_premises_lighting",
 } satisfies GenerateRequestInput;
+const ELEVATOR_CABIN_LIGHTING_INPUT = {
+  description: "В кабине лифта не работает освещение.",
+  location: "второй подъезд",
+  consequences: "В кабине темно.",
+  desiredActions: "Восстановить освещение.",
+} satisfies GenerateRequestInput;
+const CONFIRMED_ELEVATOR_CABIN_LIGHTING_INPUT = {
+  ...ELEVATOR_CABIN_LIGHTING_INPUT,
+  confirmedProblemSubject: "common_area_premises_lighting",
+} satisfies GenerateRequestInput;
 const LIGHTING_SUBJECT: Exclude<PrimaryRequestDraft["subject"], null> = {
   kind: "common_area_premises_lighting",
   evidence: [
@@ -336,7 +346,7 @@ describe("нормативный модуль двери общего польз
 
 describe("нормативный модуль освещения помещений общего пользования", () => {
   const paragraph =
-    "Согласно пунктам 7 и 11 Правил содержания общего имущества в многоквартирном доме, утверждённых постановлением Правительства РФ от 13.08.2006 № 491, осветительные установки помещений общего пользования входят в состав внутридомовой системы электроснабжения, а содержание общего имущества включает обеспечение готовности такого электрооборудования.";
+    "Согласно подпункту «а» пункта 2 и пунктам 7 и 11 Правил содержания общего имущества в многоквартирном доме, утверждённых постановлением Правительства РФ от 13.08.2006 № 491, к помещениям общего пользования отнесены в том числе лифты, осветительные установки таких помещений входят в состав внутридомовой системы электроснабжения, а содержание общего имущества включает обеспечение готовности такого электрооборудования.";
 
   function createLightingDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
     return createDraft({
@@ -360,7 +370,7 @@ describe("нормативный модуль освещения помещен�
         requiresExplicitUserConfirmation: true,
         requiresVerifiedInputEvidence: true,
         limitation:
-          "Только осветительные установки внутри помещений общего пользования многоквартирного дома. Не применяется к освещению внутри квартиры, придомовой территории, улицы или фасада.",
+          "Только осветительные установки внутри помещений общего пользования многоквартирного дома, включая освещение в кабине лифта. Не применяется к освещению внутри квартиры, придомовой территории, улицы или фасада. Не подтверждает неисправность лифта или конкретную техническую причину отсутствия света.",
       },
       paragraphs: [paragraph],
       sources: [
@@ -373,8 +383,57 @@ describe("нормативный модуль освещения помещен�
           validThrough: "2027-12-31",
         },
       ],
-      verifiedAt: "2026-08-16",
+      verifiedAt: "2026-08-23",
     });
+  });
+
+  it("сохраняет lighting module для подтверждённого отсутствия освещения в кабине лифта", () => {
+    const draft = createLightingDraft({
+      title: "Не работает освещение в кабине лифта",
+      problem: ELEVATOR_CABIN_LIGHTING_INPUT.description,
+      subject: {
+        kind: "common_area_premises_lighting",
+        evidence: [
+          {
+            sourceField: "description",
+            quote: ELEVATOR_CABIN_LIGHTING_INPUT.description,
+          },
+        ],
+      },
+      actionPlan: {
+        preliminaryCheck: "При необходимости установить причину отсутствия освещения",
+        remedyActions: [ELEVATOR_CABIN_LIGHTING_INPUT.desiredActions],
+        resultCheck: "Проверить работу освещения после восстановления",
+      },
+    });
+
+    const result = renderPrimaryRequestDraft(draft, CONFIRMED_ELEVATOR_CABIN_LIGHTING_INPUT);
+
+    expect(result.body).toContain(COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).not.toContain("заменить лампу");
+    expect(result.body).not.toContain("неисправность проводки");
+  });
+
+  it("остаётся fail closed для кабины лифта без подтверждённого lighting subject", () => {
+    const result = renderPrimaryRequestDraft(
+      createLightingDraft({
+        problem: ELEVATOR_CABIN_LIGHTING_INPUT.description,
+        subject: {
+          kind: "common_area_premises_lighting",
+          evidence: [
+            {
+              sourceField: "description",
+              quote: ELEVATOR_CABIN_LIGHTING_INPUT.description,
+            },
+          ],
+        },
+      }),
+      ELEVATOR_CABIN_LIGHTING_INPUT,
+    );
+
+    expect(result.body).not.toContain(COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
   it("добавляет предметный абзац ровно один раз после общих оснований", () => {
