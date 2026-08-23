@@ -6,6 +6,7 @@
       "!**/*.md",
       "!**/pnpm-lock.yaml",
       "!**/.browser-test-artifacts",
+      "!**/.omo",
       "!**/.pnpm-cache",
       "!**/.pnpm-state",
       "!**/.pnpm-store",
