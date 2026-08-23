@@ -473,6 +473,17 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     }
   });
 
+  it("закрепляет единственную роль и естественную нормализацию явно переданных последствий", () => {
+    const explicitConsequenceRoleMarker =
+      '<explicit-consequence-role source="consequences" owner="impact" duplicate-dynamic-role="forbidden" paraphrase="natural-meaning-preserving" literal-copy="not-required" subject-expansion="forbidden">';
+
+    for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+
+      expect([...prompt.matchAll(new RegExp(explicitConsequenceRoleMarker, "g"))]).toHaveLength(1);
+    }
+  });
+
   it.each([
     [
       undefined,
