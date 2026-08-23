@@ -36,7 +36,7 @@ const VENTILATION_SUBJECT_RULE =
   "проблему с системой вентиляции или вентиляционным каналом либо шахтой";
 const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтовой шахтой или лифтовым оборудованием";
 const IMPACT_ROLE_DESCRIPTION_MARKER =
-  '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" subject-expansion="forbidden">';
+  '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -477,12 +477,32 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("закрепляет единственную роль и естественную нормализацию явно переданных последствий", () => {
     const explicitConsequenceRoleMarker =
-      '<explicit-consequence-role source="consequences" owner="impact" circumstances="independent-input-only" duplicate-dynamic-role="forbidden" preservation="semantic-over-lexical" paraphrase="natural-when-needed" subject-expansion="forbidden">';
+      '<explicit-consequence-role source="consequences" owner="impact" circumstances="independent-input-only" duplicate-dynamic-role="forbidden" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 
     for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
 
       expect([...prompt.matchAll(new RegExp(explicitConsequenceRoleMarker, "g"))]).toHaveLength(1);
+    }
+  });
+
+  it("закрепляет контраст последствий и действий только в системном prompt", () => {
+    const consequenceActionContrastMarker =
+      '<consequence-action-contrast semantic-role="decision" self-motion-rewrite="contextual" external-object-manual-operation="preserve" token-replacement="forbidden" impact-owner="impact" impact-occurrence="exactly-once" source-facts="only" natural-wording="preserve" subject-expansion="forbidden">';
+    const consequenceActionContrastPrefix = "<consequence-action-contrast";
+    const consequenceActionContrastClosingTag = "</consequence-action-contrast>";
+
+    for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+      const schema = JSON.stringify(createRequestDraftJsonSchema(selectedSubjectKind));
+
+      expect([...prompt.matchAll(new RegExp(consequenceActionContrastMarker, "g"))]).toHaveLength(
+        1,
+      );
+      expect([
+        ...prompt.matchAll(new RegExp(consequenceActionContrastClosingTag, "g")),
+      ]).toHaveLength(1);
+      expect(schema).not.toContain(consequenceActionContrastPrefix);
     }
   });
 
