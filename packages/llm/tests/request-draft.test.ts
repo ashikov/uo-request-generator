@@ -35,6 +35,8 @@ const ROOF_SUBJECT_RULE = "проблема относится именно к �
 const VENTILATION_SUBJECT_RULE =
   "проблему с системой вентиляции или вентиляционным каналом либо шахтой";
 const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтовой шахтой или лифтовым оборудованием";
+const IMPACT_ROLE_DESCRIPTION_MARKER =
+  '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" subject-expansion="forbidden">';
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -475,12 +477,26 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("закрепляет единственную роль и естественную нормализацию явно переданных последствий", () => {
     const explicitConsequenceRoleMarker =
-      '<explicit-consequence-role source="consequences" owner="impact" duplicate-dynamic-role="forbidden" paraphrase="natural-meaning-preserving" literal-copy="not-required" subject-expansion="forbidden">';
+      '<explicit-consequence-role source="consequences" owner="impact" circumstances="independent-input-only" duplicate-dynamic-role="forbidden" preservation="semantic-over-lexical" paraphrase="natural-when-needed" subject-expansion="forbidden">';
 
     for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
 
       expect([...prompt.matchAll(new RegExp(explicitConsequenceRoleMarker, "g"))]).toHaveLength(1);
+    }
+  });
+
+  it("закрепляет смысловую нормализацию consequences в provider-схеме impact", () => {
+    for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
+      const impactSchema =
+        createRequestDraftJsonSchema(selectedSubjectKind).properties.draft.anyOf[0].properties
+          .impact;
+
+      expect(impactSchema).toMatchObject({
+        type: ["string", "null"],
+        minLength: 1,
+        description: expect.stringContaining(IMPACT_ROLE_DESCRIPTION_MARKER),
+      });
     }
   });
 
@@ -737,6 +753,7 @@ describe("provider-facing RequestDraft", () => {
         type: ["string", "null"],
         minLength: 1,
         maxLength: primaryRequestDraftLimits.impact.max,
+        description: expect.stringContaining(IMPACT_ROLE_DESCRIPTION_MARKER),
       },
       verification: {
         type: ["string", "null"],
