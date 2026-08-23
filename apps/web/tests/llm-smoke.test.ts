@@ -1,5 +1,7 @@
 import {
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   type GenerateRequestInput,
   type GenerateRequestOutcome,
 } from "@uo-request-generator/core";
@@ -20,6 +22,8 @@ const GENERATED_BODY = [
   "Прошу:\n1. Проверить проблему",
 ].join("\n\n");
 const DOOR_LEGAL_BASIS_PARAGRAPH = COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0];
+const LIGHTING_LEGAL_BASIS_PARAGRAPH = COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0];
+const ROOF_LEGAL_BASIS_PARAGRAPH = COMMON_AREA_ROOF_LEGAL_BASIS_MODULE.paragraphs[0];
 
 function generatedOutcome(warnings: string[] = []): GenerateRequestOutcome {
   return {
@@ -142,6 +146,28 @@ describe("runLlmSmokeCheck", () => {
     expect(exitCode).toBe(0);
   });
 
+  it("принимает предметное основание освещения после общих оснований", async () => {
+    const outcome = generatedOutcome();
+    if (outcome.status !== "generated") {
+      throw new Error("Ожидался generated outcome");
+    }
+    outcome.result.body = [
+      "Описанная проблема требует проверки.",
+      COMMON_LEGAL_BASIS_BLOCK,
+      LIGHTING_LEGAL_BASIS_PARAGRAPH,
+      "Прошу:\n1. Проверить проблему",
+    ].join("\n\n");
+    const writeLine = vi.fn();
+
+    const exitCode = await runLlmSmokeCheck(
+      { generateRequest: vi.fn().mockResolvedValue(outcome) },
+      writeLine,
+      [generatedScenario()],
+    );
+
+    expect(exitCode).toBe(0);
+  });
+
   it.each([
     ["без нормативного блока", GENERATED_REQUEST_BODY],
     [
@@ -169,6 +195,35 @@ describe("runLlmSmokeCheck", () => {
         DOOR_LEGAL_BASIS_PARAGRAPH,
         DOOR_LEGAL_BASIS_PARAGRAPH,
         "Прошу:\n1. Проверить проблему",
+      ].join("\n\n"),
+    ],
+    [
+      "с нормативным основанием освещения дважды",
+      [
+        "Описанная проблема требует проверки.",
+        COMMON_LEGAL_BASIS_BLOCK,
+        LIGHTING_LEGAL_BASIS_PARAGRAPH,
+        LIGHTING_LEGAL_BASIS_PARAGRAPH,
+        "Прошу:\n1. Проверить проблему",
+      ].join("\n\n"),
+    ],
+    [
+      "с двумя разными предметными нормативными основаниями",
+      [
+        "Описанная проблема требует проверки.",
+        COMMON_LEGAL_BASIS_BLOCK,
+        DOOR_LEGAL_BASIS_PARAGRAPH,
+        LIGHTING_LEGAL_BASIS_PARAGRAPH,
+        "Прошу:\n1. Проверить проблему",
+      ].join("\n\n"),
+    ],
+    [
+      "с предметным нормативным основанием после раздела «Прошу:»",
+      [
+        "Описанная проблема требует проверки.",
+        COMMON_LEGAL_BASIS_BLOCK,
+        "Прошу:\n1. Проверить проблему",
+        ROOF_LEGAL_BASIS_PARAGRAPH,
       ].join("\n\n"),
     ],
     [

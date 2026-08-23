@@ -528,7 +528,7 @@ describe("нормативный модуль освещения помещен�
     const result = renderPrimaryRequestDraft(createLightingDraft(), CONFIRMED_LIGHTING_INPUT);
 
     expect(result.body).not.toContain("government.ru");
-    expect(result.body).not.toContain("2026-08-16");
+    expect(result.body).not.toContain(COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.verifiedAt);
     expect(result.body).not.toContain("common-area-lighting");
     expect(result.body).not.toContain("ламп");
     expect(result.body).not.toContain("проводк");
