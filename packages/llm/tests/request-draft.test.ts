@@ -563,6 +563,19 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     }
   });
 
+  it("закрепляет финальную проверку длительности и обстоятельств", () => {
+    const problemCircumstancesFinalCheckMarker =
+      '<problem-circumstances-final-check duration-owner="problem" duration-in-circumstances="forbidden" circumstances-without-independent-input="null">';
+
+    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+
+      expect([
+        ...prompt.matchAll(new RegExp(problemCircumstancesFinalCheckMarker, "g")),
+      ]).toHaveLength(1);
+    }
+  });
+
   it("закрепляет контраст последствий и действий только в системном prompt", () => {
     const consequenceActionContrastMarker =
       '<consequence-action-contrast semantic-role="decision" self-motion-rewrite="contextual" external-object-manual-operation="preserve" token-replacement="forbidden" impact-owner="impact" impact-occurrence="exactly-once" source-facts="only" natural-wording="preserve" subject-expansion="forbidden">';
