@@ -552,7 +552,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("закрепляет исключительное владение фактами между problem и circumstances", () => {
     const problemCircumstancesOwnershipMarker =
-      '<problem-circumstances-ownership problem="object-place-state-or-defect-observable-signs-duration-repetition-scale" circumstances="independent-only" problem-fact-repetition="forbidden" problem-fact-paraphrase="forbidden" empty-independent-facts="null">';
+      '<problem-circumstances-ownership problem-owner="object-place-state-or-defect-observable-signs-duration-repetition-scale" circumstances-source="independent-input-context-events-temporary-use-or-actions-only" problem-facts-in-circumstances="forbidden" problem-fact-fragments-in-circumstances="forbidden" duration-in-circumstances="forbidden" circumstances-without-independent-input="null">';
 
     for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
