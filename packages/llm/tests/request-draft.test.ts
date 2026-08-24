@@ -282,6 +282,14 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     );
   });
 
+  it("сохраняет глобальный лимит динамической части до расширения модуля уборки", () => {
+    expect(REQUEST_DRAFT_DYNAMIC_BODY_MAX).toBe(1_537);
+    expect(primaryRequestDraftLimits.problem.max).toBe(1_526);
+    expect(REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[0].properties.problem.maxLength).toBe(
+      1_526,
+    );
+  });
+
   it("запрашивает только предметный факт с проверяемым evidence, а не выбор закона", () => {
     const prompt = createRequestDraftSystemPrompt("common_area_entrance_door");
 
