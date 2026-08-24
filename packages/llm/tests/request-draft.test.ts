@@ -486,6 +486,22 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     ]).toHaveLength(0);
   });
 
+  it("закрепляет арбитраж subject по наблюдаемой проблеме с жёстким veto", () => {
+    const subjectArbitrationMarker =
+      '<subject-arbitration basis="observable-problem" object-name-alone="insufficient" technical-door-elevator="observable-technical-problem-required" working-technical-object="cleaning-only-veto" cleaning-candidate="survives-when-supported" contradiction="hard-veto">';
+
+    for (const selectedSubjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+
+      expect([...prompt.matchAll(new RegExp(subjectArbitrationMarker, "g"))]).toHaveLength(1);
+    }
+    expect([
+      ...createRequestDraftSystemPrompt(undefined).matchAll(
+        new RegExp(subjectArbitrationMarker, "g"),
+      ),
+    ]).toHaveLength(0);
+  });
+
   it("не описывает и не раскрывает backend-подтверждение в provider prompt", () => {
     for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
       const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
@@ -531,6 +547,19 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
 
       expect([...prompt.matchAll(new RegExp(explicitConsequenceRoleMarker, "g"))]).toHaveLength(1);
+    }
+  });
+
+  it("закрепляет исключительное владение фактами между problem и circumstances", () => {
+    const problemCircumstancesOwnershipMarker =
+      '<problem-circumstances-ownership problem="object-place-state-or-defect-observable-signs-duration-repetition-scale" circumstances="independent-only" problem-fact-repetition="forbidden" problem-fact-paraphrase="forbidden" empty-independent-facts="null">';
+
+    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+
+      expect([
+        ...prompt.matchAll(new RegExp(problemCircumstancesOwnershipMarker, "g")),
+      ]).toHaveLength(1);
     }
   });
 
