@@ -654,7 +654,6 @@ const regressionScenarios: TestScenario[] = [
     expectWarning: false,
     hardExpectations: [
       { kind: "warning_presence", expected: false },
-      { kind: "subject_kind", expected: null },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateRequestInputSchema } from "../src/index.js";
-import { scenarios, type ScenarioCategory } from "./fixtures.js";
+import { type ScenarioCategory, scenarios } from "./fixtures.js";
 
 const REQUIRED_CATEGORIES: ScenarioCategory[] = [
   "only_required_description",
@@ -140,11 +140,13 @@ describe("test scenario fixtures", () => {
         confirmedProblemSubject: "common_area_elevator",
       },
       hardExpectations: expect.arrayContaining([
-        { kind: "subject_kind", expected: null },
         { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
         { kind: "selected_normative_module", expected: null },
       ]),
     });
+    expect(
+      byId.get("elevator-subject-false-positive-lighting")?.hardExpectations,
+    ).not.toContainEqual({ kind: "subject_kind", expected: null });
     expect(byId.get("unknown-remedy-lighting")).toMatchObject({ provenance: { issue: 202 } });
     expect(byId.get("unknown-remedy-functional-defect")).toMatchObject({
       provenance: { issue: 202 },
