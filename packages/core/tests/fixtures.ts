@@ -628,6 +628,43 @@ const regressionScenarios: TestScenario[] = [
     ],
   },
   {
+    id: "elevator-subject-false-positive-lighting",
+    category: "elevator",
+    provenance: { issue: 218 },
+    expectedOutcome: "generated",
+    input: {
+      description: "В кабине лифта не работает освещение.",
+      location: "второй подъезд",
+      consequences: "В кабине темно.",
+      desiredActions: "Восстановить освещение.",
+      confirmedProblemSubject: "common_area_elevator",
+    },
+    mustPreserveFacts: [
+      "отсутствие освещения в кабине лифта",
+      "второй подъезд",
+      "в кабине темно",
+      "восстановление освещения",
+    ],
+    mustNotInvent: [
+      "техническая неисправность лифта",
+      "неисправность лифтового оборудования",
+      "причина отсутствия освещения",
+      "конкретный способ ремонта или замена оборудования",
+    ],
+    expectWarning: false,
+    hardExpectations: [
+      { kind: "warning_presence", expected: false },
+      { kind: "subject_kind", expected: null },
+      { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+      { kind: "selected_normative_module", expected: null },
+    ],
+    semanticExpectations: [
+      "Не выбирать предмет лифта только из-за ошибочного confirmedProblemSubject.",
+      "Не применять нормативный модуль лифта без предмета, подтверждённого пользовательским текстом.",
+      "Не придумывать техническую причину неисправности лифта или освещения.",
+    ],
+  },
+  {
     id: "unknown-remedy-lighting",
     category: "unknown_remedy",
     provenance: { issue: 202 },
