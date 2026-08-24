@@ -759,6 +759,7 @@ describe("LLM benchmark", () => {
         draftOutcome: "generated",
         draft: EVALUATION_DRAFT,
         selectedNormativeModule: null,
+        specificLegalBasisSelectionStatus: "subject_absent",
       },
       systemPromptHash: "safe-prompt-hash",
     });
@@ -772,6 +773,7 @@ describe("LLM benchmark", () => {
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Validated structured output:");
     expect(report).toContain('"actionPlan"');
+    expect(report).toContain("Specific legal basis selection: subject_absent");
     expect(report).toContain("PASS: warning presence: absent");
     expect(report).toContain("Prompt hash: safe-prompt-hash");
   });
@@ -791,6 +793,7 @@ describe("LLM benchmark", () => {
         draftOutcome: "generated",
         draft,
         selectedNormativeModule: "common-area-cleaning",
+        specificLegalBasisSelectionStatus: "applied",
       },
     });
     const runtime = dependencies({
@@ -933,7 +936,7 @@ describe("LLM benchmark", () => {
 
     expect(selected).toEqual(scenarios);
     expect(selected[0]).toBe(scenarios[0]);
-    expect(selected).toHaveLength(28);
+    expect(selected).toHaveLength(29);
   });
 
   it("исключает local config и report directory из Git", () => {

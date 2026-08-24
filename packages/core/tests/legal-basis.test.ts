@@ -10,6 +10,7 @@ import {
   generateRequestLimits,
   primaryRequestLegalBasisLimits,
   primaryRequestDraftSchema,
+  evaluateSpecificLegalBasisSelection,
   renderPrimaryRequestDraft,
   type GenerateRequestInput,
   type PrimaryRequestDraft,
@@ -1035,6 +1036,55 @@ describe("нормативный модуль лифта общего имуще
       result.body.indexOf(paragraph),
     );
     expect(result.body.indexOf(paragraph)).toBeLessThan(result.body.indexOf("Прошу:"));
+  });
+
+  it("выбирает elevator module для подтверждённого индикатора с проверяемым evidence", () => {
+    const input = {
+      description: "На первом этаже не работает индикатор положения лифта.",
+      location: "второй подъезд",
+      consequences: "Из-за этого не видно, на каком этаже находится лифт.",
+      desiredActions: "Восстановить работу индикатора.",
+      confirmedProblemSubject: "common_area_elevator" as const,
+    };
+    const subject = {
+      kind: "common_area_elevator" as const,
+      evidence: [{ sourceField: "description" as const, quote: input.description }],
+    };
+
+    expect(evaluateSpecificLegalBasisSelection(subject, input)).toEqual({
+      status: "applied",
+      module: COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
+    });
+    expect(renderPrimaryRequestDraft(createElevatorDraft({ subject }), input).body).toContain(
+      paragraph,
+    );
+  });
+
+  it.each([
+    ["input_unavailable", ELEVATOR_SUBJECT, undefined],
+    ["confirmation_absent", ELEVATOR_SUBJECT, { description: ELEVATOR_INPUT.description }],
+    ["subject_absent", null, ELEVATOR_INPUT],
+    [
+      "subject_kind_mismatch",
+      ELEVATOR_SUBJECT,
+      {
+        description: ELEVATOR_INPUT.description,
+        confirmedProblemSubject: "common_area_roof" as const,
+      },
+    ],
+    [
+      "evidence_unverifiable",
+      ELEVATOR_SUBJECT,
+      {
+        description: "Лифт в подъезде остановился между этажами.",
+        confirmedProblemSubject: "common_area_elevator" as const,
+      },
+    ],
+  ])("диагностирует неприменение без пользовательского текста: %s", (status, subject, input) => {
+    const selection = evaluateSpecificLegalBasisSelection(subject, input);
+
+    expect(selection).toEqual({ status });
+    expect(JSON.stringify(selection)).not.toContain(ELEVATOR_INPUT.description);
   });
 
   it.each([

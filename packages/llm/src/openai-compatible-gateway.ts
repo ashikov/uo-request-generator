@@ -1,6 +1,6 @@
 import {
+  evaluateSpecificLegalBasisSelection,
   renderPrimaryRequestDraft,
-  selectSpecificLegalBasisModule,
   type GenerateRequestInput,
   type GenerateRequestOutcome,
   type LlmGateway,
@@ -9,6 +9,7 @@ import {
   type LlmUsage,
   type LlmUsageStatus,
   type PrimaryRequestDraft,
+  type SpecificLegalBasisSelectionStatus,
 } from "@uo-request-generator/core";
 import { z } from "zod";
 import {
@@ -78,6 +79,7 @@ export type OpenAiCompatibleEvaluationObservation =
       draftOutcome: "generated";
       draft: PrimaryRequestDraft;
       selectedNormativeModule: string | null;
+      specificLegalBasisSelectionStatus: SpecificLegalBasisSelectionStatus;
     }
   | {
       draftOutcome: "multiple_issues";
@@ -299,6 +301,7 @@ function createUserMessage(input: GenerateRequestInput): string {
     location: location || null,
     consequences: consequences || null,
     desiredActions: desiredActions || null,
+    confirmedProblemSubject: input.confirmedProblemSubject ?? null,
   });
 }
 
@@ -717,10 +720,14 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       }
 
       const { outcome: _outcome, ...primaryRequestDraft } = draft;
-      const selectedNormativeModule = selectSpecificLegalBasisModule(
+      const specificLegalBasisSelection = evaluateSpecificLegalBasisSelection(
         primaryRequestDraft.subject,
         input,
       );
+      const selectedNormativeModule =
+        specificLegalBasisSelection.status === "applied"
+          ? specificLegalBasisSelection.module
+          : undefined;
 
       return withProviderDuration(
         {
@@ -733,6 +740,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
             draftOutcome: "generated",
             draft: primaryRequestDraft,
             selectedNormativeModule: selectedNormativeModule?.id ?? null,
+            specificLegalBasisSelectionStatus: specificLegalBasisSelection.status,
           },
           ...usage,
         },

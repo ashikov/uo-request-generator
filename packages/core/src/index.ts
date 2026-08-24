@@ -28,11 +28,15 @@ export {
   COMMON_LEGAL_BASIS_BLOCK,
   PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS,
   PRIMARY_REQUEST_SUBJECT_KINDS,
+  SPECIFIC_LEGAL_BASIS_SELECTION_STATUSES,
   primaryRequestLegalBasisLimits,
   primaryRequestSubjectLimits,
   primaryRequestSubjectSchema,
+  evaluateSpecificLegalBasisSelection,
   selectSpecificLegalBasisModule,
   type PrimaryRequestSubject,
+  type SpecificLegalBasisSelection,
+  type SpecificLegalBasisSelectionStatus,
 } from "./legal-basis.js";
 export {
   primaryRequestDraftLimits,

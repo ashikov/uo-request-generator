@@ -85,7 +85,7 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("сохраняет synthetic regression cases из #200, #201, #202 и #203 с typed expectations", () => {
+  it("сохраняет synthetic regression cases из #200, #201, #202, #203 и #218 с typed expectations", () => {
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
 
     expect(byId.get("cleaning-elevator-cabin")).toMatchObject({
@@ -111,6 +111,21 @@ describe("test scenario fixtures", () => {
         { kind: "subject_kind", expected: "common_area_premises_lighting" },
         { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
         { kind: "selected_normative_module", expected: "common-area-lighting" },
+      ]),
+    });
+    expect(byId.get("elevator-position-indicator")).toMatchObject({
+      category: "elevator",
+      provenance: { issue: 218 },
+      input: {
+        description: "На первом этаже не работает индикатор положения лифта.",
+        location: "второй подъезд",
+        consequences: "Из-за этого не видно, на каком этаже находится лифт.",
+        desiredActions: "Восстановить работу индикатора.",
+        confirmedProblemSubject: "common_area_elevator",
+      },
+      hardExpectations: expect.arrayContaining([
+        { kind: "subject_kind", expected: "common_area_elevator" },
+        { kind: "selected_normative_module", expected: "common-area-elevator" },
       ]),
     });
     expect(byId.get("unknown-remedy-lighting")).toMatchObject({ provenance: { issue: 202 } });
@@ -176,7 +191,7 @@ describe("test scenario fixtures", () => {
   });
 
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(28);
+    expect(scenarios).toHaveLength(29);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
@@ -408,6 +423,16 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
     absent: ["location", "consequences", "desiredActions"],
   },
   lighting: {
+    present: [
+      "description",
+      "location",
+      "consequences",
+      "desiredActions",
+      "confirmedProblemSubject",
+    ],
+    absent: [],
+  },
+  elevator: {
     present: [
       "description",
       "location",

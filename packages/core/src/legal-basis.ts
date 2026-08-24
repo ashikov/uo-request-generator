@@ -325,33 +325,67 @@ function inputEvidenceMatches(
   });
 }
 
-export function selectSpecificLegalBasisModule(
+export const SPECIFIC_LEGAL_BASIS_SELECTION_STATUSES = [
+  "applied",
+  "input_unavailable",
+  "confirmation_absent",
+  "subject_absent",
+  "subject_kind_mismatch",
+  "evidence_unverifiable",
+] as const;
+
+export type SpecificLegalBasisSelectionStatus =
+  (typeof SPECIFIC_LEGAL_BASIS_SELECTION_STATUSES)[number];
+
+export type SpecificLegalBasisSelection =
+  | { status: "applied"; module: LegalBasisModule }
+  | { status: Exclude<SpecificLegalBasisSelectionStatus, "applied"> };
+
+export function evaluateSpecificLegalBasisSelection(
   subject: PrimaryRequestSubject,
   input: GenerateRequestInput | undefined,
-): LegalBasisModule | undefined {
-  if (
-    input === undefined ||
-    subject === null ||
-    input.confirmedProblemSubject !== subject.kind ||
-    !inputEvidenceMatches(input, subject)
-  ) {
-    return undefined;
+): SpecificLegalBasisSelection {
+  if (input === undefined) {
+    return { status: "input_unavailable" };
+  }
+  if (input.confirmedProblemSubject === undefined) {
+    return { status: "confirmation_absent" };
+  }
+  if (subject === null) {
+    return { status: "subject_absent" };
+  }
+  if (input.confirmedProblemSubject !== subject.kind) {
+    return { status: "subject_kind_mismatch" };
+  }
+  if (!inputEvidenceMatches(input, subject)) {
+    return { status: "evidence_unverifiable" };
   }
 
   switch (subject.kind) {
     case COMMON_AREA_DOOR_CONFIRMED_SUBJECT:
-      return COMMON_AREA_DOOR_LEGAL_BASIS_MODULE;
+      return { status: "applied", module: COMMON_AREA_DOOR_LEGAL_BASIS_MODULE };
     case COMMON_AREA_LIGHTING_CONFIRMED_SUBJECT:
-      return COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE;
+      return { status: "applied", module: COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE };
     case COMMON_AREA_CLEANING_CONFIRMED_SUBJECT:
-      return COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE;
+      return { status: "applied", module: COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE };
     case COMMON_AREA_ROOF_CONFIRMED_SUBJECT:
-      return COMMON_AREA_ROOF_LEGAL_BASIS_MODULE;
+      return { status: "applied", module: COMMON_AREA_ROOF_LEGAL_BASIS_MODULE };
     case COMMON_AREA_VENTILATION_CONFIRMED_SUBJECT:
-      return COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE;
+      return { status: "applied", module: COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE };
     case COMMON_AREA_ELEVATOR_CONFIRMED_SUBJECT:
-      return COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE;
+      return { status: "applied", module: COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE };
   }
+
+  throw new Error("Неподдерживаемый предмет проблемы");
+}
+
+export function selectSpecificLegalBasisModule(
+  subject: PrimaryRequestSubject,
+  input: GenerateRequestInput | undefined,
+): LegalBasisModule | undefined {
+  const selection = evaluateSpecificLegalBasisSelection(subject, input);
+
+  return selection.status === "applied" ? selection.module : undefined;
 }
 
 export function selectSpecificLegalBasisParagraphs(

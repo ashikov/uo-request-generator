@@ -20,6 +20,7 @@ export type ScenarioCategory =
   | "multiple_unrelated_issues"
   | "cleaning"
   | "lighting"
+  | "elevator"
   | "unknown_remedy"
   | "explicit_remedy";
 
@@ -35,7 +36,7 @@ export type HardExpectation =
       resultCheck?: "present" | "absent";
     };
 
-export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 219 };
+export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 };
 
 type TestScenarioBase = {
   id: string;
@@ -589,6 +590,41 @@ const regressionScenarios: TestScenario[] = [
       "Не терять предмет освещения только из-за места проявления в кабине лифта.",
       "Не превращать отсутствие света само по себе в техническую проблему лифта.",
       "При неизвестной причине требовать восстановить освещение без выбора конкретного способа ремонта.",
+    ],
+  },
+  {
+    id: "elevator-position-indicator",
+    category: "elevator",
+    provenance: { issue: 218 },
+    expectedOutcome: "generated",
+    input: {
+      description: "На первом этаже не работает индикатор положения лифта.",
+      location: "второй подъезд",
+      consequences: "Из-за этого не видно, на каком этаже находится лифт.",
+      desiredActions: "Восстановить работу индикатора.",
+      confirmedProblemSubject: "common_area_elevator",
+    },
+    mustPreserveFacts: [
+      "неработающий индикатор положения лифта на первом этаже",
+      "второй подъезд",
+      "не видно, на каком этаже находится лифт",
+      "восстановление работы индикатора",
+    ],
+    mustNotInvent: [
+      "причина неисправности индикатора",
+      "аварийное состояние лифта",
+      "необходимость отключения лифта",
+      "конкретный способ ремонта или замена оборудования",
+    ],
+    expectWarning: false,
+    hardExpectations: [
+      { kind: "warning_presence", expected: false },
+      { kind: "subject_kind", expected: "common_area_elevator" },
+      { kind: "selected_normative_module", expected: "common-area-elevator" },
+    ],
+    semanticExpectations: [
+      "Сохранить неисправность индикатора как наблюдаемую проблему лифтового оборудования.",
+      "Не устанавливать техническую причину или конкретный способ ремонта.",
     ],
   },
   {

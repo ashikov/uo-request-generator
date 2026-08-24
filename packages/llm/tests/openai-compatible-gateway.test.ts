@@ -185,6 +185,7 @@ describe("OpenAiCompatibleGateway", () => {
             location: null,
             consequences: null,
             desiredActions: null,
+            confirmedProblemSubject: null,
           }),
         },
       ],
@@ -244,7 +245,7 @@ describe("OpenAiCompatibleGateway", () => {
     });
   });
 
-  it("передаёт дверной contract в Chat Completions без другого subject", () => {
+  it("передаёт дверной contract и явное подтверждение в Chat Completions без другого subject", () => {
     const input = {
       ...VALID_INPUT,
       confirmedProblemSubject: "common_area_entrance_door" as const,
@@ -276,10 +277,12 @@ describe("OpenAiCompatibleGateway", () => {
     if (!("messages" in requestBody)) {
       throw new Error("Ожидался Chat Completions request");
     }
-    expect(requestBody.messages[1]?.content).not.toContain("confirmedProblemSubject");
+    expect(JSON.parse(requestBody.messages[1]?.content ?? "")).toMatchObject({
+      confirmedProblemSubject: "common_area_entrance_door",
+    });
   });
 
-  it("передаёт lighting contract в Responses API без другого subject", () => {
+  it("передаёт lighting contract и явное подтверждение в Responses API без другого subject", () => {
     const input = {
       ...VALID_INPUT,
       confirmedProblemSubject: "common_area_premises_lighting" as const,
@@ -306,13 +309,15 @@ describe("OpenAiCompatibleGateway", () => {
     if (!("input" in requestBody)) {
       throw new Error("Ожидался Responses request");
     }
-    expect(requestBody.input).not.toContain("confirmedProblemSubject");
+    expect(JSON.parse(requestBody.input)).toMatchObject({
+      confirmedProblemSubject: "common_area_premises_lighting",
+    });
   });
 
   it.each([
     "chat-completions",
     "responses",
-  ] as const)("передаёт cleaning contract через %s без provider-owned confirmed subject", (apiProtocol) => {
+  ] as const)("передаёт cleaning contract и явное подтверждение через %s", (apiProtocol) => {
     const input = {
       ...VALID_INPUT,
       confirmedProblemSubject: "common_area_premises_cleaning" as const,
@@ -341,13 +346,15 @@ describe("OpenAiCompatibleGateway", () => {
       expect(requestBody.instructions).toBe(expectedPrompt);
       expect(requestBody.text.format.schema).toEqual(expectedSchema);
     }
-    expect(userMessage).not.toContain("confirmedProblemSubject");
+    expect(JSON.parse(userMessage ?? "")).toMatchObject({
+      confirmedProblemSubject: "common_area_premises_cleaning",
+    });
   });
 
   it.each([
     "chat-completions",
     "responses",
-  ] as const)("передаёт roof contract через %s без других subject и backend-owned поля", (apiProtocol) => {
+  ] as const)("передаёт roof contract и явное подтверждение через %s без других subject", (apiProtocol) => {
     const input = {
       description: "На кровле многоквартирного дома обнаружена протечка",
       confirmedProblemSubject: "common_area_roof" as const,
@@ -366,14 +373,16 @@ describe("OpenAiCompatibleGateway", () => {
     expect(serializedRequest).not.toContain("common_area_premises_cleaning");
     expect(serializedRequest).not.toContain("common_area_ventilation");
     expect(serializedRequest).not.toContain("common_area_elevator");
-    expect(userMessage).not.toContain("confirmedProblemSubject");
+    expect(JSON.parse(userMessage ?? "")).toMatchObject({
+      confirmedProblemSubject: "common_area_roof",
+    });
     expect(serializedRequest).not.toContain(COMMON_AREA_ROOF_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
   it.each([
     "chat-completions",
     "responses",
-  ] as const)("передаёт ventilation contract через %s без других subject и backend-owned поля", (apiProtocol) => {
+  ] as const)("передаёт ventilation contract и явное подтверждение через %s без других subject", (apiProtocol) => {
     const input = {
       description:
         "Общедомовой вентиляционный канал, обслуживающий помещения подъезда, не работает",
@@ -393,7 +402,9 @@ describe("OpenAiCompatibleGateway", () => {
     expect(serializedRequest).not.toContain("common_area_premises_cleaning");
     expect(serializedRequest).not.toContain("common_area_roof");
     expect(serializedRequest).not.toContain("common_area_elevator");
-    expect(userMessage).not.toContain("confirmedProblemSubject");
+    expect(JSON.parse(userMessage ?? "")).toMatchObject({
+      confirmedProblemSubject: "common_area_ventilation",
+    });
     expect(serializedRequest).not.toContain(
       COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE.paragraphs[0],
     );
@@ -402,7 +413,7 @@ describe("OpenAiCompatibleGateway", () => {
   it.each([
     "chat-completions",
     "responses",
-  ] as const)("передаёт elevator contract через %s без других subject и backend-owned поля", (apiProtocol) => {
+  ] as const)("передаёт elevator contract и явное подтверждение через %s без других subject", (apiProtocol) => {
     const input = {
       description: "Лифт в многоквартирном доме не реагирует на вызов с первого этажа",
       confirmedProblemSubject: "common_area_elevator" as const,
@@ -421,7 +432,9 @@ describe("OpenAiCompatibleGateway", () => {
     expect(serializedRequest).not.toContain("common_area_premises_cleaning");
     expect(serializedRequest).not.toContain("common_area_roof");
     expect(serializedRequest).not.toContain("common_area_ventilation");
-    expect(userMessage).not.toContain("confirmedProblemSubject");
+    expect(JSON.parse(userMessage ?? "")).toMatchObject({
+      confirmedProblemSubject: "common_area_elevator",
+    });
     expect(serializedRequest).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
@@ -505,9 +518,9 @@ describe("OpenAiCompatibleGateway", () => {
       location: null,
       consequences: null,
       desiredActions: null,
+      confirmedProblemSubject: "common_area_entrance_door",
     });
     expect(userContent).not.toContain("isCommonAreaDoor");
-    expect(userContent).not.toContain("confirmedProblemSubject");
   });
 
   it("сохраняет свободный description внутри JSON и нормализует опциональные поля", async () => {
@@ -530,6 +543,7 @@ describe("OpenAiCompatibleGateway", () => {
       location: "подъезд",
       consequences: "Пользователю неудобно",
       desiredActions: "Проверить лифт",
+      confirmedProblemSubject: null,
     });
     expect(userContent).toBe(
       JSON.stringify({
@@ -537,6 +551,7 @@ describe("OpenAiCompatibleGateway", () => {
         location: "подъезд",
         consequences: "Пользователю неудобно",
         desiredActions: "Проверить лифт",
+        confirmedProblemSubject: null,
       }),
     );
   });
@@ -852,6 +867,76 @@ describe("OpenAiCompatibleGateway", () => {
     expect(requestBody.messages[0]?.content).toContain("включая кабину лифта");
     expect(requestBody.messages[0]?.content).toContain(
       "Отсутствие освещения в кабине лифта само по себе не подтверждает техническую проблему лифта",
+    );
+  });
+
+  it("сохраняет elevator subject и модуль для подтверждённого индикатора положения", async () => {
+    const input = {
+      description: "На первом этаже не работает индикатор положения лифта.",
+      location: "второй подъезд",
+      consequences: "Из-за этого не видно, на каком этаже находится лифт.",
+      desiredActions: "Восстановить работу индикатора.",
+      confirmedProblemSubject: "common_area_elevator" as const,
+    };
+    const draft = {
+      ...VALID_DRAFT,
+      title: "Не работает индикатор положения лифта",
+      problem: "Во втором подъезде на первом этаже не работает индикатор положения лифта.",
+      impact: input.consequences,
+      subject: {
+        kind: "common_area_elevator",
+        evidence: [{ sourceField: "description", quote: input.description }],
+      },
+      actionPlan: {
+        preliminaryCheck: null,
+        remedyActions: [input.desiredActions],
+        resultCheck: null,
+      },
+    };
+    createMockFetch(createLlmText(draft));
+
+    const generation = await createGateway().generateRequestForEvaluation(input);
+
+    expect(generation.status).toBe("success");
+    if (generation.status !== "success" || generation.observation.draftOutcome !== "generated") {
+      throw new Error("Ожидался generated evaluation result");
+    }
+    expect(generation.observation.draft.subject).toEqual(draft.subject);
+    expect(generation.observation.selectedNormativeModule).toBe("common-area-elevator");
+    expect(generation.observation.specificLegalBasisSelectionStatus).toBe("applied");
+    expect(generation.outcome.status).toBe("generated");
+    if (generation.outcome.status !== "generated") {
+      throw new Error("Ожидалась готовая заявка");
+    }
+    expect(generation.outcome.result.body).toContain(
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+  });
+
+  it("диагностирует provider subject null для подтверждённого scenario без утечки текста", async () => {
+    const input = {
+      description: "На первом этаже не работает индикатор положения лифта.",
+      confirmedProblemSubject: "common_area_elevator" as const,
+    };
+    createMockFetch(createLlmText({ ...VALID_DRAFT, subject: null }));
+
+    const generation = await createGateway().generateRequestForEvaluation(input);
+
+    expect(generation.status).toBe("success");
+    if (generation.status !== "success" || generation.observation.draftOutcome !== "generated") {
+      throw new Error("Ожидался generated evaluation result");
+    }
+    expect(generation.observation.specificLegalBasisSelectionStatus).toBe("subject_absent");
+    expect(generation.observation.selectedNormativeModule).toBeNull();
+    expect(generation.outcome.status).toBe("generated");
+    if (generation.outcome.status !== "generated") {
+      throw new Error("Ожидалась готовая заявка");
+    }
+    expect(generation.outcome.result.body).not.toContain(
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+    expect(generation.observation.specificLegalBasisSelectionStatus).not.toContain(
+      input.description,
     );
   });
 
@@ -1261,6 +1346,7 @@ describe("OpenAiCompatibleGateway", () => {
         location: null,
         consequences: null,
         desiredActions: null,
+        confirmedProblemSubject: null,
       },
     ],
     [
@@ -1274,6 +1360,7 @@ describe("OpenAiCompatibleGateway", () => {
         location: null,
         consequences: "В вечернее время проход затруднён",
         desiredActions: null,
+        confirmedProblemSubject: null,
       },
     ],
     [
@@ -1287,6 +1374,7 @@ describe("OpenAiCompatibleGateway", () => {
         location: null,
         consequences: null,
         desiredActions: "Проверить и восстановить освещение",
+        confirmedProblemSubject: null,
       },
     ],
     [
@@ -1301,6 +1389,7 @@ describe("OpenAiCompatibleGateway", () => {
         location: null,
         consequences: "В вечернее время проход затруднён",
         desiredActions: "Проверить и восстановить освещение",
+        confirmedProblemSubject: null,
       },
     ],
     [
@@ -1311,6 +1400,7 @@ describe("OpenAiCompatibleGateway", () => {
         location: null,
         consequences: null,
         desiredActions: null,
+        confirmedProblemSubject: null,
       },
     ],
   ] as const)("формирует JSON-сообщение %s с явными null", async (_caseName, input, expectedInput) => {
@@ -1366,6 +1456,7 @@ describe("OpenAiCompatibleGateway", () => {
           location: null,
           consequences: null,
           desiredActions: null,
+          confirmedProblemSubject: null,
         }),
         temperature: 0.3,
         max_output_tokens: 4000,
@@ -1410,6 +1501,7 @@ describe("OpenAiCompatibleGateway", () => {
         location: "общий коридор",
         consequences: "Вечером проход затруднён",
         desiredActions: "Проверить освещение",
+        confirmedProblemSubject: null,
       });
 
       expect(chatBody.messages[1]?.content).toBe(expectedInput);
@@ -1693,6 +1785,7 @@ describe("OpenAiCompatibleGateway", () => {
           location: "Общий коридор",
           consequences: "В вечернее время проход затруднён",
           desiredActions: "Проверить и восстановить освещение",
+          confirmedProblemSubject: null,
         }),
       );
     });
