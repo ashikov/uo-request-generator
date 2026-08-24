@@ -432,6 +432,7 @@ const requestDraftSystemPromptParts = [
   "Не выбирай и не цитируй законодательство, не формируй правовую квалификацию или нормативный блок.",
   "Используй warnings только для фактической неоднозначности или противоречия, которое пользователь должен проверить перед подачей. Не добавляй warning для общих советов, отсутствующих необязательных сведений или неизвестной причины.",
   "Если предупреждений нет, укажи warnings: [].",
+  '<problem-circumstances-final-check duration-owner="problem" duration-in-circumstances="forbidden" circumstances-without-independent-input="null"> Перед возвратом draft проверь: длительность сохраняй в problem, никогда не перемещай и не оставляй её изолированным фрагментом в circumstances. Если независимого входного контекста нет, укажи circumstances: null.',
   "",
   "Для нескольких самостоятельных несвязанных проблем верни outcome: multiple_issues, title: null, problem: null, circumstances: null, impact: null, verification: null, subject: null, actionPlan: null и warnings: []. Не выбирай одну проблему и не формируй частичный черновик.",
 ];
