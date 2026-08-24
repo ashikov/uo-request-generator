@@ -128,6 +128,23 @@ describe("test scenario fixtures", () => {
         { kind: "selected_normative_module", expected: "common-area-elevator" },
       ]),
     });
+    expect(byId.get("elevator-subject-false-positive-lighting")).toMatchObject({
+      category: "elevator",
+      provenance: { issue: 218 },
+      expectedOutcome: "generated",
+      input: {
+        description: "В кабине лифта не работает освещение.",
+        location: "второй подъезд",
+        consequences: "В кабине темно.",
+        desiredActions: "Восстановить освещение.",
+        confirmedProblemSubject: "common_area_elevator",
+      },
+      hardExpectations: expect.arrayContaining([
+        { kind: "subject_kind", expected: null },
+        { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+        { kind: "selected_normative_module", expected: null },
+      ]),
+    });
     expect(byId.get("unknown-remedy-lighting")).toMatchObject({ provenance: { issue: 202 } });
     expect(byId.get("unknown-remedy-functional-defect")).toMatchObject({
       provenance: { issue: 202 },
@@ -191,7 +208,7 @@ describe("test scenario fixtures", () => {
   });
 
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(29);
+    expect(scenarios).toHaveLength(30);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
