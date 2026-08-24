@@ -458,6 +458,17 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     ]).toHaveLength(0);
   });
 
+  it("передаёт подтверждённый предмет как контекст, но не считает его evidence", () => {
+    for (const selectedSubjectKind of CONFIRMED_PROBLEM_SUBJECT_KINDS) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+
+      expect(prompt).toContain("confirmedProblemSubject");
+      expect(prompt).toContain("закрытое значение предмета");
+      expect(prompt).toContain("Это подтверждение выбора, а не evidence");
+      expect(prompt).toContain("Сам по себе выбор пользователя не подтверждает subject");
+    }
+  });
+
   it("закрепляет регрессию контракта ответственности location между problem и actionPlan", () => {
     const actionPlanLocationResponsibilityMarker =
       '<action-plan-location-responsibility general-location-role="problem" action-location-reuse="distinct-target-or-action-only">';

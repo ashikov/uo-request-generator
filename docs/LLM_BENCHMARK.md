@@ -155,6 +155,11 @@ rendered result или контролируемую ошибку, каждый h
 и observed value, semantic expectations, duration, usage и cost. Model IDs,
 API URL, auth headers, credentials, raw provider response, реальные
 пользовательские данные и production infrastructure в отчёт не попадают.
+Для generated-ветки deterministic observations также содержат закрытый status
+выбора предметного модуля: `applied`, `input_unavailable`,
+`confirmation_absent`, `subject_absent`, `subject_kind_mismatch` или
+`evidence_unverifiable`. Status не содержит пользовательский текст и не
+публикуется в production logs.
 Для `multiple_issues` сохраняется фактически полученный и локально
 валидированный structured draft со всеми обязательными `null` и пустыми
 полями. Если evaluation observation отсутствует, отчёт помечает его как

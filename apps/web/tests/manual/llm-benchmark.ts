@@ -719,6 +719,7 @@ function formatObservation(observation: BenchmarkObservation | undefined): strin
         "```",
         "",
         `- Selected normative module: ${observation.selectedNormativeModule ?? "none"}`,
+        `- Specific legal basis selection: ${observation.specificLegalBasisSelectionStatus}`,
       ];
     case "multiple_issues":
       return [
