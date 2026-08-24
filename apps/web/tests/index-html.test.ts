@@ -135,7 +135,11 @@ describe("публичная страница", () => {
     expect(html).toContain(
       'data-subject-hint="Подходит для уборки подъезда, лестничной площадки, коридора, холла',
     );
-    expect(html).toContain("Не относится к квартире, придомовой территории");
+    expect(html).toContain("удаления загрязнения из кабины лифта");
+    expect(html).toContain("с коробки, полотна, доводчика или ручки входной двери");
+    expect(html).toContain("стены в подъезде");
+    expect(html).toContain("Не относится к другим поверхностям и элементам");
+    expect(html).toContain("к квартире, придомовой территории");
     expect(html).toContain("контейнерной площадке или вывозу ТКО");
     expect(html).toContain('value="common_area_roof"');
     expect(html).toContain("Кровля");

@@ -511,7 +511,10 @@ const regressionScenarios: TestScenario[] = [
     provenance: { issue: 200 },
     expectedOutcome: "generated",
     input: {
-      description: "В исправной кабине лифта загрязнены пол и стены. Требуется уборка.",
+      description:
+        "В кабине грузового лифта несколько дней остаётся загрязнение и неприятный запах. Сам лифт работает.",
+      location: "второй подъезд",
+      desiredActions: "Убрать загрязнение из кабины грузового лифта.",
       confirmedProblemSubject: "common_area_premises_cleaning",
     },
     mustPreserveFacts: [],
@@ -530,7 +533,9 @@ const regressionScenarios: TestScenario[] = [
     expectedOutcome: "generated",
     input: {
       description:
-        "Технически исправная входная дверь загрязнена, но нормально открывается и закрывается.",
+        "На входной двери несколько дней остаётся загрязнение и неприятный запах. Дверь открывается и закрывается нормально.",
+      location: "второй подъезд",
+      desiredActions: "Очистить входную дверь от загрязнения.",
       confirmedProblemSubject: "common_area_premises_cleaning",
     },
     mustPreserveFacts: [],
@@ -548,8 +553,9 @@ const regressionScenarios: TestScenario[] = [
     provenance: { issue: 200 },
     expectedOutcome: "generated",
     input: {
-      description:
-        "На стене в помещении общего пользования загрязнение. Повреждений стены не указано.",
+      description: "На стене в подъезде несколько дней остаётся загрязнение и неприятный запах.",
+      location: "второй подъезд",
+      desiredActions: "Очистить стену от загрязнения.",
       confirmedProblemSubject: "common_area_premises_cleaning",
     },
     mustPreserveFacts: [],
@@ -559,6 +565,59 @@ const regressionScenarios: TestScenario[] = [
     semanticExpectations: [
       "Не придумывать повреждение стены или иной технический дефект.",
       "Описать проблему как уборку загрязнения.",
+    ],
+  },
+  {
+    id: "cleaning-entrance-door-mistaken-door-confirmation",
+    category: "cleaning",
+    provenance: { issue: 200 },
+    expectedOutcome: "generated",
+    input: {
+      description:
+        "Технически исправная входная дверь загрязнена, но нормально открывается и закрывается.",
+      location: "второй подъезд",
+      desiredActions: "Очистить входную дверь от загрязнения.",
+      confirmedProblemSubject: "common_area_entrance_door",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: [
+      { kind: "warning_presence", expected: false },
+      { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+      { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
+      { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+      { kind: "selected_normative_module", expected: null },
+    ],
+    semanticExpectations: [
+      "Не выбирать технический предмет двери только из-за ошибочного backend-подтверждения.",
+      "Не применять ни door-, ни cleaning-module при расхождении подтверждённого и independently inferred subject.",
+    ],
+  },
+  {
+    id: "cleaning-elevator-cabin-mistaken-elevator-confirmation",
+    category: "cleaning",
+    provenance: { issue: 200 },
+    expectedOutcome: "generated",
+    input: {
+      description: "В исправной кабине лифта загрязнены пол и стены. Лифт работает.",
+      location: "второй подъезд",
+      desiredActions: "Убрать загрязнение из кабины.",
+      confirmedProblemSubject: "common_area_elevator",
+    },
+    mustPreserveFacts: [],
+    mustNotInvent: [],
+    expectWarning: false,
+    hardExpectations: [
+      { kind: "warning_presence", expected: false },
+      { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+      { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
+      { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+      { kind: "selected_normative_module", expected: null },
+    ],
+    semanticExpectations: [
+      "Не выбирать технический предмет лифта только из-за ошибочного backend-подтверждения.",
+      "Не применять ни elevator-, ни cleaning-module при расхождении подтверждённого и independently inferred subject.",
     ],
   },
   {

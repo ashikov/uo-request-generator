@@ -575,7 +575,7 @@ describe("нормативный модуль освещения помещен�
 
 describe("нормативный модуль уборки помещений общего пользования", () => {
   const paragraph =
-    "Согласно подпункту «а» пункта 2 и подпункту «г» пункта 11 Правил содержания общего имущества в многоквартирном доме, утверждённых постановлением Правительства РФ от 13.08.2006 № 491, помещения общего пользования относятся к общему имуществу дома, а его содержание включает уборку и санитарно-гигиеническую очистку таких помещений, включая очистку их поверхностей и размещённых в них элементов общего имущества.";
+    "Подпункт «г» пункта 11 Правил, утверждённых постановлением Правительства РФ от 13.08.2006 № 491, относит уборку и санитарно-гигиеническую очистку помещений общего пользования к содержанию общего имущества. Пункт 23 Минимального перечня, утверждённого постановлением Правительства РФ от 03.04.2013 № 290, кроме случаев применения особенностей постановления № 360, прямо перечисляет уборку лифтовых кабин и влажную протирку дверных коробок, полотен, доводчиков и ручек, а пункт 3.2.2 Правил, утверждённых постановлением Госстроя РФ от 27.09.2003 № 170, требует санитарного состояния лестничных клеток; пункт 3.2.7 называет обметание стен только при использовании централизованных вакуумных систем.";
 
   function createCleaningDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryRequestDraft {
     return createDraft({
@@ -599,7 +599,7 @@ describe("нормативный модуль уборки помещений о
         requiresExplicitUserConfirmation: true,
         requiresVerifiedInputEvidence: true,
         limitation:
-          "Только уборка помещений общего пользования многоквартирного дома, в том числе удаление загрязнений с их стен, дверей и других поверхностей и с размещённых в них элементов общего имущества многоквартирного дома, например кабин лифтов. Не применяется к уборке внутри квартиры, придомовой территории, контейнерной площадки или вывозу твёрдых коммунальных отходов.",
+          "Только уборка помещений общего пользования многоквартирного дома. Для отдельных объектов охватывает только уборку кабины лифта, протирку дверных коробок, полотен, доводчиков и ручек входной двери общего пользования и уборку стены в подъезде или на лестничной клетке. Постановление № 290 не применяется в случаях, урегулированных постановлением № 360; модуль не определяет территориальный режим. Правила № 170 не устанавливают немедленный срок удаления каждого загрязнения, а пункт 3.2.7 прямо упоминает обметание стен только при использовании централизованных вакуумных систем. Не применяется к другим поверхностям и элементам только по факту их расположения в общем помещении, к уборке внутри квартиры, придомовой территории, контейнерной площадки или вывозу твёрдых коммунальных отходов.",
       },
       paragraphs: [paragraph],
       sources: [
@@ -607,12 +607,41 @@ describe("нормативный модуль уборки помещений о
           id: "ru-government-decree-491-common-property-rules",
           title: "Постановление Правительства Российской Федерации от 13.08.2006 № 491",
           officialUrl: "https://government.ru/docs/all/57158/",
-          provisions: ["подпункт «а» пункта 2", "подпункт «г» пункта 11"],
+          provisions: [
+            "подпункт «а» пункта 2",
+            "подпункт «в» пункта 2",
+            "подпункт «г» пункта 2",
+            "подпункт «г» пункта 11",
+          ],
           edition: "с изменениями от 07.03.2025 № 293",
           validThrough: "2027-12-31",
         },
+        {
+          id: "ru-government-decree-290-minimum-works",
+          title: "Постановление Правительства Российской Федерации от 03.04.2013 № 290",
+          officialUrl: "https://government.ru/docs/all/86860/",
+          provisions: ["пункт 23"],
+          edition: "с изменениями от 07.03.2025 № 293",
+          validThrough: "2029-09-01",
+        },
+        {
+          id: "ru-gosstroy-decree-170-housing-operation-rules",
+          title: "Постановление Госстроя Российской Федерации от 27.09.2003 № 170",
+          officialUrl: "https://mintrud.gov.ru/docs/government/postan/111",
+          provisions: ["пункт 3.2.2", "пункт 3.2.7"],
+          edition: "с учётом решения Верховного Суда РФ от 22.06.2022 № АКПИ22-375",
+          validThrough: null,
+        },
+        {
+          id: "ru-government-decree-360-new-territories-housing-rules",
+          title: "Постановление Правительства Российской Федерации от 07.03.2023 № 360",
+          officialUrl: "https://publication.pravo.gov.ru/document/0001202303100025",
+          provisions: ["пункт 1", "подпункт «в» пункта 2"],
+          edition: "с изменениями от 15.02.2025 № 167",
+          validThrough: "2028-01-01",
+        },
       ],
-      verifiedAt: "2026-08-21",
+      verifiedAt: "2026-08-24",
     });
   });
 
@@ -650,6 +679,31 @@ describe("нормативный модуль уборки помещений о
     const result = renderPrimaryRequestDraft(createCleaningDraft());
 
     expect(result.body).not.toContain(paragraph);
+  });
+
+  it.each([
+    "common_area_entrance_door",
+    "common_area_elevator",
+  ] as const)("fail closed при independently inferred cleaning и backend-подтверждении %s", (confirmedProblemSubject) => {
+    const input = {
+      description: "На входной двери загрязнение. Дверь открывается и закрывается нормально.",
+      confirmedProblemSubject,
+    } satisfies GenerateRequestInput;
+    const subject = {
+      kind: "common_area_premises_cleaning" as const,
+      evidence: [{ sourceField: "description" as const, quote: input.description }],
+    };
+
+    expect(evaluateSpecificLegalBasisSelection(subject, input)).toEqual({
+      status: "subject_kind_mismatch",
+    });
+
+    const result = renderPrimaryRequestDraft(createCleaningDraft({ subject }), input);
+
+    expect(result.body).not.toContain(paragraph);
+    expect(result.body).not.toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
+    expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
   });
 
   it.each([
@@ -730,7 +784,7 @@ describe("нормативный модуль уборки помещений о
     const serializedModule = JSON.stringify(COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE);
 
     expect(result.body).not.toContain("government.ru");
-    expect(result.body).not.toContain("2026-08-21");
+    expect(result.body).not.toContain("2026-08-24");
     expect(result.body).not.toContain("common-area-cleaning");
     expect(serializedModule).not.toContain("actionPlan");
     expect(serializedModule).not.toContain("remedyActions");
