@@ -297,7 +297,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       "common_area_premises_lighting",
     ).split("\n");
     const doorEvidenceRule = doorPromptRules.find((rule) =>
-      rule.includes("подтверждать и дверь, и её принадлежность"),
+      rule.includes("для kind common_area_entrance_door evidence"),
     );
     const lightingEvidenceRule = lightingPromptRules.find((rule) =>
       rule.includes("для kind common_area_premises_lighting evidence"),
@@ -306,8 +306,10 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       rule.includes("неисправную или неработающую осветительную установку"),
     );
 
-    expect(doorEvidenceRule).toBe(
-      "- для kind common_area_entrance_door evidence по отдельности или в совокупности должно подтверждать и дверь, и её принадлежность ко входу многоквартирного дома либо помещению общего пользования; не используй для evidence формулировки из созданных тобой problem, title или actionPlan",
+    expect(doorEvidenceRule).toContain("дверь, её принадлежность");
+    expect(doorEvidenceRule).toContain("техническую проблему с ней");
+    expect(doorEvidenceRule).toContain(
+      "не используй для evidence формулировки из созданных тобой problem, title или actionPlan",
     );
     expect(lightingEvidenceRule).toBe(
       "- для kind common_area_premises_lighting evidence по отдельности или в совокупности должно подтверждать и неисправную или неработающую осветительную установку либо освещение, и её расположение внутри помещения общего пользования многоквартирного дома или кабины лифта. Если вход сообщает, что освещение работает, или сведения противоречат предмету освещения, укажи subject: null. Отсутствие освещения в кабине лифта само по себе не подтверждает техническую проблему лифта, лифтовой шахты или лифтового оборудования",
@@ -326,23 +328,41 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     );
   });
 
+  it("требует техническую проблему двери и fail closed для загрязнения и явной исправности", () => {
+    const prompt = createRequestDraftSystemPrompt("common_area_entrance_door");
+    const doorEvidenceRule = prompt
+      .split("\n")
+      .find((rule) => rule.includes("для kind common_area_entrance_door evidence"));
+
+    expect(prompt).toContain("наблюдаемую проблему технического состояния или работы двери");
+    expect(prompt).toContain("Загрязнение двери само по себе не подтверждает этот kind");
+    expect(prompt).toContain("дверь нормально открывается и закрывается");
+    expect(prompt).toContain("Желаемое действие очистить дверь");
+    expect(prompt).toContain(
+      "Не устанавливай неисправность, повреждение, необходимость ремонта или замены",
+    );
+    expect(doorEvidenceRule).toContain("не используй kind common_area_entrance_door");
+    expect(doorEvidenceRule).toContain("независимо проверь правила остальных kind");
+    expect(doorEvidenceRule).not.toContain("укажи subject: null");
+  });
+
   it("ограничивает cleaning subject уборкой помещений и загрязнений их элементов", () => {
     const prompt = createRequestDraftSystemPrompt("common_area_premises_cleaning");
 
     expect(prompt).toContain(CLEANING_SUBJECT_RULE);
     expect(prompt).toContain("подъезда, лестничной площадки, коридора или холла");
     expect(prompt).toContain("удаление загрязнения");
-    expect(prompt).toContain("стен, дверей и других поверхностей");
-    expect(prompt).toContain("кабин лифтов");
-    expect(prompt).toContain("само по себе не является проблемой лифта, двери или конструкции");
+    expect(prompt).toContain("кабины лифта");
+    expect(prompt).toContain("дверной коробки, полотна, доводчика или ручки");
+    expect(prompt).toContain("стены в подъезде или на лестничной клетке");
+    expect(prompt).toContain("не является технической проблемой этого объекта");
+    expect(prompt).toContain("Не используй этот kind для других поверхностей и элементов");
     expect(prompt).toContain("внутри квартиры");
     expect(prompt).toContain("придомовой территории");
     expect(prompt).toContain("контейнерной площадки");
     expect(prompt).toContain("вывоза ТКО");
     expect(prompt).toContain("не утверждай антисанитарное состояние");
-    expect(prompt).toContain(
-      "помещение общего пользования многоквартирного дома либо элемент его общего имущества",
-    );
+    expect(prompt).toContain("одну из подтверждённых категорий");
   });
 
   it("требует прямое подтверждение кровли и не выводит источник воды по проявлениям", () => {
@@ -405,6 +425,9 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("ограничивает elevator subject прямой проблемой лифта без технической диагностики", () => {
     const prompt = createRequestDraftSystemPrompt("common_area_elevator");
+    const elevatorEvidenceRule = prompt
+      .split("\n")
+      .find((rule) => rule.includes("для kind common_area_elevator evidence"));
 
     expect(prompt).toContain(ELEVATOR_SUBJECT_RULE);
     expect(prompt).toContain("наблюдаемую проблему");
@@ -412,8 +435,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(prompt).toContain("подъёмной платформы");
     expect(prompt).toContain("эскалатора");
     expect(prompt).toContain("Косвенный признак без прямой связи с лифтом");
-    expect(prompt).toContain("укажи subject: null");
-    expect(prompt).toContain("противоречат принадлежности проблемы лифту");
+    expect(prompt).toContain("противоречат принадлежности технической проблемы лифту");
     expect(prompt).toContain("не разрешай противоречие в пользу выбранного kind");
     expect(prompt).toContain("желаемое действие проверить, осмотреть или отремонтировать лифт");
     expect(prompt).toContain("Не устанавливай техническую причину");
@@ -428,6 +450,13 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(prompt).toContain(
       "Отсутствие освещения в кабине лифта само по себе не подтверждает этот kind",
     );
+    expect(prompt).toContain(
+      "Загрязнение исправной кабины лифта само по себе не подтверждает этот kind",
+    );
+    expect(prompt).toContain("желаемое действие убрать загрязнение из кабины");
+    expect(elevatorEvidenceRule).toContain("не используй kind common_area_elevator");
+    expect(elevatorEvidenceRule).toContain("независимо проверь правила остальных kind");
+    expect(elevatorEvidenceRule).not.toContain("укажи subject: null");
     expect(prompt).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
@@ -1167,18 +1196,45 @@ describe("provider-facing RequestDraft", () => {
   });
 
   it("проверяет границы элементов actionPlan и warnings", () => {
-    const exactDraft = createDraft({
-      problem: "а",
-      impact: null,
-      actionPlan: {
-        preliminaryCheck: "а".repeat(primaryRequestDraftLimits.action.max),
-        remedyActions: ["б".repeat(primaryRequestDraftLimits.action.max)],
-        resultCheck: "в".repeat(primaryRequestDraftLimits.action.max),
-      },
-      warnings: ["в".repeat(primaryRequestDraftLimits.warning.max)],
-    });
+    const exactDrafts = [
+      createDraft({
+        problem: "а",
+        impact: null,
+        actionPlan: {
+          preliminaryCheck: "а".repeat(primaryRequestDraftLimits.action.max),
+          remedyActions: ["."],
+          resultCheck: null,
+        },
+      }),
+      createDraft({
+        problem: "а",
+        impact: null,
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["б".repeat(primaryRequestDraftLimits.action.max)],
+          resultCheck: null,
+        },
+      }),
+      createDraft({
+        problem: "а",
+        impact: null,
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["."],
+          resultCheck: "в".repeat(primaryRequestDraftLimits.action.max),
+        },
+      }),
+      createDraft({
+        problem: "а",
+        impact: null,
+        actionPlan: { preliminaryCheck: null, remedyActions: ["."], resultCheck: null },
+        warnings: ["в".repeat(primaryRequestDraftLimits.warning.max)],
+      }),
+    ];
 
-    expect(parseRequestDraft(serializeDraft(exactDraft))).toEqual(exactDraft);
+    for (const exactDraft of exactDrafts) {
+      expect(parseRequestDraft(serializeDraft(exactDraft))).toEqual(exactDraft);
+    }
     expectInvalidResponse(
       createDraft({
         actionPlan: {

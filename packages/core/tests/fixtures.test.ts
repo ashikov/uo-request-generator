@@ -98,6 +98,20 @@ describe("test scenario fixtures", () => {
     });
     expect(byId.get("cleaning-entrance-door")).toMatchObject({ provenance: { issue: 200 } });
     expect(byId.get("cleaning-common-area-wall")).toMatchObject({ provenance: { issue: 200 } });
+    for (const scenarioId of [
+      "cleaning-entrance-door-mistaken-door-confirmation",
+      "cleaning-elevator-cabin-mistaken-elevator-confirmation",
+    ]) {
+      expect(byId.get(scenarioId)).toMatchObject({
+        provenance: { issue: 200 },
+        hardExpectations: expect.arrayContaining([
+          { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+          { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
+          { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
+          { kind: "selected_normative_module", expected: null },
+        ]),
+      });
+    }
     expect(byId.get("lighting-elevator-cabin")).toMatchObject({
       provenance: { issue: 201 },
       input: {
@@ -210,7 +224,7 @@ describe("test scenario fixtures", () => {
   });
 
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(30);
+    expect(scenarios).toHaveLength(32);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
@@ -438,8 +452,8 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
     absent: ["location", "consequences", "desiredActions", "confirmedProblemSubject"],
   },
   cleaning: {
-    present: ["description", "confirmedProblemSubject"],
-    absent: ["location", "consequences", "desiredActions"],
+    present: ["description", "location", "desiredActions", "confirmedProblemSubject"],
+    absent: ["consequences"],
   },
   lighting: {
     present: [

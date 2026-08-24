@@ -949,6 +949,52 @@ describe("OpenAiCompatibleGateway", () => {
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    [
+      "исправная загрязнённая дверь",
+      "На входной двери загрязнение. Дверь открывается и закрывается нормально.",
+      "common_area_entrance_door",
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    ],
+    [
+      "загрязнение кабины работающего лифта",
+      "В кабине лифта загрязнение. Лифт работает.",
+      "common_area_elevator",
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    ],
+  ] as const)("сохраняет independently inferred cleaning, но fail closed для backend-подтверждения: %s", async (_caseName, description, confirmedProblemSubject, forbiddenTechnicalParagraph) => {
+    const draft = {
+      ...VALID_DRAFT,
+      subject: {
+        kind: "common_area_premises_cleaning" as const,
+        evidence: [{ sourceField: "description" as const, quote: description }],
+      },
+    };
+    const mockFetch = createMockFetch(createLlmText(draft));
+
+    const generation = await createGateway().generateRequestForEvaluation({
+      description,
+      confirmedProblemSubject,
+    });
+
+    expect(generation.status).toBe("success");
+    if (generation.status !== "success" || generation.observation.draftOutcome !== "generated") {
+      throw new Error("Ожидался generated evaluation result");
+    }
+    expect(generation.observation.draft.subject?.kind).toBe("common_area_premises_cleaning");
+    expect(generation.observation.specificLegalBasisSelectionStatus).toBe("subject_kind_mismatch");
+    expect(generation.observation.selectedNormativeModule).toBeNull();
+    expect(generation.outcome.status).toBe("generated");
+    if (generation.outcome.status !== "generated") {
+      throw new Error("Ожидалась готовая заявка");
+    }
+    expect(generation.outcome.result.body).not.toContain(
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+    expect(generation.outcome.result.body).not.toContain(forbiddenTechnicalParagraph);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
   it("диагностирует неподтверждаемое evidence и не применяет модуль", async () => {
     const draft = {
       ...VALID_DRAFT,
