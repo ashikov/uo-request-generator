@@ -1,6 +1,5 @@
 import {
   evaluateSpecificLegalBasisSelection,
-  renderPrimaryRequestDraft,
   type GenerateRequestInput,
   type GenerateRequestOutcome,
   type LlmGateway,
@@ -9,6 +8,7 @@ import {
   type LlmUsage,
   type LlmUsageStatus,
   type PrimaryRequestDraft,
+  renderPrimaryRequestDraft,
   type SpecificLegalBasisSelectionStatus,
 } from "@uo-request-generator/core";
 import { z } from "zod";
@@ -301,7 +301,6 @@ function createUserMessage(input: GenerateRequestInput): string {
     location: location || null,
     consequences: consequences || null,
     desiredActions: desiredActions || null,
-    confirmedProblemSubject: input.confirmedProblemSubject ?? null,
   });
 }
 
