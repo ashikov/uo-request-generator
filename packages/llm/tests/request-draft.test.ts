@@ -6,11 +6,13 @@ import {
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
   COMMON_LEGAL_BASIS_BLOCK,
-  CONFIRMED_PROBLEM_SUBJECT_KINDS,
   generateRequestLimits,
+  PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS,
+  PRIMARY_REQUEST_SUBJECT_KINDS,
   type PrimaryRequestDraft,
   primaryRequestDraftLimits,
   primaryRequestLegalBasisLimits,
+  primaryRequestSubjectLimits,
   renderPrimaryRequestDraft,
 } from "@uo-request-generator/core";
 import { describe, expect, it } from "vitest";
@@ -28,8 +30,6 @@ import {
 } from "../src/request-draft.js";
 
 const INVALID_RESPONSE_MESSAGE = "LLM вернул некорректный формат заявки";
-const DOOR_SUBJECT_RULE = "входную дверь многоквартирного дома";
-const LIGHTING_SUBJECT_RULE = "неисправную или неработающую осветительную установку";
 const CLEANING_SUBJECT_RULE = "уборку помещения общего пользования многоквартирного дома";
 const ROOF_SUBJECT_RULE = "проблема относится именно к крыше или кровле многоквартирного дома";
 const VENTILATION_SUBJECT_RULE =
@@ -324,8 +324,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(lightingPromptRules.join("\n")).toContain(
       "При неизвестной причине remedyActions формулируй как необходимый результат, а не как конкретный способ ремонта",
     );
-    expect(doorPromptRules.join("\n")).not.toContain(LIGHTING_SUBJECT_RULE);
-    expect(lightingPromptRules.join("\n")).not.toContain(DOOR_SUBJECT_RULE);
   });
 
   it("ограничивает cleaning subject уборкой только внутри помещений общего пользования", () => {
@@ -338,8 +336,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(prompt).toContain("контейнерной площадки");
     expect(prompt).toContain("вывоза ТКО");
     expect(prompt).toContain("не утверждай антисанитарное состояние");
-    expect(prompt).not.toContain(DOOR_SUBJECT_RULE);
-    expect(prompt).not.toContain(LIGHTING_SUBJECT_RULE);
   });
 
   it("требует прямое подтверждение кровли и не выводит источник воды по проявлениям", () => {
@@ -351,9 +347,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(prompt).toContain("пятно после дождя");
     expect(prompt).toContain("укажи subject: null");
     expect(prompt).toContain("не устанавливай источник воды");
-    expect(prompt).not.toContain(DOOR_SUBJECT_RULE);
-    expect(prompt).not.toContain(LIGHTING_SUBJECT_RULE);
-    expect(prompt).not.toContain(CLEANING_SUBJECT_RULE);
   });
 
   it("требует subject: null при противоречивых сведениях об источнике воды", () => {
@@ -390,10 +383,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(prompt).toContain(
       "Желаемое действие проверить, очистить или отремонтировать вентиляцию само по себе не является фактом",
     );
-    expect(prompt).not.toContain(DOOR_SUBJECT_RULE);
-    expect(prompt).not.toContain(LIGHTING_SUBJECT_RULE);
-    expect(prompt).not.toContain(CLEANING_SUBJECT_RULE);
-    expect(prompt).not.toContain(ROOF_SUBJECT_RULE);
   });
 
   it("не считает расположение вентиляции в общем помещении достаточным подтверждением общего имущества", () => {
@@ -432,11 +421,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(prompt).toContain(
       "Отсутствие освещения в кабине лифта само по себе не подтверждает этот kind",
     );
-    expect(prompt).not.toContain(DOOR_SUBJECT_RULE);
-    expect(prompt).not.toContain(LIGHTING_SUBJECT_RULE);
-    expect(prompt).not.toContain(CLEANING_SUBJECT_RULE);
-    expect(prompt).not.toContain(ROOF_SUBJECT_RULE);
-    expect(prompt).not.toContain(VENTILATION_SUBJECT_RULE);
     expect(prompt).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
@@ -444,8 +428,8 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     const subjectRequiredWhenEvidenceSufficientMarker =
       "<subject-required-when-evidence-sufficient>";
 
-    for (const selectedSubjectKind of CONFIRMED_PROBLEM_SUBJECT_KINDS) {
-      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+    for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
 
       expect([
         ...prompt.matchAll(new RegExp(subjectRequiredWhenEvidenceSufficientMarker, "g")),
@@ -458,14 +442,23 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     ]).toHaveLength(0);
   });
 
-  it("передаёт подтверждённый предмет как контекст, но не считает его evidence", () => {
-    for (const selectedSubjectKind of CONFIRMED_PROBLEM_SUBJECT_KINDS) {
-      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+  it("не описывает и не раскрывает backend-подтверждение в provider prompt", () => {
+    for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
 
-      expect(prompt).toContain("confirmedProblemSubject");
-      expect(prompt).toContain("закрытое значение предмета");
-      expect(prompt).toContain("Это подтверждение выбора, а не evidence");
-      expect(prompt).toContain("Сам по себе выбор пользователя не подтверждает subject");
+      expect(prompt).not.toContain("confirmedProblemSubject");
+    }
+  });
+
+  it("формирует байт-в-байт одинаковый provider prompt для любого backend-подтверждения", () => {
+    const independentInferencePrompt = createRequestDraftSystemPrompt(
+      PRIMARY_REQUEST_SUBJECT_KINDS[0],
+    );
+
+    for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      expect(createRequestDraftSystemPrompt(confirmedProblemSubject)).toBe(
+        independentInferencePrompt,
+      );
     }
   });
 
@@ -473,7 +466,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     const actionPlanLocationResponsibilityMarker =
       '<action-plan-location-responsibility general-location-role="problem" action-location-reuse="distinct-target-or-action-only">';
 
-    for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
+    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
 
       expect([
@@ -490,7 +483,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     const explicitConsequenceRoleMarker =
       '<explicit-consequence-role source="consequences" owner="impact" circumstances="independent-input-only" duplicate-dynamic-role="forbidden" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 
-    for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
+    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
 
       expect([...prompt.matchAll(new RegExp(explicitConsequenceRoleMarker, "g"))]).toHaveLength(1);
@@ -503,7 +496,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     const consequenceActionContrastPrefix = "<consequence-action-contrast";
     const consequenceActionContrastClosingTag = "</consequence-action-contrast>";
 
-    for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
+    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
       const schema = JSON.stringify(createRequestDraftJsonSchema(selectedSubjectKind));
 
@@ -518,7 +511,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
   });
 
   it("закрепляет смысловую нормализацию consequences в provider-схеме impact", () => {
-    for (const selectedSubjectKind of [undefined, ...CONFIRMED_PROBLEM_SUBJECT_KINDS]) {
+    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
       const impactSchema =
         createRequestDraftJsonSchema(selectedSubjectKind).properties.draft.anyOf[0].properties
           .impact;
@@ -531,113 +524,28 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     }
   });
 
-  it.each([
-    [
-      undefined,
-      [],
-      [
-        DOOR_SUBJECT_RULE,
-        LIGHTING_SUBJECT_RULE,
-        CLEANING_SUBJECT_RULE,
-        ROOF_SUBJECT_RULE,
-        VENTILATION_SUBJECT_RULE,
-        ELEVATOR_SUBJECT_RULE,
-      ],
-    ],
-    [
-      "common_area_entrance_door" as const,
-      [DOOR_SUBJECT_RULE],
-      [
-        LIGHTING_SUBJECT_RULE,
-        CLEANING_SUBJECT_RULE,
-        ROOF_SUBJECT_RULE,
-        VENTILATION_SUBJECT_RULE,
-        ELEVATOR_SUBJECT_RULE,
-      ],
-    ],
-    [
-      "common_area_premises_lighting" as const,
-      [LIGHTING_SUBJECT_RULE],
-      [
-        DOOR_SUBJECT_RULE,
-        CLEANING_SUBJECT_RULE,
-        ROOF_SUBJECT_RULE,
-        VENTILATION_SUBJECT_RULE,
-        ELEVATOR_SUBJECT_RULE,
-      ],
-    ],
-    [
-      "common_area_premises_cleaning" as const,
-      [CLEANING_SUBJECT_RULE],
-      [
-        DOOR_SUBJECT_RULE,
-        LIGHTING_SUBJECT_RULE,
-        ROOF_SUBJECT_RULE,
-        VENTILATION_SUBJECT_RULE,
-        ELEVATOR_SUBJECT_RULE,
-      ],
-    ],
-    [
-      "common_area_roof" as const,
-      [ROOF_SUBJECT_RULE],
-      [
-        DOOR_SUBJECT_RULE,
-        LIGHTING_SUBJECT_RULE,
-        CLEANING_SUBJECT_RULE,
-        VENTILATION_SUBJECT_RULE,
-        ELEVATOR_SUBJECT_RULE,
-      ],
-    ],
-    [
-      "common_area_ventilation" as const,
-      [VENTILATION_SUBJECT_RULE],
-      [
-        DOOR_SUBJECT_RULE,
-        LIGHTING_SUBJECT_RULE,
-        CLEANING_SUBJECT_RULE,
-        ROOF_SUBJECT_RULE,
-        ELEVATOR_SUBJECT_RULE,
-      ],
-    ],
-    [
-      "common_area_elevator" as const,
-      [ELEVATOR_SUBJECT_RULE],
-      [
-        DOOR_SUBJECT_RULE,
-        LIGHTING_SUBJECT_RULE,
-        CLEANING_SUBJECT_RULE,
-        ROOF_SUBJECT_RULE,
-        VENTILATION_SUBJECT_RULE,
-      ],
-    ],
-  ])("не включает subject-specific данные других контрактов: %s", (confirmedProblemSubject, includedFragments, excludedFragments) => {
+  it.each(
+    PRIMARY_REQUEST_SUBJECT_KINDS,
+  )("включает routing-bearing правила всех поддержанных subject: %s", (confirmedProblemSubject) => {
     const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
-    const schemaText = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
 
-    for (const fragment of includedFragments) {
-      expect(prompt).toContain(fragment);
+    for (const subjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      expect(prompt).toContain(`- используй kind ${subjectKind},`);
+      expect(prompt).toContain(`- для kind ${subjectKind} evidence`);
     }
-    for (const fragment of excludedFragments) {
-      expect(prompt).not.toContain(fragment);
-    }
+  });
 
-    const includedKinds = confirmedProblemSubject === undefined ? [] : [confirmedProblemSubject];
-    const excludedKinds = [
-      "common_area_entrance_door",
-      "common_area_premises_lighting",
-      "common_area_premises_cleaning",
-      "common_area_roof",
-      "common_area_ventilation",
-      "common_area_elevator",
-    ].filter((kind) => kind !== confirmedProblemSubject);
-    for (const kind of includedKinds) {
-      expect(prompt).toContain(kind);
-      expect(schemaText).toContain(kind);
+  it("оставляет provider subject fail closed без backend-подтверждения", () => {
+    const prompt = createRequestDraftSystemPrompt(undefined);
+    const subjectSchema =
+      createRequestDraftJsonSchema(undefined).properties.draft.anyOf[0].properties.subject;
+
+    expect(prompt).toContain("- subject: укажи null");
+    for (const subjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      expect(prompt).not.toContain(`- используй kind ${subjectKind},`);
+      expect(prompt).not.toContain(`- для kind ${subjectKind} evidence`);
     }
-    for (const kind of excludedKinds) {
-      expect(prompt).not.toContain(kind);
-      expect(schemaText).not.toContain(kind);
-    }
+    expect(subjectSchema).toEqual({ type: "null" });
   });
 
   it.each([
@@ -815,89 +723,51 @@ describe("provider-facing RequestDraft", () => {
     });
   });
 
-  it.each([
-    [
-      "common_area_entrance_door" as const,
-      [
-        "common_area_premises_lighting",
-        "common_area_premises_cleaning",
-        "common_area_roof",
-        "common_area_ventilation",
-        "common_area_elevator",
-      ],
-    ],
-    [
-      "common_area_premises_lighting" as const,
-      [
-        "common_area_entrance_door",
-        "common_area_premises_cleaning",
-        "common_area_roof",
-        "common_area_ventilation",
-        "common_area_elevator",
-      ],
-    ],
-    [
-      "common_area_premises_cleaning" as const,
-      [
-        "common_area_entrance_door",
-        "common_area_premises_lighting",
-        "common_area_roof",
-        "common_area_ventilation",
-        "common_area_elevator",
-      ],
-    ],
-    [
-      "common_area_roof" as const,
-      [
-        "common_area_entrance_door",
-        "common_area_premises_lighting",
-        "common_area_premises_cleaning",
-        "common_area_ventilation",
-        "common_area_elevator",
-      ],
-    ],
-    [
-      "common_area_ventilation" as const,
-      [
-        "common_area_entrance_door",
-        "common_area_premises_lighting",
-        "common_area_premises_cleaning",
-        "common_area_roof",
-        "common_area_elevator",
-      ],
-    ],
-    [
-      "common_area_elevator" as const,
-      [
-        "common_area_entrance_door",
-        "common_area_premises_lighting",
-        "common_area_premises_cleaning",
-        "common_area_roof",
-        "common_area_ventilation",
-      ],
-    ],
-  ])("ограничивает subject выбранным kind или null: %s", (selectedKind, excludedKinds) => {
-    const subjectSchema =
-      createRequestDraftJsonSchema(selectedKind).properties.draft.anyOf[0].properties.subject;
+  it("формирует одинаковую полную provider-схему для любого backend-подтверждения", () => {
+    const independentInferenceSchema = createRequestDraftJsonSchema(
+      PRIMARY_REQUEST_SUBJECT_KINDS[0],
+    );
+
+    for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      expect(createRequestDraftJsonSchema(confirmedProblemSubject)).toEqual(
+        independentInferenceSchema,
+      );
+    }
+  });
+
+  it("задаёт полный строгий контракт inferred subject", () => {
+    const subjectSchema = createRequestDraftJsonSchema(PRIMARY_REQUEST_SUBJECT_KINDS[0]).properties
+      .draft.anyOf[0].properties.subject;
+
+    if (!("anyOf" in subjectSchema)) {
+      throw new Error("Ожидалась schema независимого определения subject");
+    }
 
     expect(subjectSchema).toEqual({
       anyOf: [
         {
           type: "object",
           properties: {
-            kind: { type: "string", enum: [selectedKind] },
+            kind: {
+              type: "string",
+              enum: [...PRIMARY_REQUEST_SUBJECT_KINDS],
+            },
             evidence: {
               type: "array",
-              minItems: 1,
-              maxItems: 2,
+              minItems: primaryRequestSubjectLimits.evidence.min,
+              maxItems: primaryRequestSubjectLimits.evidence.max,
               items: {
                 type: "object",
                 properties: {
                   sourceField: {
                     type: "string",
-                    enum: ["description", "location", "consequences", "desiredActions"],
+                    enum: [...PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS],
                   },
-                  quote: { type: "string", minLength: 10, maxLength: 300 },
+                  quote: {
+                    type: "string",
+                    minLength: primaryRequestSubjectLimits.quote.min,
+                    maxLength: primaryRequestSubjectLimits.quote.max,
+                  },
                 },
                 required: ["sourceField", "quote"],
                 additionalProperties: false,
@@ -910,9 +780,6 @@ describe("provider-facing RequestDraft", () => {
         { type: "null" },
       ],
     });
-    for (const excludedKind of excludedKinds) {
-      expect(JSON.stringify(subjectSchema)).not.toContain(excludedKind);
-    }
   });
 
   it("ограничивает общий размер procedural plan средствами provider JSON Schema", () => {
