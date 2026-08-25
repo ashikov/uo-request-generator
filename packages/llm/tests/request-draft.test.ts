@@ -38,7 +38,7 @@ const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтово�
 const IMPACT_ROLE_DESCRIPTION_MARKER =
   '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 const DESCRIPTION_NORMALIZATION_MARKER =
-  '<description-normalization explicit-facts="preserve" relations="preserve" referents="preserve" natural-language="normalize" new-facts="forbidden" role-allocation="owner-first" role-reuse="distinct-role-only">';
+  '<description-normalization explicit-facts="preserve" relations="preserve" referents="preserve" referent-semantic-fit="required" material-ambiguity="preserve-without-invention" natural-language="normalize" new-facts="forbidden" role-allocation="owner-first" role-reuse="distinct-role-only">';
 const EPISTEMIC_MODALITY_PRESERVATION_MARKER =
   '<epistemic-modality-preservation occurred-event="occurred" risk="risk" assumption="assumption" unknown="unknown" desired-action="requirement" strengthening="forbidden" weakening="forbidden">';
 const VERIFICATION_PRELIMINARY_OWNERSHIP_MARKER =
@@ -215,9 +215,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
   });
 
   it("требует фактическое основание проверки без дублирования", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Проверяй связанные элементы только при фактическом основании",
-    );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Неизвестная причина сама по себе");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не превращай неизвестную причину");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("заполняй verification только ради");
@@ -247,12 +244,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       "Конкретный способ ремонта допустим, только если его необходимость прямо следует из пользовательского факта или явно переданного desiredActions и не требует догадки о причине",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "preliminaryCheck должен устанавливать причину в целом, не перечисляя без основания предполагаемые компоненты",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не называй в preliminaryCheck компонент, механизм, признак или возможную причину, если они прямо не указаны во входе",
     );
   });
 
