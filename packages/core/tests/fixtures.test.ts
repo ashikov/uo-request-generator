@@ -10,6 +10,7 @@ const REQUIRED_CATEGORIES: ScenarioCategory[] = [
   "all_fields",
   "emotional_description",
   "wording_normalization",
+  "description_normalization",
   "minimum_sufficient_requests",
   "location_action_deduplication",
   "simple_defect",
@@ -223,8 +224,35 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("сохраняет synthetic regression case из #224 с semantic expectations", () => {
+    const scenario = scenarios.find(({ id }) => id === "description-fact-preservation");
+
+    expect(scenario).toMatchObject({
+      category: "description_normalization",
+      provenance: { issue: 224 },
+      expectedOutcome: "generated",
+      input: {
+        description: "Протекает люк на пятом этаже, он последний.",
+        location: "первый подъезд, пятый этаж",
+        consequences: "Затопило весь подъезд.",
+        desiredActions: "Нужно устранить причину протечки.",
+      },
+      hardExpectations: [{ kind: "warning_presence", expected: false }],
+    });
+    expect(scenario?.semanticExpectations).toEqual([
+      "Сохранить явно переданный факт, что указанный пятый этаж является верхним.",
+      "Естественно нормализовать описание проблемы без обязательной эталонной формулировки.",
+      "Не размножать механически исходную бытовую конструкцию по смысловым ролям заявки.",
+      "Не добавлять техническую причину протечки, которой нет во входе.",
+      "Не добавлять неподтверждённый повреждённый элемент.",
+      "Не назначать конкретный способ ремонта без пользовательского evidence.",
+      "Не расширять смысл явно переданного последствия о затоплении всего подъезда.",
+      "Не расширять смысл желаемого устранения причины протечки.",
+    ]);
+  });
+
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(32);
+    expect(scenarios).toHaveLength(33);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
@@ -410,6 +438,10 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
   wording_normalization: {
     present: ["description", "confirmedProblemSubject"],
     absent: ["location", "consequences", "desiredActions"],
+  },
+  description_normalization: {
+    present: ["description", "location", "consequences", "desiredActions"],
+    absent: ["confirmedProblemSubject"],
   },
   minimum_sufficient_requests: {
     present: ["description"],

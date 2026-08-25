@@ -8,6 +8,7 @@ export type ScenarioCategory =
   | "all_fields"
   | "emotional_description"
   | "wording_normalization"
+  | "description_normalization"
   | "minimum_sufficient_requests"
   | "location_action_deduplication"
   | "simple_defect"
@@ -36,7 +37,7 @@ export type HardExpectation =
       resultCheck?: "present" | "absent";
     };
 
-export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 };
+export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 | 224 };
 
 type TestScenarioBase = {
   id: string;
@@ -807,6 +808,42 @@ const regressionScenarios: TestScenario[] = [
       "Вывести последствие один раз в impact и не повторять его в circumstances или другой динамической роли без отдельного необходимого смысла.",
       "Не добавлять пользователей, жильцов или другую не указанную во входе группу людей.",
       "Не добавлять новые факты, обстоятельства или последствия.",
+    ],
+  },
+  {
+    id: "description-fact-preservation",
+    category: "description_normalization",
+    provenance: { issue: 224 },
+    expectedOutcome: "generated",
+    input: {
+      description: "Протекает люк на пятом этаже, он последний.",
+      location: "первый подъезд, пятый этаж",
+      consequences: "Затопило весь подъезд.",
+      desiredActions: "Нужно устранить причину протечки.",
+    },
+    mustPreserveFacts: [
+      "пятый этаж является верхним",
+      "протечка через люк на пятом этаже",
+      "затопление всего подъезда",
+      "устранение причины протечки",
+    ],
+    mustNotInvent: [
+      "техническая причина протечки",
+      "неподтверждённый повреждённый элемент",
+      "конкретный способ ремонта",
+      "расширение последствий или желаемых действий",
+    ],
+    expectWarning: false,
+    hardExpectations: [{ kind: "warning_presence", expected: false }],
+    semanticExpectations: [
+      "Сохранить явно переданный факт, что указанный пятый этаж является верхним.",
+      "Естественно нормализовать описание проблемы без обязательной эталонной формулировки.",
+      "Не размножать механически исходную бытовую конструкцию по смысловым ролям заявки.",
+      "Не добавлять техническую причину протечки, которой нет во входе.",
+      "Не добавлять неподтверждённый повреждённый элемент.",
+      "Не назначать конкретный способ ремонта без пользовательского evidence.",
+      "Не расширять смысл явно переданного последствия о затоплении всего подъезда.",
+      "Не расширять смысл желаемого устранения причины протечки.",
     ],
   },
 ];
