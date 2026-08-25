@@ -38,7 +38,15 @@ const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтово�
 const IMPACT_ROLE_DESCRIPTION_MARKER =
   '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 const DESCRIPTION_NORMALIZATION_MARKER =
-  '<description-normalization explicit-facts="preserve" natural-language="normalize" new-facts="forbidden" uncertainty-promotion="forbidden" role-reuse="only-when-required">';
+  '<description-normalization explicit-facts="preserve" relations="preserve" referents="preserve" natural-language="normalize" new-facts="forbidden" role-allocation="owner-first" role-reuse="distinct-role-only">';
+const EPISTEMIC_MODALITY_PRESERVATION_MARKER =
+  '<epistemic-modality-preservation occurred-event="occurred" risk="risk" assumption="assumption" unknown="unknown" desired-action="requirement" strengthening="forbidden" weakening="forbidden">';
+const VERIFICATION_PRELIMINARY_OWNERSHIP_MARKER =
+  '<verification-preliminary-ownership verification="unknown-or-assumption" preliminary-check="action" same-unknown-and-action="single-owner" distinct-meanings="both-allowed">';
+const PROBLEM_ACTION_PLAN_OWNERSHIP_MARKER =
+  '<problem-action-plan-ownership problem="observed-state" action-plan="role-specific-action" problem-restatement="forbidden" object-location-reuse="minimum-disambiguation-only">';
+const FUNCTIONAL_MEANING_PRESERVATION_MARKER =
+  '<functional-meaning-preservation directly-supported-risk="preserve" affected-function="complete" symptom-only-narrowing="forbidden" simple-defect-enrichment="forbidden">';
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -85,6 +93,16 @@ function expectGeneratedDraft(draft: RequestDraft): asserts draft is GeneratedRe
   expect(draft.outcome).toBe("generated");
   if (draft.outcome !== "generated") {
     throw new Error("Ожидался черновик готовой заявки");
+  }
+}
+
+function expectPromptContractMarker(marker: string): void {
+  for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+    const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+    const schema = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
+
+    expect(prompt.split(marker)).toHaveLength(2);
+    expect(schema).not.toContain(marker);
   }
 }
 
@@ -136,11 +154,23 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
   });
 
   it("задаёт общий контракт естественной нормализации description", () => {
-    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
-      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+    expectPromptContractMarker(DESCRIPTION_NORMALIZATION_MARKER);
+  });
 
-      expect(prompt.split(DESCRIPTION_NORMALIZATION_MARKER)).toHaveLength(2);
-    }
+  it("сохраняет эпистемический и модальный статус явно переданного смысла", () => {
+    expectPromptContractMarker(EPISTEMIC_MODALITY_PRESERVATION_MARKER);
+  });
+
+  it("разделяет владение неизвестностью и действием по её установлению", () => {
+    expectPromptContractMarker(VERIFICATION_PRELIMINARY_OWNERSHIP_MARKER);
+  });
+
+  it("разделяет наблюдаемое состояние и роль actionPlan без пересказа problem", () => {
+    expectPromptContractMarker(PROBLEM_ACTION_PLAN_OWNERSHIP_MARKER);
+  });
+
+  it("сохраняет прямой риск и полный объём функции без раздувания простого дефекта", () => {
+    expectPromptContractMarker(FUNCTIONAL_MEANING_PRESERVATION_MARKER);
   });
 
   it("различает конфликт места и совместимое уточнение", () => {
@@ -179,9 +209,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Неизвестная причина сама по себе");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не превращай неизвестную причину");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("заполняй verification только ради");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "verification только повторяет actionPlan.preliminaryCheck",
-    );
   });
 
   it("сохраняет приоритет желаемых действий", () => {
@@ -529,23 +556,6 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       expect(createRequestDraftSystemPrompt(confirmedProblemSubject)).toBe(
         independentInferencePrompt,
       );
-    }
-  });
-
-  it("закрепляет регрессию контракта ответственности location между problem и actionPlan", () => {
-    const actionPlanLocationResponsibilityMarker =
-      '<action-plan-location-responsibility general-location-role="problem" action-location-reuse="distinct-target-or-action-only">';
-
-    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
-      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
-
-      expect([
-        ...prompt.matchAll(new RegExp(actionPlanLocationResponsibilityMarker, "g")),
-      ]).toHaveLength(1);
-      expect(prompt).toContain("Общее место остаётся в problem");
-      expect(prompt).toContain("не дублируется механически в каждом пункте actionPlan");
-      expect(prompt).toContain("только если без этого нельзя отличить");
-      expect(prompt).toContain("конкретный объект или действие");
     }
   });
 
