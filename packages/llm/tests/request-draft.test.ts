@@ -39,6 +39,12 @@ const IMPACT_ROLE_DESCRIPTION_MARKER =
   '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 const DESCRIPTION_NORMALIZATION_MARKER =
   '<description-normalization explicit-facts="preserve" relations="preserve" referents="preserve" referent-semantic-fit="required" material-ambiguity="preserve-without-invention" natural-language="normalize" new-facts="forbidden" role-allocation="owner-first" role-reuse="distinct-role-only">';
+const SYNTHETIC_REFERENT_CONTRAST =
+  "Контраст для определения референта: в сообщении «Датчик расположен в последней секции, она крайняя» позиционный признак относится к элементу упорядоченного места — секции; в сообщении «Датчик в секции неисправен, он повреждён» свойство проблемного объекта относится к самому объекту — датчику. Это общее смысловое различение, а не словарь или шаблон замены.";
+const DESCRIPTION_REGRESSION_FIXTURE = "Протекает люк на пятом этаже, он последний.";
+const DESCRIPTION_REGRESSION_REFERENCE_ANSWER = "пятый этаж является верхним";
+const UNKNOWN_CAUSE_NON_INVENTION_CONTRACT =
+  "Не расширяй установление неизвестной причины до проверки соединений, примыканий, соседних элементов, коммуникаций или компонентов без прямого основания во входе; устанавливай причину в целом, не перечисляя предполагаемые компоненты или закрытый набор вариантов";
 const EPISTEMIC_MODALITY_PRESERVATION_MARKER =
   '<epistemic-modality-preservation occurred-event="occurred" risk="risk" assumption="assumption" unknown="unknown" desired-action="requirement" strengthening="forbidden" weakening="forbidden">';
 const VERIFICATION_PRELIMINARY_OWNERSHIP_MARKER =
@@ -157,6 +163,18 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expectPromptContractMarker(DESCRIPTION_NORMALIZATION_MARKER);
   });
 
+  it("закрепляет synthetic referent contrast без benchmark leakage в provider schema", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+      const schema = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
+
+      expect(prompt.split(SYNTHETIC_REFERENT_CONTRAST)).toHaveLength(2);
+      expect(schema).not.toContain(SYNTHETIC_REFERENT_CONTRAST);
+      expect(prompt).not.toContain(DESCRIPTION_REGRESSION_FIXTURE);
+      expect(prompt).not.toContain(DESCRIPTION_REGRESSION_REFERENCE_ANSWER);
+    }
+  });
+
   it("сохраняет эпистемический и модальный статус явно переданного смысла", () => {
     expectPromptContractMarker(EPISTEMIC_MODALITY_PRESERVATION_MARKER);
   });
@@ -245,6 +263,16 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       "Конкретный способ ремонта допустим, только если его необходимость прямо следует из пользовательского факта или явно переданного desiredActions и не требует догадки о причине",
     );
+  });
+
+  it("не расширяет неизвестную причину до неподтверждённых связанных элементов", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+
+      expect(prompt.split(UNKNOWN_CAUSE_NON_INVENTION_CONTRACT)).toHaveLength(2);
+      expect(prompt).not.toContain(DESCRIPTION_REGRESSION_FIXTURE);
+      expect(prompt).not.toContain(DESCRIPTION_REGRESSION_REFERENCE_ANSWER);
+    }
   });
 
   it("оставляет multiple_issues без частичного actionPlan", () => {
