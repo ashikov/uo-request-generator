@@ -37,6 +37,8 @@ const VENTILATION_SUBJECT_RULE =
 const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтовой шахтой или лифтовым оборудованием";
 const IMPACT_ROLE_DESCRIPTION_MARKER =
   '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
+const DESCRIPTION_NORMALIZATION_MARKER =
+  '<description-normalization explicit-facts="preserve" natural-language="normalize" new-facts="forbidden" uncertainty-promotion="forbidden" role-reuse="only-when-required">';
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -131,6 +133,14 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("location — отдельно переданное место");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("consequences — отдельно переданные");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("desiredActions — отдельно переданные");
+  });
+
+  it("задаёт общий контракт естественной нормализации description", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+
+      expect(prompt.split(DESCRIPTION_NORMALIZATION_MARKER)).toHaveLength(2);
+    }
   });
 
   it("различает конфликт места и совместимое уточнение", () => {
