@@ -42,7 +42,7 @@ const DESCRIPTION_NORMALIZATION_MARKER =
 const EPISTEMIC_MODALITY_PRESERVATION_MARKER =
   '<epistemic-modality-preservation occurred-event="occurred" risk="risk" assumption="assumption" unknown="unknown" desired-action="requirement" strengthening="forbidden" weakening="forbidden">';
 const VERIFICATION_PRELIMINARY_OWNERSHIP_MARKER =
-  '<verification-preliminary-ownership verification="unknown-or-assumption" preliminary-check="action" same-unknown-and-action="single-owner" distinct-meanings="both-allowed">';
+  '<verification-preliminary-ownership verification="unknown-or-assumption-state" preliminary-check="establishing-action" explicit-unknown="preserve" shared-underlying-unknown="distinct-roles-allowed" verification-action-restatement="forbidden" verification-null="declarative-owner-required">';
 const PROBLEM_ACTION_PLAN_OWNERSHIP_MARKER =
   '<problem-action-plan-ownership problem="observed-state" action-plan="role-specific-action" problem-restatement="forbidden" object-location-reuse="minimum-disambiguation-only">';
 const FUNCTIONAL_MEANING_PRESERVATION_MARKER =
@@ -161,8 +161,20 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expectPromptContractMarker(EPISTEMIC_MODALITY_PRESERVATION_MARKER);
   });
 
-  it("разделяет владение неизвестностью и действием по её установлению", () => {
+  it("сохраняет explicit unknown отдельно от действия по её установлению", () => {
     expectPromptContractMarker(VERIFICATION_PRELIMINARY_OWNERSHIP_MARKER);
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не отбрасывай явно переданную неизвестность только из-за наличия preliminaryCheck",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не считаются смысловым дублированием, поскольку декларативная и процедурная роли выполняют разные функции",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "verification не должно перефразировать preliminaryCheck как ещё одно требование выполнить то же действие",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "verification: null допустимо только если явно переданная неизвестность уже сохранена в другой допустимой декларативной роли",
+    );
   });
 
   it("разделяет наблюдаемое состояние и роль actionPlan без пересказа problem", () => {
@@ -204,7 +216,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("требует фактическое основание проверки без дублирования", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "обоснованную обстоятельствами проверку связанных элементов",
+      "Проверяй связанные элементы только при фактическом основании",
     );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Неизвестная причина сама по себе");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не превращай неизвестную причину");
