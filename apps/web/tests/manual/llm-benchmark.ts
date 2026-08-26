@@ -89,7 +89,12 @@ type BenchmarkRequestRecord = {
   providerHttpStatus?: number;
 };
 
-type BenchmarkRunStatus = "running" | "completed" | "interrupted" | "provider_unavailable";
+type BenchmarkNotAttemptedRequest = {
+  request: PlannedBenchmarkRequest;
+  reason: "provider_failed_for_model" | "global_interrupt";
+};
+
+type BenchmarkRunStatus = "running" | "completed" | "partial" | "interrupted";
 
 type BenchmarkRunReport = {
   plan: BenchmarkPlan;
@@ -97,6 +102,7 @@ type BenchmarkRunReport = {
   finishedAt: Date;
   status: BenchmarkRunStatus;
   records: BenchmarkRequestRecord[];
+  notAttempted: BenchmarkNotAttemptedRequest[];
 };
 
 type BenchmarkGeneration =
@@ -750,6 +756,25 @@ function formatRepeatSummary(report: BenchmarkRunReport): string[] {
         (record) =>
           record.request.model.label === model.label && record.request.scenario.id === scenario.id,
       );
+      const notAttempted = report.notAttempted.filter(
+        (entry) =>
+          entry.request.model.label === model.label && entry.request.scenario.id === scenario.id,
+      );
+      const successfulAttempts = completedRecords.filter(
+        (record) => record.outcome !== undefined,
+      ).length;
+      const requestFailures = completedRecords.filter(
+        (record) => record.failureKind === "request",
+      ).length;
+      const providerFailures = completedRecords.filter(
+        (record) => record.failureKind === "provider",
+      ).length;
+      const skippedAfterProviderFailure = notAttempted.filter(
+        (entry) => entry.reason === "provider_failed_for_model",
+      ).length;
+      const globallyNotRun = notAttempted.filter(
+        (entry) => entry.reason === "global_interrupt",
+      ).length;
       const hardFailingRepeats = completedRecords.filter(
         (record) =>
           record.failureKind !== undefined ||
@@ -759,12 +784,31 @@ function formatRepeatSummary(report: BenchmarkRunReport): string[] {
           !hardChecksPassed(record.hardChecks),
       ).length;
       lines.push(
-        `- ${model.label} / ${scenario.id}: planned repeats ${String(plannedRepeats)}; completed repeats ${String(completedRecords.length)} / ${String(plannedRepeats)}; ${String(hardFailingRepeats)} / ${String(plannedRepeats)} hard-failing repeats`,
+        `- ${model.label} / ${scenario.id}: planned repeats ${String(plannedRepeats)}; attempted repeats ${String(completedRecords.length)} / ${String(plannedRepeats)}; successful attempts ${String(successfulAttempts)}; request failures ${String(requestFailures)}; provider failures ${String(providerFailures)}; skipped after model provider failure ${String(skippedAfterProviderFailure)}; globally not run ${String(globallyNotRun)}; hard-failing attempted repeats ${String(hardFailingRepeats)} / ${String(completedRecords.length)}`,
       );
     }
   }
 
   return lines;
+}
+
+function formatNotAttemptedRequests(report: BenchmarkRunReport): string[] {
+  const lines = ["## Not attempted requests", ""];
+
+  if (report.notAttempted.length === 0) {
+    return [...lines, "- (нет)"];
+  }
+
+  return [
+    ...lines,
+    ...report.notAttempted.map((entry) => {
+      const disposition =
+        entry.reason === "provider_failed_for_model"
+          ? "skipped after provider failure for this model"
+          : "not attempted because the whole run was interrupted";
+      return `- ${entry.request.model.label} / ${entry.request.scenario.id} / repeat ${String(entry.request.repeat)}: ${disposition}`;
+    }),
+  ];
 }
 
 function aggregateUsage(records: BenchmarkRequestRecord[]): {
@@ -795,9 +839,23 @@ function formatReport(report: BenchmarkRunReport): string {
   const usage = aggregateUsage(report.records);
   const hardChecks = report.records.flatMap((record) => record.hardChecks ?? []);
   const passedHardChecks = hardChecks.filter((check) => check.status === "PASS").length;
+  const successfulAttempts = report.records.filter((record) => record.outcome !== undefined).length;
+  const requestFailures = report.records.filter(
+    (record) => record.failureKind === "request",
+  ).length;
+  const providerFailures = report.records.filter(
+    (record) => record.failureKind === "provider",
+  ).length;
+  const skippedAfterProviderFailure = report.notAttempted.filter(
+    (entry) => entry.reason === "provider_failed_for_model",
+  ).length;
+  const globallyNotRun = report.notAttempted.filter(
+    (entry) => entry.reason === "global_interrupt",
+  ).length;
   const hardChecksAreComplete =
     report.status === "completed" &&
     report.records.length === report.plan.totalRequests &&
+    report.notAttempted.length === 0 &&
     report.records.every((record) => (record.hardChecks?.length ?? 0) > 0) &&
     hardChecksPassed(hardChecks);
   const hardSummary = hardChecksAreComplete
@@ -816,7 +874,12 @@ function formatReport(report: BenchmarkRunReport): string {
     `- Scenario IDs: ${report.plan.scenarios.map((scenario) => scenario.id).join(", ")}`,
     `- Repeats: ${String(report.plan.repeats)}`,
     `- Planned requests: ${String(report.plan.totalRequests)}`,
-    `- Completed requests: ${String(report.records.length)} / ${String(report.plan.totalRequests)}`,
+    `- Attempted requests: ${String(report.records.length)} / ${String(report.plan.totalRequests)}`,
+    `- Successful attempts: ${String(successfulAttempts)}`,
+    `- Request failures: ${String(requestFailures)}`,
+    `- Provider failures: ${String(providerFailures)}`,
+    `- Skipped after model provider failure: ${String(skippedAfterProviderFailure)}`,
+    `- Globally not run: ${String(globallyNotRun)}`,
     `- Max output tokens: ${String(report.plan.config.maxOutputTokens)}`,
     `- Hard checks: ${hardSummary}`,
     `- Estimated maximum cost: ${formatMoney(report.plan.maximumCost, report.plan.config.currency)}`,
@@ -837,6 +900,8 @@ function formatReport(report: BenchmarkRunReport): string {
     ),
     "",
     ...formatRepeatSummary(report),
+    "",
+    ...formatNotAttemptedRequests(report),
     "",
     "## Semantic review",
     "",
@@ -929,8 +994,10 @@ async function executeBenchmark(
     finishedAt: startedAt,
     status: "running",
     records: [],
+    notAttempted: [],
   };
   const gateways = new Map<string, BenchmarkGateway>();
+  const providerFailedModels = new Set<string>();
   let hasErrors = false;
 
   if (
@@ -939,9 +1006,19 @@ async function executeBenchmark(
     return 1;
   }
 
-  for (const request of plan.requests) {
+  for (const [requestIndex, request] of plan.requests.entries()) {
+    if (providerFailedModels.has(request.model.model)) {
+      continue;
+    }
+
     if (dependencies.isInterrupted()) {
       report.status = "interrupted";
+      report.notAttempted.push(
+        ...plan.requests.slice(requestIndex).map((notAttemptedRequest) => ({
+          request: notAttemptedRequest,
+          reason: "global_interrupt" as const,
+        })),
+      );
       hasErrors = true;
       break;
     }
@@ -964,7 +1041,7 @@ async function executeBenchmark(
 
     const requestStartedAt = dependencies.monotonicNow();
     let record: BenchmarkRequestRecord;
-    let stopAfterRecord = false;
+    let providerFailed = false;
 
     try {
       const generation = await gateway.generateRequestForEvaluation(request.scenario.input);
@@ -996,7 +1073,7 @@ async function executeBenchmark(
           ...usageMetadata,
         };
         hasErrors = true;
-        stopAfterRecord = generation.failureKind === "provider";
+        providerFailed = generation.failureKind === "provider";
       } else {
         const hardChecks = automaticChecks(
           request.scenario,
@@ -1030,8 +1107,18 @@ async function executeBenchmark(
 
     report.records.push(record);
     report.finishedAt = dependencies.now();
-    if (stopAfterRecord) {
-      report.status = "provider_unavailable";
+    if (providerFailed) {
+      report.status = "partial";
+      providerFailedModels.add(request.model.model);
+      report.notAttempted.push(
+        ...plan.requests
+          .slice(requestIndex + 1)
+          .filter((plannedRequest) => plannedRequest.model.model === request.model.model)
+          .map((notAttemptedRequest) => ({
+            request: notAttemptedRequest,
+            reason: "provider_failed_for_model" as const,
+          })),
+      );
     }
     if (
       !(await saveReportOrWriteFailure(
@@ -1041,9 +1128,6 @@ async function executeBenchmark(
       ))
     ) {
       return 1;
-    }
-    if (stopAfterRecord) {
-      break;
     }
   }
 

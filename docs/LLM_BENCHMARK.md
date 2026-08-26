@@ -75,7 +75,9 @@ pnpm benchmark:llm -- --config .llm-benchmark.local.json --repeats 3
 
 Запросы идут последовательно в порядке model → scenario → repeat. Общее число
 равно `models × scenarios × repeats`. Shuffle, concurrency и automatic retry
-отсутствуют. План свыше 100 запросов отклоняется до paid run.
+отсутствуют. Provider failure не освобождает подтверждённый budget для новых
+запросов: фактическое число attempts никогда не превышает исходный план. План
+свыше 100 запросов отклоняется до paid run.
 
 Обычный исследовательский scenario можно запускать один раз. Для критического
 бывшего regression case перед beta ориентир — три повтора. Один успешный ответ
@@ -142,12 +144,16 @@ requests, repeats, usage, latency, estimated cost и общий hard PASS/FAIL
 summary.
 
 Отдельная repeat-сводка группируется по безопасному model label и scenario ID.
-Для каждой группы она явно показывает planned repeats, completed repeats и
-число completed hard-failing repeats относительно planned repeats. Завершённый
-repeat считается hard-failing при request error, общей ошибке provider,
-отсутствии hard checks или хотя бы одном `FAIL`. Не начатые repeats остаются
-неcompleted и сами по себе не увеличивают это число. Общий hard summary при
-неполном запуске по-прежнему остаётся fail closed.
+Для каждой группы она явно показывает planned и attempted repeats, успешные
+attempts, request/provider failures, пропуски после provider failure текущей
+модели, глобально не запущенные requests и число hard-failing attempts.
+Не начатые requests не считаются attempts или hard failures. Общий hard summary
+при неполном запуске по-прежнему остаётся fail closed.
+
+Report отдельно перечисляет каждый planned request, который не был запущен.
+Пропуск остатка недоступной модели отличается от requests, не выполненных из-за
+глобального прерывания. Поэтому partial run не классифицирует непроверенную
+модель как semantic failure.
 
 Для каждого scenario/repeat отчёт включает category, issue provenance,
 synthetic input, validated structured output, deterministic observations,
@@ -168,15 +174,20 @@ API URL, auth headers, credentials, raw provider response, реальные
 Если usage отсутствует, запрос и результат сохраняются, а usage и стоимость
 отмечаются как `unavailable`. Значения по длине ответа не выдумываются.
 
-Ошибка конкретного request или модели фиксируется без retry, после чего запуск
-продолжается. К таким ошибкам относятся HTTP 400, 404 и 422, незавершённый
-Responses-result и результат, не прошедший локальную валидацию. Сетевая ошибка,
-таймаут, HTTP 401, 403, 429, 5xx и другие ошибки общей конфигурации или
-доступности provider останавливают новые запросы. Если failed result содержит
-provider usage, оно сохраняется в записи запроса и учитывается в aggregate usage
-и оценочной фактической стоимости. При `SIGINT` или `SIGTERM` текущий запрос не
-повторяется, новые не запускаются, а partial report по возможности сохраняет
-`completed / planned`.
+Ошибка конкретного request фиксируется без retry, после чего следующий planned
+request той же модели выполняется. К таким ошибкам относятся HTTP 400, 404 и
+422, незавершённый Responses-result и результат, не прошедший локальную
+валидацию. Сетевая ошибка, таймаут, HTTP 401, 403, 429, 5xx и другие provider
+failures фиксируются для текущего request и делают остаток текущей model group
+skipped. Multi-model plan после этого переходит к следующей модели. Single-model
+plan остаётся partial. Автоматического retry нет.
+
+Если failed result содержит provider usage, оно сохраняется в записи request и
+учитывается в aggregate usage и оценочной фактической стоимости. `SIGINT`,
+`SIGTERM`, ошибка обязательной записи report и другие глобальные safety failures
+по-прежнему останавливают весь run. Текущий request не повторяется, а partial
+report по возможности различает attempted, model-local skipped и глобально не
+запущенные requests.
 
 Автоматически проверяются protocol shape, Structured Output, локальная схема,
 публичный контракт и typed hard expectations. Успешный exit code означает

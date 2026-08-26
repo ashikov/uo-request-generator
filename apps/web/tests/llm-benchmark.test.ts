@@ -102,6 +102,18 @@ function dependencies(overrides: Partial<BenchmarkDependencies> = {}): Benchmark
   };
 }
 
+function configForModels(modelLabels: readonly string[]) {
+  return {
+    ...VALID_CONFIG,
+    models: modelLabels.map((label, index) => ({
+      label,
+      model: label,
+      inputPricePerMillion: 10 + index,
+      outputPricePerMillion: 20 + index,
+    })),
+  };
+}
+
 describe("LLM benchmark", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -381,6 +393,189 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Outcome: `generated`");
   });
 
+  it("локализует provider failure после части requests первой модели", async () => {
+    const modelAGenerate = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME })
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "provider",
+        error: "provider unavailable",
+      });
+    const modelBGenerate = vi
+      .fn()
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const createGateway = vi.fn(({ model }: { model: string }) => ({
+      generateRequestForEvaluation: model === "model-a" ? modelAGenerate : modelBGenerate,
+    }));
+    const runtime = dependencies({
+      readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["model-a", "model-b"]))),
+      confirm: vi.fn().mockResolvedValue("RUN 8"),
+      monotonicNow: vi.fn().mockReturnValue(10),
+      createGateway,
+    });
+
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "2", "--repeats", "2"],
+      runtime,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(modelAGenerate).toHaveBeenCalledTimes(2);
+    expect(modelBGenerate).toHaveBeenCalledTimes(4);
+    expect(modelAGenerate.mock.calls.length + modelBGenerate.mock.calls.length).toBeLessThanOrEqual(
+      8,
+    );
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Status: partial");
+    expect(report).toContain("Attempted requests: 6 / 8");
+    expect(report).toContain("Provider failures: 1");
+    expect(report).toContain("Skipped after model provider failure: 2");
+    expect(report).toContain(
+      "model-a / description-location / repeat 1: skipped after provider failure for this model",
+    );
+    expect(report).toContain(
+      "model-a / description-location / repeat 2: skipped after provider failure for this model",
+    );
+  });
+
+  it("пропускает остаток модели после provider failure на первом request", async () => {
+    const modelAGenerate = vi.fn().mockResolvedValue({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider unavailable",
+    });
+    const modelBGenerate = vi
+      .fn()
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["model-a", "model-b"]))),
+      confirm: vi.fn().mockResolvedValue("RUN 6"),
+      monotonicNow: vi.fn().mockReturnValue(10),
+      createGateway: vi.fn(({ model }) => ({
+        generateRequestForEvaluation: model === "model-a" ? modelAGenerate : modelBGenerate,
+      })),
+    });
+
+    await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1", "--repeats", "3"],
+      runtime,
+    );
+
+    expect(modelAGenerate).toHaveBeenCalledOnce();
+    expect(modelBGenerate).toHaveBeenCalledTimes(3);
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Attempted requests: 4 / 6");
+    expect(report).toContain("Skipped after model provider failure: 2");
+  });
+
+  it("продолжает третью модель после provider failure средней модели", async () => {
+    const modelAGenerate = vi
+      .fn()
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const modelBGenerate = vi.fn().mockResolvedValue({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider unavailable",
+    });
+    const modelCGenerate = vi
+      .fn()
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const generators = new Map([
+      ["model-a", modelAGenerate],
+      ["model-b", modelBGenerate],
+      ["model-c", modelCGenerate],
+    ]);
+    const runtime = dependencies({
+      readFile: vi
+        .fn()
+        .mockResolvedValue(JSON.stringify(configForModels(["model-a", "model-b", "model-c"]))),
+      confirm: vi.fn().mockResolvedValue("RUN 6"),
+      monotonicNow: vi.fn().mockReturnValue(10),
+      createGateway: vi.fn(({ model }) => {
+        const generateRequestForEvaluation = generators.get(model);
+        if (generateRequestForEvaluation === undefined) {
+          throw new Error("unexpected synthetic model");
+        }
+        return { generateRequestForEvaluation };
+      }),
+    });
+
+    await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1", "--repeats", "2"],
+      runtime,
+    );
+
+    expect(modelAGenerate).toHaveBeenCalledTimes(2);
+    expect(modelBGenerate).toHaveBeenCalledOnce();
+    expect(modelCGenerate).toHaveBeenCalledTimes(2);
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Attempted requests: 5 / 6");
+    expect(report).toContain("model-b / only-description / repeat 2: skipped");
+  });
+
+  it("не локализует request-level failure на всю model group", async () => {
+    const modelAGenerate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+      })
+      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+    const modelBGenerate = vi
+      .fn()
+      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const runtime = dependencies({
+      readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["model-a", "model-b"]))),
+      confirm: vi.fn().mockResolvedValue("RUN 4"),
+      monotonicNow: vi.fn().mockReturnValue(10),
+      createGateway: vi.fn(({ model }) => ({
+        generateRequestForEvaluation: model === "model-a" ? modelAGenerate : modelBGenerate,
+      })),
+    });
+
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1", "--repeats", "2"],
+      runtime,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(modelAGenerate).toHaveBeenCalledTimes(2);
+    expect(modelBGenerate).toHaveBeenCalledTimes(2);
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Status: completed");
+    expect(report).toContain("Request failures: 1");
+    expect(report).toContain("Skipped after model provider failure: 0");
+  });
+
+  it("оставляет single-model plan partial без retry после provider failure", async () => {
+    const generateRequestForEvaluation = vi.fn().mockResolvedValue({
+      status: "failure",
+      failureKind: "provider",
+      error: "provider unavailable",
+    });
+    const runtime = dependencies({
+      readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["model-a"]))),
+      confirm: vi.fn().mockResolvedValue("RUN 3"),
+      monotonicNow: vi.fn().mockReturnValue(10),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--limit", "1", "--repeats", "3"],
+      runtime,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(generateRequestForEvaluation).toHaveBeenCalledOnce();
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Status: partial");
+    expect(report).toContain("Attempted requests: 1 / 3");
+    expect(report).toContain("Skipped after model provider failure: 2");
+    expect(report).toContain("hard-failing attempted repeats 1 / 1");
+  });
+
   it("reports aggregate hard-check failure and exit 1 when a request failure precedes success", async () => {
     const generateRequestForEvaluation = vi
       .fn()
@@ -426,14 +621,15 @@ describe("LLM benchmark", () => {
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(exitCode).toBe(1);
-    expect(report).toContain("Status: provider_unavailable");
-    expect(report).toContain("Completed requests: 1 / 2");
+    expect(report).toContain("Status: partial");
+    expect(report).toContain("Attempted requests: 2 / 2");
+    expect(report).toContain("Provider failures: 2");
     expect(report).toContain("Hard checks: FAIL");
     expect(report).toContain(
-      "current / only-description: planned repeats 1; completed repeats 1 / 1; 1 / 1 hard-failing repeats",
+      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request failures 0; provider failures 1; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 1; completed repeats 0 / 1; 0 / 1 hard-failing repeats",
+      "candidate / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request failures 0; provider failures 1; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
     );
   });
 
@@ -457,13 +653,17 @@ describe("LLM benchmark", () => {
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(exitCode).toBe(1);
     expect(report).toContain("Status: interrupted");
-    expect(report).toContain("Completed requests: 1 / 2");
+    expect(report).toContain("Attempted requests: 1 / 2");
+    expect(report).toContain("Globally not run: 1");
     expect(report).toContain("Hard checks: FAIL");
     expect(report).toContain(
-      "current / only-description: planned repeats 1; completed repeats 1 / 1; 0 / 1 hard-failing repeats",
+      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 1; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 1",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 1; completed repeats 0 / 1; 0 / 1 hard-failing repeats",
+      "candidate / only-description: planned repeats 1; attempted repeats 0 / 1; successful attempts 0; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 1; hard-failing attempted repeats 0 / 0",
+    );
+    expect(report).toContain(
+      "candidate / only-description / repeat 1: not attempted because the whole run was interrupted",
     );
   });
 
@@ -485,7 +685,7 @@ describe("LLM benchmark", () => {
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(exitCode).toBe(0);
     expect(report).toContain("Status: completed");
-    expect(report).toContain("Completed requests: 2 / 2");
+    expect(report).toContain("Attempted requests: 2 / 2");
     expect(report).toContain("Hard checks: PASS");
   });
 
@@ -505,10 +705,10 @@ describe("LLM benchmark", () => {
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain(
-      "current / only-description: planned repeats 3; completed repeats 3 / 3; 0 / 3 hard-failing repeats",
+      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 3; completed repeats 3 / 3; 0 / 3 hard-failing repeats",
+      "candidate / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
     );
   });
 
@@ -530,10 +730,10 @@ describe("LLM benchmark", () => {
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain(
-      "current / only-description: planned repeats 3; completed repeats 3 / 3; 1 / 3 hard-failing repeats",
+      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 3",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 3; completed repeats 3 / 3; 0 / 3 hard-failing repeats",
+      "candidate / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
     );
   });
 
@@ -558,7 +758,7 @@ describe("LLM benchmark", () => {
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain(
-      "current / only-description: planned repeats 3; completed repeats 3 / 3; 1 / 3 hard-failing repeats",
+      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 2; request failures 1; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 3",
     );
   });
 
@@ -594,7 +794,7 @@ describe("LLM benchmark", () => {
     expect(report).not.toContain(rawProviderError);
   });
 
-  it("останавливает новые requests при общей недоступности provider", async () => {
+  it("продолжает следующую model group после provider failure", async () => {
     const generateRequestForEvaluation = vi.fn().mockResolvedValue({
       status: "failure",
       failureKind: "provider",
@@ -607,10 +807,10 @@ describe("LLM benchmark", () => {
 
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
 
-    expect(generateRequestForEvaluation).toHaveBeenCalledOnce();
+    expect(generateRequestForEvaluation).toHaveBeenCalledTimes(2);
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
-    expect(report).toContain("Status: provider_unavailable");
-    expect(report).toContain("Completed requests: 1 / 2");
+    expect(report).toContain("Status: partial");
+    expect(report).toContain("Attempted requests: 2 / 2");
   });
 
   it("учитывает usage failed request в строке и aggregate cost", async () => {
@@ -688,10 +888,10 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Usage: input 100, output 50, total 150");
     expect(report).toContain("Outcome: `generated`");
     expect(report).toContain(
-      "current / only-description: planned repeats 1; completed repeats 1 / 1; 1 / 1 hard-failing repeats",
+      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request failures 1; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 1; completed repeats 1 / 1; 0 / 1 hard-failing repeats",
+      "candidate / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 1; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 1",
     );
   });
 
@@ -905,7 +1105,8 @@ describe("LLM benchmark", () => {
 
     expect(generateRequestForEvaluation).toHaveBeenCalledOnce();
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
-    expect(report).toContain("Completed requests: 1 / 2");
+    expect(report).toContain("Attempted requests: 1 / 2");
+    expect(report).toContain("Globally not run: 1");
     expect(report).toContain("Status: interrupted");
   });
 
