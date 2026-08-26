@@ -14,6 +14,8 @@ import { describe, expect, it, vi } from "vitest";
 import { scenarios, type TestScenario } from "../../../packages/core/tests/fixtures.js";
 import { runLlmSmokeCheck } from "./manual/llm-smoke.js";
 
+type GeneratedTestScenario = Extract<TestScenario, { expectedOutcome: "generated" }>;
+
 const GENERATED_REQUEST_BODY =
   "Описанная проблема требует проверки.\n\nПрошу:\n1. Проверить проблему";
 const GENERATED_BODY = [
@@ -36,7 +38,7 @@ function generatedOutcome(warnings: string[] = []): GenerateRequestOutcome {
   };
 }
 
-function generatedScenario(overrides: Partial<TestScenario> = {}): TestScenario {
+function generatedScenario(overrides: Partial<GeneratedTestScenario> = {}): GeneratedTestScenario {
   return {
     id: "generated-scenario",
     category: "only_required_description",
@@ -47,8 +49,10 @@ function generatedScenario(overrides: Partial<TestScenario> = {}): TestScenario 
     mustPreserveFacts: ["освещение не работает"],
     mustNotInvent: ["номер дома"],
     expectWarning: false,
+    hardExpectations: [{ kind: "warning_presence", expected: false }],
+    semanticExpectations: ["Сохранить факт о неработающем освещении."],
     ...overrides,
-  } as TestScenario;
+  };
 }
 
 function multipleIssuesScenario(overrides: Partial<TestScenario> = {}): TestScenario {
@@ -353,6 +357,27 @@ describe("runLlmSmokeCheck", () => {
     expect(writeLine).toHaveBeenCalledWith(`body:\n${GENERATED_BODY}`);
     expect(writeLine).toHaveBeenCalledWith("Автоматически прошли: 0");
     expect(writeLine).toHaveBeenCalledWith("Автоматических ошибок: 1");
+  });
+
+  it.each([
+    { caseName: "без warning", warnings: [] },
+    { caseName: "с warning", warnings: ["Уточните неоднозначную формулировку"] },
+  ])("не делает warning обязательным для scenario без expectWarning: $caseName", async ({
+    warnings,
+  }) => {
+    const scenario = generatedScenario();
+    delete scenario.expectWarning;
+    const generateRequest = vi.fn().mockResolvedValue(generatedOutcome(warnings));
+    const writeLine = vi.fn();
+
+    const exitCode = await runLlmSmokeCheck({ generateRequest }, writeLine, [scenario]);
+
+    expect(exitCode).toBe(0);
+    expect(generateRequest).toHaveBeenCalledOnce();
+    expect(writeLine).toHaveBeenCalledWith("expectWarning: не проверяется");
+    expect(writeLine).toHaveBeenCalledWith(
+      "Сценарий generated-scenario: автоматические проверки пройдены",
+    );
   });
 
   it.each([

@@ -38,11 +38,18 @@ const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтово�
 const IMPACT_ROLE_DESCRIPTION_MARKER =
   '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 const DESCRIPTION_NORMALIZATION_MARKER =
-  '<description-normalization explicit-facts="preserve" relations="preserve" referents="preserve" referent-semantic-fit="required" material-ambiguity="preserve-without-invention" natural-language="normalize" new-facts="forbidden" role-allocation="owner-first" role-reuse="distinct-role-only">';
-const SYNTHETIC_REFERENT_CONTRAST =
+  '<description-normalization explicit-facts="preserve" unambiguous-referents="preserve" material-ambiguity="do-not-guess" ambiguous-relation="may-omit" attribution-without-evidence="forbidden" natural-language="normalize" new-facts="forbidden" role-allocation="owner-first" role-reuse="distinct-role-only">';
+const OBSOLETE_SYNTHETIC_REFERENT_CONTRAST =
   "Контраст для определения референта: в сообщении «Датчик расположен в последней секции, она крайняя» позиционный признак относится к элементу упорядоченного места — секции; в сообщении «Датчик в секции неисправен, он повреждён» свойство проблемного объекта относится к самому объекту — датчику. Это общее смысловое различение, а не словарь или шаблон замены.";
-const DESCRIPTION_REGRESSION_FIXTURE = "Протекает люк на пятом этаже, он последний.";
-const DESCRIPTION_REGRESSION_REFERENCE_ANSWER = "пятый этаж является верхним";
+const DESCRIPTION_REGRESSION_FIXTURES = [
+  "Протекает люк на пятом этаже, он последний.",
+  "Протекает люк на пятом, верхнем этаже.",
+] as const;
+const DESCRIPTION_REGRESSION_REFERENCE_ANSWERS = [
+  "пятый этаж является верхним",
+  "последний относится к этажу",
+  "последний относится к люку",
+] as const;
 const UNKNOWN_CAUSE_NON_INVENTION_CONTRACT =
   "Не расширяй установление неизвестной причины до проверки соединений, примыканий, соседних элементов, коммуникаций или компонентов без прямого основания во входе; устанавливай причину в целом, не перечисляя предполагаемые компоненты или закрытый набор вариантов";
 const EPISTEMIC_MODALITY_PRESERVATION_MARKER =
@@ -163,15 +170,24 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expectPromptContractMarker(DESCRIPTION_NORMALIZATION_MARKER);
   });
 
-  it("закрепляет synthetic referent contrast без benchmark leakage в provider schema", () => {
+  it("задаёт fail-closed ambiguity contract без fixture-specific referent tuning", () => {
     for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
       const schema = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
 
-      expect(prompt.split(SYNTHETIC_REFERENT_CONTRAST)).toHaveLength(2);
-      expect(schema).not.toContain(SYNTHETIC_REFERENT_CONTRAST);
-      expect(prompt).not.toContain(DESCRIPTION_REGRESSION_FIXTURE);
-      expect(prompt).not.toContain(DESCRIPTION_REGRESSION_REFERENCE_ANSWER);
+      expect(prompt).not.toContain('referent-semantic-fit="required"');
+      expect(prompt).not.toContain('material-ambiguity="fail-closed-warning"');
+      expect(prompt).not.toContain(OBSOLETE_SYNTHETIC_REFERENT_CONTRAST);
+      expect(prompt).not.toContain("добавь понятный пользователю warning");
+      expect(schema).not.toContain(DESCRIPTION_NORMALIZATION_MARKER);
+      for (const fixture of DESCRIPTION_REGRESSION_FIXTURES) {
+        expect(prompt).not.toContain(fixture);
+        expect(schema).not.toContain(fixture);
+      }
+      for (const referenceAnswer of DESCRIPTION_REGRESSION_REFERENCE_ANSWERS) {
+        expect(prompt).not.toContain(referenceAnswer);
+        expect(schema).not.toContain(referenceAnswer);
+      }
     }
   });
 
@@ -270,8 +286,12 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
 
       expect(prompt.split(UNKNOWN_CAUSE_NON_INVENTION_CONTRACT)).toHaveLength(2);
-      expect(prompt).not.toContain(DESCRIPTION_REGRESSION_FIXTURE);
-      expect(prompt).not.toContain(DESCRIPTION_REGRESSION_REFERENCE_ANSWER);
+      for (const fixture of DESCRIPTION_REGRESSION_FIXTURES) {
+        expect(prompt).not.toContain(fixture);
+      }
+      for (const referenceAnswer of DESCRIPTION_REGRESSION_REFERENCE_ANSWERS) {
+        expect(prompt).not.toContain(referenceAnswer);
+      }
     }
   });
 

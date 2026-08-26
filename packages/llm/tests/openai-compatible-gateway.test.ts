@@ -609,6 +609,49 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.warnings).toHaveLength(2);
   });
 
+  it.each([
+    { caseName: "без warning", warnings: [] },
+    {
+      caseName: "с необязательным warning",
+      warnings: ["Уточните, к чему относится слово «последний», перед подачей заявки"],
+    },
+  ])("не разрешает неоднозначный референт в backend и делает один вызов: $caseName", async ({
+    warnings,
+  }) => {
+    const mockFetch = createMockFetch(
+      createLlmText({
+        ...VALID_DRAFT,
+        problem: "В первом подъезде на пятом этаже протекает люк.",
+        impact: "Затопило весь подъезд.",
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["Устранить причину протечки"],
+          resultCheck: null,
+        },
+        warnings,
+      }),
+    );
+
+    const result = await createGateway().generateRequest({
+      description: "Протекает люк на пятом этаже, он последний.",
+      location: "первый подъезд, пятый этаж",
+      consequences: "Затопило весь подъезд.",
+      desiredActions: "Нужно устранить причину протечки.",
+    });
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.warnings).toEqual(warnings);
+    for (const warning of warnings) {
+      expect(result.result.body).not.toContain(warning);
+    }
+    expect(result.result.body).not.toContain("верхний");
+    expect(result.result.body).not.toContain("последний");
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
   it("передаёт расширенный черновик входной двери напрямую в renderer одним вызовом", async () => {
     const draft = {
       outcome: "generated",

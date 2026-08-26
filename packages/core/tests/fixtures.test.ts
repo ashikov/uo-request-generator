@@ -224,10 +224,20 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("сохраняет synthetic regression case из #224 с semantic expectations", () => {
-    const scenario = scenarios.find(({ id }) => id === "description-fact-preservation");
+  it("различает неоднозначный и однозначный synthetic regression cases из #224", () => {
+    const byId = new Map(
+      scenarios
+        .filter((scenario) => scenario.provenance?.issue === 224)
+        .map((scenario) => [scenario.id, scenario]),
+    );
+    const ambiguous = byId.get("description-fact-preservation");
+    const explicit = byId.get("description-explicit-referent-preservation");
 
-    expect(scenario).toMatchObject({
+    expect([...byId.keys()]).toEqual([
+      "description-fact-preservation",
+      "description-explicit-referent-preservation",
+    ]);
+    expect(ambiguous).toMatchObject({
       category: "description_normalization",
       provenance: { issue: 224 },
       expectedOutcome: "generated",
@@ -237,22 +247,57 @@ describe("test scenario fixtures", () => {
         consequences: "Затопило весь подъезд.",
         desiredActions: "Нужно устранить причину протечки.",
       },
-      hardExpectations: [{ kind: "warning_presence", expected: false }],
+      mustPreserveFacts: [
+        "протечка люка на пятом этаже",
+        "пятый этаж",
+        "первый подъезд",
+        "затопление всего подъезда",
+        "устранение причины протечки",
+      ],
+      hardExpectations: [{ kind: "procedural_plan", remedyActions: "present" }],
     });
-    expect(scenario?.semanticExpectations).toEqual([
-      "Сохранить явно переданный факт, что указанный пятый этаж является верхним.",
+    expect(ambiguous).not.toHaveProperty("expectWarning");
+    expect(ambiguous?.semanticExpectations).toEqual([
+      "Не утверждать, что слово «последний» относится именно к люку.",
+      "Не утверждать без дополнительного evidence, что слово «последний» относится именно к этажу.",
+      "Допускать безопасное опущение именно неоднозначной связи без признания этого потерей explicit fact.",
+      "Сохранить однозначные сведения о протечке, пятом этаже, первом подъезде, затоплении всего подъезда и требовании устранить причину.",
       "Естественно нормализовать описание проблемы без обязательной эталонной формулировки.",
       "Не размножать механически исходную бытовую конструкцию по смысловым ролям заявки.",
       "Не добавлять техническую причину протечки, которой нет во входе.",
       "Не добавлять неподтверждённый повреждённый элемент.",
+      "Не добавлять соединения, примыкания, коммуникации или другие связанные элементы без evidence.",
       "Не назначать конкретный способ ремонта без пользовательского evidence.",
       "Не расширять смысл явно переданного последствия о затоплении всего подъезда.",
       "Не расширять смысл желаемого устранения причины протечки.",
     ]);
+
+    expect(explicit).toMatchObject({
+      category: "description_normalization",
+      provenance: { issue: 224 },
+      expectedOutcome: "generated",
+      input: {
+        description: "Протекает люк на пятом, верхнем этаже.",
+        location: "первый подъезд, пятый этаж",
+        consequences: "Затопило весь подъезд.",
+        desiredActions: "Нужно устранить причину протечки.",
+      },
+      mustPreserveFacts: [
+        "пятый этаж является верхним",
+        "протечка люка на пятом этаже",
+        "первый подъезд",
+        "затопление всего подъезда",
+        "устранение причины протечки",
+      ],
+      hardExpectations: [{ kind: "warning_presence", expected: false }],
+    });
+    expect(explicit?.semanticExpectations).toContain(
+      "Сохранить явно переданный факт, что указанный пятый этаж является верхним.",
+    );
   });
 
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(33);
+    expect(scenarios).toHaveLength(34);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
