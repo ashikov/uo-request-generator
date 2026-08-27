@@ -278,6 +278,41 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("закрепляет независимый от роли контракт участников #232 в canonical emotional scenario", () => {
+    const scenario = scenarios.find(({ id }) => id === "emotional");
+
+    expect(scenario).toMatchObject({
+      category: "emotional_description",
+      provenance: { issue: 232 },
+      expectedOutcome: "generated",
+      input: {
+        description:
+          "Кошмар! Третью неделю лифт не работает! Соседка на восьмом этаже еле ходит, а мы с коляской как альпинисты. Когда это прекратится?! Сил нет!",
+      },
+    });
+    if (scenario?.expectedOutcome !== "generated") {
+      throw new Error("Ожидался generated-сценарий сохранения участников");
+    }
+
+    expect(scenario.mustPreserveFacts).toEqual(
+      expect.arrayContaining([
+        "соседка с восьмого этажа сохраняется отдельным участником, которому тяжело ходить при неработающем лифте",
+        "пользователь с коляской сохраняется отдельным участником с собственным неудобством",
+        "два разных факта об участниках не объединяются в одну группу",
+        "эмоциональный стиль нейтрализуется без потери фактов об участниках",
+      ]),
+    );
+    expect(scenario.mustNotInvent).toEqual(
+      expect.arrayContaining([
+        "жильцы вообще",
+        "пассажиры",
+        "пожилые как новая категория",
+        "маломобильные граждане",
+        "семьи с детьми",
+      ]),
+    );
+  });
+
   it("различает неоднозначный и однозначный synthetic regression cases из #224", () => {
     const byId = new Map(
       scenarios

@@ -39,6 +39,8 @@ const IMPACT_ROLE_DESCRIPTION_MARKER =
   '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 const DESCRIPTION_NORMALIZATION_MARKER =
   '<description-normalization explicit-facts="preserve" unambiguous-referents="preserve" material-ambiguity="do-not-guess" ambiguous-relation="may-omit" attribution-without-evidence="forbidden" natural-language="normalize" new-facts="forbidden" role-allocation="owner-first" role-reuse="distinct-role-only">';
+const EXPLICIT_PARTICIPANT_PRESERVATION_MARKER =
+  '<explicit-participant-preservation source="all-input-fields" role-independent="true" identity="preserve" relation="preserve" distinct-participants="preserve" cardinality="preserve" category-expansion="forbidden" emotional-normalization="allowed" role-transfer-with-meaning-change="forbidden">';
 const OBSOLETE_SYNTHETIC_REFERENT_CONTRAST =
   "Контраст для определения референта: в сообщении «Датчик расположен в последней секции, она крайняя» позиционный признак относится к элементу упорядоченного места — секции; в сообщении «Датчик в секции неисправен, он повреждён» свойство проблемного объекта относится к самому объекту — датчику. Это общее смысловое различение, а не словарь или шаблон замены.";
 const DESCRIPTION_REGRESSION_FIXTURES = [
@@ -170,6 +172,32 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("задаёт общий контракт естественной нормализации description", () => {
     expectPromptContractMarker(DESCRIPTION_NORMALIZATION_MARKER);
+  });
+
+  it("сохраняет явно названных участников независимо от исходного поля и смысловой роли", () => {
+    expectPromptContractMarker(EXPLICIT_PARTICIPANT_PRESERVATION_MARKER);
+
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+
+      expect(prompt).toContain(
+        "Во всех исходных полях — description, location, consequences и desiredActions — до распределения по ролям выделяй явно названных участников",
+      );
+      expect(prompt).toContain(
+        "сохраняй каждого конкретного участника, его отношение к ситуации и фактический объём",
+      );
+      expect(prompt).toContain("Не объединяй разных участников");
+      expect(prompt).toContain(
+        "Не заменяй конкретного человека социальной, возрастной или медицинской категорией",
+      );
+      expect(prompt).toContain("Местоимения и «мы» можно естественно нормализовать");
+      expect(prompt).toContain("Эмоциональную лексику можно нейтрализовать");
+      expect(prompt).not.toContain(
+        "Кошмар! Третью неделю лифт не работает! Соседка на восьмом этаже еле ходит",
+      );
+      expect(prompt).not.toContain("маломобильные граждане");
+      expect(prompt).not.toContain("семьи с детьми");
+    }
   });
 
   it("задаёт fail-closed ambiguity contract без fixture-specific referent tuning", () => {
