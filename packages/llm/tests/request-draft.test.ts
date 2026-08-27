@@ -502,6 +502,19 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     ]).toHaveLength(0);
   });
 
+  it("закрепляет общий для всех ролей запрет неподтверждённых конкретных деталей", () => {
+    const unsupportedConcreteDetailGuardMarker =
+      '<unsupported-concrete-detail-guard roles="title,problem,circumstances,impact,verification,subject,actionPlan,warnings" evidence="direct-input-or-unambiguous-fact" observed-defect="insufficient-alone" object-mention="insufficient-alone" location-conflict="insufficient-alone" impact-or-consequence="insufficient-alone" affected-group="insufficient-alone" broad-desired-action="insufficient-alone" result-oriented-remedy="allowed" explicit-or-unambiguous-action="allowed">';
+
+    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+
+      expect([
+        ...prompt.matchAll(new RegExp(unsupportedConcreteDetailGuardMarker, "g")),
+      ]).toHaveLength(1);
+    }
+  });
+
   it("не описывает и не раскрывает backend-подтверждение в provider prompt", () => {
     for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
       const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
