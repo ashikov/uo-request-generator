@@ -37,7 +37,7 @@ export type HardExpectation =
       resultCheck?: "present" | "absent";
     };
 
-export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 | 224 };
+export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 | 224 | 231 };
 
 type TestScenarioBase = {
   id: string;
@@ -134,6 +134,11 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "конкретная неисправность двери",
     ],
     expectWarning: false,
+    hardExpectations: [
+      { kind: "subject_kind", expected: "common_area_entrance_door" },
+      { kind: "forbidden_subject_kind", forbidden: "common_area_premises_cleaning" },
+      { kind: "selected_normative_module", expected: "common-area-entrance-door" },
+    ],
   },
   {
     id: "desired-actions",
@@ -530,7 +535,7 @@ const regressionScenarios: TestScenario[] = [
   {
     id: "cleaning-entrance-door",
     category: "cleaning",
-    provenance: { issue: 200 },
+    provenance: { issue: 231 },
     expectedOutcome: "generated",
     input: {
       description:
@@ -571,7 +576,7 @@ const regressionScenarios: TestScenario[] = [
   {
     id: "cleaning-entrance-door-mistaken-door-confirmation",
     category: "cleaning",
-    provenance: { issue: 200 },
+    provenance: { issue: 231 },
     expectedOutcome: "generated",
     input: {
       description:
@@ -585,14 +590,14 @@ const regressionScenarios: TestScenario[] = [
     expectWarning: false,
     hardExpectations: [
       { kind: "warning_presence", expected: false },
-      { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+      { kind: "subject_kind", expected: null },
       { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],
     semanticExpectations: [
-      "Не выбирать технический предмет двери только из-за ошибочного backend-подтверждения.",
-      "Не применять ни door-, ни cleaning-module при расхождении подтверждённого и independently inferred subject.",
+      "Не выбирать технический предмет двери только из-за ошибочного подтверждения.",
+      "Не применять ни door-, ни cleaning-module, когда evidence не подтверждает выбранный пользователем технический предмет.",
     ],
   },
   {
@@ -611,14 +616,14 @@ const regressionScenarios: TestScenario[] = [
     expectWarning: false,
     hardExpectations: [
       { kind: "warning_presence", expected: false },
-      { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+      { kind: "subject_kind", expected: null },
       { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],
     semanticExpectations: [
-      "Не выбирать технический предмет лифта только из-за ошибочного backend-подтверждения.",
-      "Не применять ни elevator-, ни cleaning-module при расхождении подтверждённого и independently inferred subject.",
+      "Не выбирать технический предмет лифта только из-за ошибочного подтверждения.",
+      "Не применять ни elevator-, ни cleaning-module, когда evidence не подтверждает выбранный пользователем технический предмет.",
     ],
   },
   {
@@ -714,6 +719,7 @@ const regressionScenarios: TestScenario[] = [
     expectWarning: false,
     hardExpectations: [
       { kind: "warning_presence", expected: false },
+      { kind: "subject_kind", expected: null },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],

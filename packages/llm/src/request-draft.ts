@@ -3,7 +3,6 @@ import {
   COMMON_LEGAL_BASIS_BLOCK,
   type ConfirmedProblemSubject,
   PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS,
-  PRIMARY_REQUEST_SUBJECT_KINDS,
   primaryRequestDraftLimits,
   primaryRequestDraftSchema,
   primaryRequestLegalBasisLimits,
@@ -77,48 +76,52 @@ const generatedActionPlanJsonSchema = {
 
 const disabledRequestDraftSubjectJsonSchema = { type: "null" } as const;
 
-const inferredRequestDraftSubjectJsonSchema = {
-  anyOf: [
-    {
-      type: "object",
-      properties: {
-        kind: {
-          type: "string",
-          enum: [...PRIMARY_REQUEST_SUBJECT_KINDS],
-        },
-        evidence: {
-          type: "array",
-          minItems: primaryRequestSubjectLimits.evidence.min,
-          maxItems: primaryRequestSubjectLimits.evidence.max,
-          items: {
-            type: "object",
-            properties: {
-              sourceField: {
-                type: "string",
-                enum: [...PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS],
+function createConfirmedRequestDraftSubjectJsonSchema(
+  confirmedProblemSubject: ConfirmedProblemSubject,
+) {
+  return {
+    anyOf: [
+      {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: [confirmedProblemSubject],
+          },
+          evidence: {
+            type: "array",
+            minItems: primaryRequestSubjectLimits.evidence.min,
+            maxItems: primaryRequestSubjectLimits.evidence.max,
+            items: {
+              type: "object",
+              properties: {
+                sourceField: {
+                  type: "string",
+                  enum: [...PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS],
+                },
+                quote: {
+                  type: "string",
+                  minLength: primaryRequestSubjectLimits.quote.min,
+                  maxLength: primaryRequestSubjectLimits.quote.max,
+                },
               },
-              quote: {
-                type: "string",
-                minLength: primaryRequestSubjectLimits.quote.min,
-                maxLength: primaryRequestSubjectLimits.quote.max,
-              },
+              required: ["sourceField", "quote"],
+              additionalProperties: false,
             },
-            required: ["sourceField", "quote"],
-            additionalProperties: false,
           },
         },
+        required: ["kind", "evidence"],
+        additionalProperties: false,
       },
-      required: ["kind", "evidence"],
-      additionalProperties: false,
-    },
-    { type: "null" },
-  ],
-} as const;
+      { type: "null" },
+    ],
+  } as const;
+}
 
 function createGeneratedRequestDraftJsonSchema(
   subjectSchema:
     | typeof disabledRequestDraftSubjectJsonSchema
-    | typeof inferredRequestDraftSubjectJsonSchema,
+    | ReturnType<typeof createConfirmedRequestDraftSubjectJsonSchema>,
 ) {
   return {
     type: "object",
@@ -216,7 +219,7 @@ export function createRequestDraftJsonSchema(
   const subjectSchema =
     confirmedProblemSubject === undefined
       ? disabledRequestDraftSubjectJsonSchema
-      : inferredRequestDraftSubjectJsonSchema;
+      : createConfirmedRequestDraftSubjectJsonSchema(confirmedProblemSubject);
 
   return {
     type: "object",
@@ -269,7 +272,7 @@ export type GeneratedRequestDraft = z.infer<typeof generatedRequestDraftSchema>;
 
 const commonAreaEntranceDoorPromptRules = [
   "- используй kind common_area_entrance_door, только если вход прямо и непротиворечиво указывает на входную дверь многоквартирного дома или дверь помещения общего пользования, обслуживающую более одного помещения, и наблюдаемую проблему технического состояния или работы двери",
-  "- для kind common_area_entrance_door evidence по отдельности или в совокупности должно прямо подтверждать дверь, её принадлежность ко входу многоквартирного дома либо помещению общего пользования и техническую проблему с ней. Загрязнение двери само по себе не подтверждает этот kind. Если вход сообщает, что дверь нормально открывается и закрывается, или сведения иначе противоречат технической проблеме двери, не используй kind common_area_entrance_door и независимо проверь правила остальных kind. Желаемое действие очистить дверь само по себе не является фактом о технической проблеме и не может быть evidence. Верни subject: null, только если вход не подтверждает ни один другой поддержанный kind. Не устанавливай неисправность, повреждение, необходимость ремонта или замены без прямого пользовательского факта; не используй для evidence формулировки из созданных тобой problem, title или actionPlan",
+  "- для kind common_area_entrance_door evidence по отдельности или в совокупности должно прямо подтверждать дверь, её принадлежность ко входу многоквартирного дома либо помещению общего пользования и техническую проблему с ней. Загрязнение двери само по себе не подтверждает этот kind. Если вход сообщает, что дверь нормально открывается и закрывается, или сведения иначе противоречат технической проблеме двери, не используй kind common_area_entrance_door и укажи subject: null. Желаемое действие очистить дверь само по себе не является фактом о технической проблеме и не может быть evidence. Не устанавливай неисправность, повреждение, необходимость ремонта или замены без прямого пользовательского факта; не используй для evidence формулировки из созданных тобой problem, title или actionPlan",
 ] as const;
 
 const commonAreaPremisesLightingPromptRules = [
@@ -294,17 +297,17 @@ const commonAreaVentilationPromptRules = [
 
 const commonAreaElevatorPromptRules = [
   "- используй kind common_area_elevator, только если вход прямо и непротиворечиво сообщает наблюдаемую проблему с лифтом, лифтовой шахтой или лифтовым оборудованием многоквартирного дома. Не используй этот kind для лифтового холла, подъёмной платформы или эскалатора",
-  "- для kind common_area_elevator evidence по отдельности или в совокупности должно прямо подтверждать и лифт, лифтовую шахту или лифтовое оборудование, и наблюдаемую проблему с ними. Отсутствие освещения в кабине лифта само по себе не подтверждает этот kind. Загрязнение исправной кабины лифта само по себе не подтверждает этот kind. Косвенный признак без прямой связи с лифтом или желаемое действие проверить, осмотреть или отремонтировать лифт, а также желаемое действие убрать загрязнение из кабины сами по себе не подтверждают технический предмет: не используй kind common_area_elevator и независимо проверь правила остальных kind. Если сведения в любом исходном поле противоречат принадлежности технической проблемы лифту, также не используй kind common_area_elevator и не разрешай противоречие в пользу выбранного kind. Верни subject: null, только если вход не подтверждает ни один другой поддержанный kind. Не устанавливай техническую причину, неисправный узел, аварийность, нарушение требования безопасности, необходимость отключения, ремонта или замены без прямого пользовательского факта. Не определяй исполнителя работ, не называй и не выбирай специализированную лифтовую или обслуживающую организацию и не утверждай необходимость её привлечения, если соответствующее основание прямо не содержится в исходном вводе",
+  "- для kind common_area_elevator evidence по отдельности или в совокупности должно прямо подтверждать и лифт, лифтовую шахту или лифтовое оборудование, и наблюдаемую проблему с ними. Отсутствие освещения в кабине лифта само по себе не подтверждает этот kind. Загрязнение исправной кабины лифта само по себе не подтверждает этот kind. Косвенный признак без прямой связи с лифтом или желаемое действие проверить, осмотреть или отремонтировать лифт, а также желаемое действие убрать загрязнение из кабины сами по себе не подтверждают технический предмет: не используй kind common_area_elevator и укажи subject: null. Если сведения в любом исходном поле противоречат принадлежности технической проблемы лифту, также не используй kind common_area_elevator, укажи subject: null и не разрешай противоречие в пользу выбранного kind. Не устанавливай техническую причину, неисправный узел, аварийность, нарушение требования безопасности, необходимость отключения, ремонта или замены без прямого пользовательского факта. Не определяй исполнителя работ, не называй и не выбирай специализированную лифтовую или обслуживающую организацию и не утверждай необходимость её привлечения, если соответствующее основание прямо не содержится в исходном вводе",
 ] as const;
 
-const supportedRequestDraftSubjectPromptRules = [
-  ...commonAreaEntranceDoorPromptRules,
-  ...commonAreaPremisesLightingPromptRules,
-  ...commonAreaPremisesCleaningPromptRules,
-  ...commonAreaRoofPromptRules,
-  ...commonAreaVentilationPromptRules,
-  ...commonAreaElevatorPromptRules,
-] as const;
+const requestDraftSubjectPromptRulesByKind = {
+  common_area_entrance_door: commonAreaEntranceDoorPromptRules,
+  common_area_premises_lighting: commonAreaPremisesLightingPromptRules,
+  common_area_premises_cleaning: commonAreaPremisesCleaningPromptRules,
+  common_area_roof: commonAreaRoofPromptRules,
+  common_area_ventilation: commonAreaVentilationPromptRules,
+  common_area_elevator: commonAreaElevatorPromptRules,
+} satisfies Record<ConfirmedProblemSubject, readonly string[]>;
 
 function createRequestDraftSubjectPromptRules(
   confirmedProblemSubject: ConfirmedProblemSubject | undefined,
@@ -315,10 +318,10 @@ function createRequestDraftSubjectPromptRules(
 
   return [
     "- subject описывает только предмет проблемы и не является выбором нормативного акта",
-    ...supportedRequestDraftSubjectPromptRules,
-    '<subject-arbitration basis="observable-problem" object-name-alone="insufficient" technical-door-elevator="observable-technical-problem-required" working-technical-object="cleaning-only-veto" cleaning-candidate="survives-when-supported" contradiction="hard-veto"> Выбирай kind по наблюдаемой проблеме или состоянию, а не по наиболее конкретно названному объекту: одного упоминания объекта недостаточно, а явное противоречие — жёсткий запрет на выбор kind. common_area_entrance_door и common_area_elevator требуют наблюдаемой технической проблемы. Если объект прямо описан как исправный или технически исправный либо указано, что он работает нормально, а факты и действия относятся только к уборке, не выбирай его технический kind; при выполнении существующих правил уборки common_area_premises_cleaning остаётся кандидатом. Независимо оцени все поддержанные kind и выбери только полностью подтверждённый и непротиворечивый; иначе укажи subject: null.',
+    ...requestDraftSubjectPromptRulesByKind[confirmedProblemSubject],
+    '<subject-validation candidate-source="json-schema-confirmed-kind" competing-kind-selection="forbidden" evidence="required" contradiction="hard-veto"> Проверяй только kind, разрешённый JSON Schema. Другие поддержанные kind не являются кандидатами этого вызова: не выбирай и не возвращай конкурирующий kind. Разрешённый kind возвращай только при полном и непротиворечивом подтверждении исходным вводом и достаточном дословном evidence; иначе укажи subject: null. Одного упоминания объекта или пользовательского выбора недостаточно, а явное противоречие — жёсткий запрет на непустой subject.',
     "- subject.evidence содержит от одного до двух дословных непрерывных фрагментов исходных description, location, consequences или desiredActions; для каждого фрагмента укажи sourceField и quote, скопированный без перефразирования, изменения регистра или пунктуации",
-    "<subject-required-when-evidence-sufficient> Выбери фактически поддержанный kind только по исходным description, location, consequences и desiredActions. Если предметные условия этого kind прямо и непротиворечиво выполнены во входе и есть достаточные дословные фрагменты исходных полей, соответствующие требованиям evidence, обязательно укажи непустой subject с выбранным kind и evidence. Во всех остальных случаях укажи subject: null.",
+    "<subject-required-when-evidence-sufficient> Если предметные условия разрешённого схемой kind прямо и непротиворечиво выполнены во входе и есть достаточные дословные фрагменты исходных description, location, consequences или desiredActions, соответствующие требованиям evidence, обязательно укажи непустой subject с этим kind и evidence. Во всех остальных случаях укажи subject: null.",
   ];
 }
 
