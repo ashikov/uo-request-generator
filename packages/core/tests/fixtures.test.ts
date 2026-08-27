@@ -99,7 +99,7 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("сохраняет synthetic regression cases из #200, #201, #202, #203 и #218 с typed expectations", () => {
+  it("сохраняет synthetic regression cases из #200, #201, #202, #203, #218 и #231 с typed expectations", () => {
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
 
     expect(byId.get("cleaning-elevator-cabin")).toMatchObject({
@@ -110,16 +110,29 @@ describe("test scenario fixtures", () => {
         { kind: "selected_normative_module", expected: "common-area-cleaning" },
       ]),
     });
-    expect(byId.get("cleaning-entrance-door")).toMatchObject({ provenance: { issue: 200 } });
+    expect(byId.get("cleaning-entrance-door")).toMatchObject({ provenance: { issue: 231 } });
     expect(byId.get("cleaning-common-area-wall")).toMatchObject({ provenance: { issue: 200 } });
+    expect(byId.get("consequences")).toMatchObject({
+      input: {
+        confirmedProblemSubject: "common_area_entrance_door",
+      },
+      hardExpectations: expect.arrayContaining([
+        { kind: "subject_kind", expected: "common_area_entrance_door" },
+        { kind: "forbidden_subject_kind", forbidden: "common_area_premises_cleaning" },
+        { kind: "selected_normative_module", expected: "common-area-entrance-door" },
+      ]),
+    });
     for (const scenarioId of [
       "cleaning-entrance-door-mistaken-door-confirmation",
       "cleaning-elevator-cabin-mistaken-elevator-confirmation",
     ]) {
       expect(byId.get(scenarioId)).toMatchObject({
-        provenance: { issue: 200 },
+        provenance:
+          scenarioId === "cleaning-entrance-door-mistaken-door-confirmation"
+            ? { issue: 231 }
+            : { issue: 200 },
         hardExpectations: expect.arrayContaining([
-          { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+          { kind: "subject_kind", expected: null },
           { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
           { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
           { kind: "selected_normative_module", expected: null },
@@ -168,13 +181,11 @@ describe("test scenario fixtures", () => {
         confirmedProblemSubject: "common_area_elevator",
       },
       hardExpectations: expect.arrayContaining([
+        { kind: "subject_kind", expected: null },
         { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
         { kind: "selected_normative_module", expected: null },
       ]),
     });
-    expect(
-      byId.get("elevator-subject-false-positive-lighting")?.hardExpectations,
-    ).not.toContainEqual({ kind: "subject_kind", expected: null });
     expect(byId.get("unknown-remedy-lighting")).toMatchObject({ provenance: { issue: 202 } });
     expect(byId.get("unknown-remedy-functional-defect")).toMatchObject({
       provenance: { issue: 202 },

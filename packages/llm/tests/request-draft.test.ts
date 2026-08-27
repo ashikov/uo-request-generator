@@ -481,8 +481,8 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       "Не устанавливай неисправность, повреждение, необходимость ремонта или замены",
     );
     expect(doorEvidenceRule).toContain("не используй kind common_area_entrance_door");
-    expect(doorEvidenceRule).toContain("независимо проверь правила остальных kind");
-    expect(doorEvidenceRule).not.toContain("укажи subject: null");
+    expect(doorEvidenceRule).toContain("укажи subject: null");
+    expect(doorEvidenceRule).not.toContain("независимо проверь правила остальных kind");
   });
 
   it("ограничивает cleaning subject уборкой помещений и загрязнений их элементов", () => {
@@ -594,8 +594,8 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     );
     expect(prompt).toContain("желаемое действие убрать загрязнение из кабины");
     expect(elevatorEvidenceRule).toContain("не используй kind common_area_elevator");
-    expect(elevatorEvidenceRule).toContain("независимо проверь правила остальных kind");
-    expect(elevatorEvidenceRule).not.toContain("укажи subject: null");
+    expect(elevatorEvidenceRule).toContain("укажи subject: null");
+    expect(elevatorEvidenceRule).not.toContain("независимо проверь правила остальных kind");
     expect(prompt).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
@@ -619,12 +619,17 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("закрепляет арбитраж subject по наблюдаемой проблеме с жёстким veto", () => {
     const subjectArbitrationMarker =
-      '<subject-arbitration basis="observable-problem" object-name-alone="insufficient" technical-door-elevator="observable-technical-problem-required" working-technical-object="cleaning-only-veto" cleaning-candidate="survives-when-supported" contradiction="hard-veto">';
+      '<subject-validation candidate-source="json-schema-confirmed-kind" competing-kind-selection="forbidden" evidence="required" contradiction="hard-veto">';
 
     for (const selectedSubjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
 
       expect([...prompt.matchAll(new RegExp(subjectArbitrationMarker, "g"))]).toHaveLength(1);
+      expect(prompt).toContain("Проверяй только kind, разрешённый JSON Schema");
+      expect(prompt).toContain("не выбирай и не возвращай конкурирующий kind");
+      expect(prompt).not.toContain("Независимо оцени все поддержанные kind");
+      expect(prompt).not.toContain("остаётся кандидатом");
+      expect(prompt).not.toContain("только если вход не подтверждает ни один другой");
     }
     expect([
       ...createRequestDraftSystemPrompt(undefined).matchAll(
@@ -641,16 +646,12 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     }
   });
 
-  it("формирует байт-в-байт одинаковый provider prompt для любого backend-подтверждения", () => {
-    const independentInferencePrompt = createRequestDraftSystemPrompt(
-      PRIMARY_REQUEST_SUBJECT_KINDS[0],
+  it("формирует отдельный provider prompt для каждого подтверждённого candidate", () => {
+    const prompts = PRIMARY_REQUEST_SUBJECT_KINDS.map((confirmedProblemSubject) =>
+      createRequestDraftSystemPrompt(confirmedProblemSubject),
     );
 
-    for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
-      expect(createRequestDraftSystemPrompt(confirmedProblemSubject)).toBe(
-        independentInferencePrompt,
-      );
-    }
+    expect(new Set(prompts)).toHaveLength(PRIMARY_REQUEST_SUBJECT_KINDS.length);
   });
 
   it("закрепляет единственную роль и естественную нормализацию явно переданных последствий", () => {
@@ -726,12 +727,17 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it.each(
     PRIMARY_REQUEST_SUBJECT_KINDS,
-  )("включает routing-bearing правила всех поддержанных subject: %s", (confirmedProblemSubject) => {
+  )("включает routing-bearing правила только подтверждённого subject: %s", (confirmedProblemSubject) => {
     const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
 
     for (const subjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
-      expect(prompt).toContain(`- используй kind ${subjectKind},`);
-      expect(prompt).toContain(`- для kind ${subjectKind} evidence`);
+      if (subjectKind === confirmedProblemSubject) {
+        expect(prompt).toContain(`- используй kind ${subjectKind},`);
+        expect(prompt).toContain(`- для kind ${subjectKind} evidence`);
+      } else {
+        expect(prompt).not.toContain(`- используй kind ${subjectKind},`);
+        expect(prompt).not.toContain(`- для kind ${subjectKind} evidence`);
+      }
     }
   });
 
@@ -758,6 +764,29 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 });
 
 describe("provider-facing RequestDraft", () => {
+  it.each(
+    PRIMARY_REQUEST_SUBJECT_KINDS,
+  )("сохраняет строгую локальную Zod-валидацию поддержанного subject %s", (subjectKind) => {
+    const draft = createDraft({
+      subject: {
+        kind: subjectKind,
+        evidence: [{ sourceField: "description", quote: "не работает освещение" }],
+      },
+    });
+
+    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
+  });
+
+  it("локально отклоняет subject вне закрытого enum", () => {
+    expectInvalidResponse({
+      ...createDraft(),
+      subject: {
+        kind: "common_area_unknown",
+        evidence: [{ sourceField: "description", quote: "не работает освещение" }],
+      },
+    });
+  });
+
   it("принимает roof subject только с дословным evidence прямого указания на кровлю", () => {
     const description = "На кровле многоквартирного дома обнаружена протечка.";
     const parsed = parseRequestDraft(
@@ -923,24 +952,15 @@ describe("provider-facing RequestDraft", () => {
     });
   });
 
-  it("формирует одинаковую полную provider-схему для любого backend-подтверждения", () => {
-    const independentInferenceSchema = createRequestDraftJsonSchema(
-      PRIMARY_REQUEST_SUBJECT_KINDS[0],
-    );
-
-    for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
-      expect(createRequestDraftJsonSchema(confirmedProblemSubject)).toEqual(
-        independentInferenceSchema,
-      );
-    }
-  });
-
-  it("задаёт полный строгий контракт inferred subject", () => {
-    const subjectSchema = createRequestDraftJsonSchema(PRIMARY_REQUEST_SUBJECT_KINDS[0]).properties
-      .draft.anyOf[0].properties.subject;
+  it.each(
+    PRIMARY_REQUEST_SUBJECT_KINDS,
+  )("ограничивает provider subject подтверждённым kind %s или null", (confirmedProblemSubject) => {
+    const subjectSchema =
+      createRequestDraftJsonSchema(confirmedProblemSubject).properties.draft.anyOf[0].properties
+        .subject;
 
     if (!("anyOf" in subjectSchema)) {
-      throw new Error("Ожидалась schema независимого определения subject");
+      throw new Error("Ожидалась schema подтверждения subject");
     }
 
     expect(subjectSchema).toEqual({
@@ -950,7 +970,7 @@ describe("provider-facing RequestDraft", () => {
           properties: {
             kind: {
               type: "string",
-              enum: [...PRIMARY_REQUEST_SUBJECT_KINDS],
+              enum: [confirmedProblemSubject],
             },
             evidence: {
               type: "array",
@@ -980,6 +1000,12 @@ describe("provider-facing RequestDraft", () => {
         { type: "null" },
       ],
     });
+
+    for (const competingSubjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      if (competingSubjectKind !== confirmedProblemSubject) {
+        expect(subjectSchema.anyOf[0].properties.kind.enum).not.toContain(competingSubjectKind);
+      }
+    }
   });
 
   it("ограничивает общий размер procedural plan средствами provider JSON Schema", () => {
@@ -1038,6 +1064,15 @@ describe("provider-facing RequestDraft", () => {
       actionPlan: { type: "null" },
       warnings: { type: "array", maxItems: 0, items: { type: "string" } },
     });
+  });
+
+  it.each([
+    undefined,
+    ...PRIMARY_REQUEST_SUBJECT_KINDS,
+  ])("не меняет multiple_issues-ветку при confirmed subject %s", (confirmedProblemSubject) => {
+    expect(createRequestDraftJsonSchema(confirmedProblemSubject).properties.draft.anyOf[1]).toEqual(
+      REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[1],
+    );
   });
 
   it("оставляет корневую оболочку строгой", () => {
