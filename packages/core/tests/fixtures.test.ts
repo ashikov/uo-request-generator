@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { generateRequestInputSchema } from "../src/index.js";
+import {
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+  COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+  generateRequestInputSchema,
+} from "../src/index.js";
 import { type ScenarioCategory, scenarios } from "./fixtures.js";
 
 const REQUIRED_CATEGORIES: ScenarioCategory[] = [
@@ -62,6 +70,25 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("expected нормативные модули существуют в runtime-контракте", () => {
+    const supportedModuleIds = new Set<string>([
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_ROOF_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.id,
+    ]);
+
+    for (const scenario of scenarios) {
+      for (const expectation of scenario.hardExpectations) {
+        if (expectation.kind === "selected_normative_module" && expectation.expected !== null) {
+          expect(supportedModuleIds.has(expectation.expected), scenario.id).toBe(true);
+        }
+      }
+    }
+  });
+
   it("multiple_issues-сценарии не содержат инварианты готового текста", () => {
     const rejectedScenarios = scenarios.filter(
       (scenario) => scenario.expectedOutcome === "multiple_issues",
@@ -119,7 +146,10 @@ describe("test scenario fixtures", () => {
       hardExpectations: expect.arrayContaining([
         { kind: "subject_kind", expected: "common_area_entrance_door" },
         { kind: "forbidden_subject_kind", forbidden: "common_area_premises_cleaning" },
-        { kind: "selected_normative_module", expected: "common-area-entrance-door" },
+        {
+          kind: "selected_normative_module",
+          expected: COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.id,
+        },
       ]),
     });
     for (const scenarioId of [

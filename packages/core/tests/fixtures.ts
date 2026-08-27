@@ -137,7 +137,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     hardExpectations: [
       { kind: "subject_kind", expected: "common_area_entrance_door" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_premises_cleaning" },
-      { kind: "selected_normative_module", expected: "common-area-entrance-door" },
+      { kind: "selected_normative_module", expected: "common-area-door" },
     ],
   },
   {
