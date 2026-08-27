@@ -60,6 +60,8 @@ const PROBLEM_ACTION_PLAN_OWNERSHIP_MARKER =
   '<problem-action-plan-ownership problem="observed-state" action-plan="role-specific-action" problem-restatement="forbidden" object-location-reuse="minimum-disambiguation-only">';
 const FUNCTIONAL_MEANING_PRESERVATION_MARKER =
   '<functional-meaning-preservation directly-supported-risk="preserve" affected-function="complete" symptom-only-narrowing="forbidden" simple-defect-enrichment="forbidden">';
+const MULTIPLE_ISSUES_CANONICAL_FIXTURE =
+  "На детской площадке сломаны качели, торчат острые болты. А ещё в соседнем дворе кто-то бросил старый диван возле мусорных баков, и он уже неделю там валяется.";
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -299,6 +301,47 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("outcome: multiple_issues");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("actionPlan: null");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не выбирай одну проблему");
+  });
+
+  it("выбирает outcome до заполнения соответствующей ветки", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+
+      expect(prompt).toContain("Сначала выбери outcome по смыслу всего входа");
+      expect(prompt).toContain("Только после выбора generated заполняй поля этой ветки");
+      expect(prompt.indexOf("Сначала выбери outcome по смыслу всего входа")).toBeLessThan(
+        prompt.indexOf("Для одной связанной проблемы верни outcome: generated и поля:"),
+      );
+    }
+  });
+
+  it("различает самостоятельные проблемы и связанные проявления одной проблемы", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "различаются предметы или объекты либо описаны независимые события",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("для них требуются отдельные действия");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не является причиной, проявлением, последствием или уточнением другой",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "несколько признаков, последствий, желаемых действий и связанных мест проявления",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "одна причинно связанная цепочка, неизвестная причина или несколько элементов одного процедурного плана",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Один лишь союз «и», несколько предложений или несколько действий не доказывают",
+    );
+  });
+
+  it("не включает canonical multiple-issues fixture в provider-facing contract", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+      const schema = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
+
+      expect(prompt).not.toContain(MULTIPLE_ISSUES_CANONICAL_FIXTURE);
+      expect(schema).not.toContain(MULTIPLE_ISSUES_CANONICAL_FIXTURE);
+    }
   });
 
   it("сохраняет границу body, законодательства и URL", () => {

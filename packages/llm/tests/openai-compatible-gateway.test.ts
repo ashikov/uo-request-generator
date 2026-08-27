@@ -5,6 +5,7 @@ import {
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
   PRIMARY_REQUEST_SUBJECT_KINDS,
 } from "@uo-request-generator/core";
+import * as core from "@uo-request-generator/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createOpenAiCompatibleRequestBody,
@@ -1131,11 +1132,18 @@ describe("OpenAiCompatibleGateway", () => {
   });
 
   it("возвращает multiple_issues без заявки и нормативного блока", async () => {
+    const evaluateSpecificLegalBasisSelection = vi.spyOn(
+      core,
+      "evaluateSpecificLegalBasisSelection",
+    );
+    const renderPrimaryRequestDraft = vi.spyOn(core, "renderPrimaryRequestDraft");
     const mockFetch = createMockFetch(MULTIPLE_ISSUES_LLM_TEXT);
 
     const result = await createGateway().generateRequest(VALID_INPUT);
 
     expect(result).toEqual({ status: "multiple_issues" });
+    expect(evaluateSpecificLegalBasisSelection).not.toHaveBeenCalled();
+    expect(renderPrimaryRequestDraft).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain("Общие нормативные основания:");
     expect(JSON.stringify(result)).not.toContain(HOUSING_CODE_URL);
     expect(JSON.stringify(result)).not.toContain(MANAGEMENT_RULES_URL);

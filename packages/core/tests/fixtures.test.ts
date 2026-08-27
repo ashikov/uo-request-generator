@@ -86,6 +86,19 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("сохраняет generated для связанных сложных проблем", () => {
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+
+    for (const scenarioId of [
+      "consequences",
+      "all-fields",
+      "minimum-sufficient-requests",
+      "unknown-remedy-functional-defect",
+    ]) {
+      expect(byId.get(scenarioId)?.expectedOutcome).toBe("generated");
+    }
+  });
+
   it("сохраняет synthetic regression cases из #200, #201, #202, #203 и #218 с typed expectations", () => {
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
 
