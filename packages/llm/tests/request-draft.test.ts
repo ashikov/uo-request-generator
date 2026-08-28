@@ -40,7 +40,7 @@ const PROBLEM_ROLE_DESCRIPTION_MARKER =
 const IMPACT_ROLE_DESCRIPTION_MARKER =
   '<impact-role source="consequences-or-safe-direct-inference" safe-inferred-nontechnical="allowed" technical-inference="forbidden" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
 const VERIFICATION_ROLE_DESCRIPTION_MARKER =
-  '<verification-role separate-unknown="explicit-only" unknown-cause-owned-by-preliminary-check="null" technical-detail-evidence="required" preliminary-check-duplication="forbidden">';
+  '<verification-role separate-unknown="independent-required" unknown-cause-owned-by-preliminary-check="null" technical-detail-evidence="required" preliminary-check-duplication="forbidden">';
 const PRELIMINARY_CHECK_ROLE_DESCRIPTION_MARKER =
   '<preliminary-check-role count="one-or-null" timing="before-remedy" unknown-cause-owner="general" technical-detail-evidence="required" observed-defect-recheck="forbidden" verification-duplication="forbidden">';
 const REMEDY_ACTION_ROLE_DESCRIPTION_MARKER =
@@ -640,6 +640,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
         minLength: 1,
         description: expect.stringContaining(VERIFICATION_ROLE_DESCRIPTION_MARKER),
       });
+      expect(properties.verification.description).not.toContain("explicit-only");
 
       for (const actionPlanSchema of properties.actionPlan.anyOf) {
         expect(actionPlanSchema.properties.preliminaryCheck.description).toContain(
@@ -672,8 +673,18 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(remedyActionDescription).toContain("Сохраняй");
     expect(remedyActionDescription).toContain("установку отсутствующей детали");
 
-    expect(verificationDescription).toContain("отдельный предмет проверки");
-    expect(verificationDescription).toContain("укажи null");
+    expect(verificationDescription).toContain("отдельный реальный предмет проверки");
+    expect(verificationDescription).toContain("явно переданном предположении");
+    expect(verificationDescription).toContain(
+      "прямо указанной необходимости установить неизвестное обстоятельство",
+    );
+    expect(verificationDescription).toContain(
+      "обоснованной обстоятельствами проверке связанных элементов",
+    );
+    expect(verificationDescription).toContain(
+      "отдельном неизвестном обстоятельстве, которое требуется установить для относящегося к проблеме действия",
+    );
+    expect(verificationDescription).toContain("другого самостоятельного предмета проверки нет");
     expect(verificationDescription).toContain("без прямого evidence");
     expect(verificationDescription).toContain("не дублируй preliminaryCheck");
   });
