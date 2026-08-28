@@ -35,8 +35,16 @@ const ROOF_SUBJECT_RULE = "проблема относится именно к �
 const VENTILATION_SUBJECT_RULE =
   "проблему с системой вентиляции или вентиляционным каналом либо шахтой";
 const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтовой шахтой или лифтовым оборудованием";
+const PROBLEM_ROLE_DESCRIPTION_MARKER =
+  '<problem-role facts="direct-input" conflicting-location="separate-location-only" unknown-cause="preserve-as-unknown" technical-detail-evidence="required">';
 const IMPACT_ROLE_DESCRIPTION_MARKER =
-  '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
+  '<impact-role source="consequences-or-safe-direct-inference" safe-inferred-nontechnical="allowed" technical-inference="forbidden" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
+const VERIFICATION_ROLE_DESCRIPTION_MARKER =
+  '<verification-role separate-unknown="explicit-only" unknown-cause-owned-by-preliminary-check="null" technical-detail-evidence="required" preliminary-check-duplication="forbidden">';
+const PRELIMINARY_CHECK_ROLE_DESCRIPTION_MARKER =
+  '<preliminary-check-role count="one-or-null" timing="before-remedy" unknown-cause-owner="general" technical-detail-evidence="required" observed-defect-recheck="forbidden" verification-duplication="forbidden">';
+const REMEDY_ACTION_ROLE_DESCRIPTION_MARKER =
+  '<remedy-action-role unknown-cause="result-oriented" concrete-action-evidence="direct-or-unambiguous" broad-result="insufficient-for-method" explicit-or-unambiguous-action="preserve" simple-missing-part-installation="preserve">';
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -502,10 +510,9 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     ]).toHaveLength(0);
   });
 
-  it("делает общий evidence boundary финальным арбитром role-specific правил", () => {
+  it("сохраняет известный evidence boundary без финального глобального арбитра", () => {
     const unsupportedConcreteDetailGuardMarker =
-      '<unsupported-concrete-detail-guard precedence="final" roles="title,problem,circumstances,impact,verification,subject,actionPlan,warnings" evidence="direct-input-or-unambiguous-fact" observed-defect="insufficient-alone" object-mention="insufficient-alone" location-conflict="insufficient-alone" impact-or-consequence="insufficient-alone" affected-group="insufficient-alone" broad-desired-action="insufficient-alone" safe-nontechnical-impact="preserve" explicit-consequence="preserve-in-impact" explicit-group="preserve-without-expansion" conflict-location="preserve-in-problem-with-warning" unknown-cause-establishment="preliminaryCheck-only" verification-duplicate="null" result-oriented-remedy="allowed" explicit-or-unambiguous-action="allowed">';
-    const finalRoleCheckMarker = "<problem-circumstances-final-check";
+      '<unsupported-concrete-detail-guard roles="title,problem,circumstances,impact,verification,subject,actionPlan,warnings" evidence="direct-input-or-unambiguous-fact" observed-defect="insufficient-alone" object-mention="insufficient-alone" location-conflict="insufficient-alone" impact-or-consequence="insufficient-alone" affected-group="insufficient-alone" broad-desired-action="insufficient-alone" result-oriented-remedy="allowed" explicit-or-unambiguous-action="allowed">';
 
     for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
@@ -514,7 +521,8 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       expect([
         ...prompt.matchAll(new RegExp(unsupportedConcreteDetailGuardMarker, "g")),
       ]).toHaveLength(1);
-      expect(guardPosition).toBeGreaterThan(prompt.indexOf(finalRoleCheckMarker));
+      expect(guardPosition).toBeLessThan(prompt.indexOf("- Установленные факты"));
+      expect(prompt).not.toContain('<unsupported-concrete-detail-guard precedence="final"');
     }
   });
 
@@ -612,18 +620,62 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     }
   });
 
-  it("закрепляет смысловую нормализацию consequences в provider-схеме impact", () => {
+  it("закрепляет field-local контракты содержательных ролей provider-схемы", () => {
     for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
-      const impactSchema =
-        createRequestDraftJsonSchema(selectedSubjectKind).properties.draft.anyOf[0].properties
-          .impact;
+      const properties =
+        createRequestDraftJsonSchema(selectedSubjectKind).properties.draft.anyOf[0].properties;
 
-      expect(impactSchema).toMatchObject({
+      expect(properties.problem).toMatchObject({
+        type: "string",
+        minLength: 1,
+        description: expect.stringContaining(PROBLEM_ROLE_DESCRIPTION_MARKER),
+      });
+      expect(properties.impact).toMatchObject({
         type: ["string", "null"],
         minLength: 1,
         description: expect.stringContaining(IMPACT_ROLE_DESCRIPTION_MARKER),
       });
+      expect(properties.verification).toMatchObject({
+        type: ["string", "null"],
+        minLength: 1,
+        description: expect.stringContaining(VERIFICATION_ROLE_DESCRIPTION_MARKER),
+      });
+
+      for (const actionPlanSchema of properties.actionPlan.anyOf) {
+        expect(actionPlanSchema.properties.preliminaryCheck.description).toContain(
+          PRELIMINARY_CHECK_ROLE_DESCRIPTION_MARKER,
+        );
+        expect(actionPlanSchema.properties.remedyActions.items.description).toContain(
+          REMEDY_ACTION_ROLE_DESCRIPTION_MARKER,
+        );
+      }
     }
+  });
+
+  it("описывает ownership неизвестной причины и evidence boundary рядом с полями", () => {
+    const generatedSchema = REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[0];
+    const preliminaryCheckDescription =
+      generatedSchema.properties.actionPlan.anyOf[0].properties.preliminaryCheck.description;
+    const remedyActionDescription =
+      generatedSchema.properties.actionPlan.anyOf[0].properties.remedyActions.items.description;
+    const verificationDescription = generatedSchema.properties.verification.description;
+
+    expect(preliminaryCheckDescription).toContain("одно минимальное действие до устранения");
+    expect(preliminaryCheckDescription).toContain("установи её в целом");
+    expect(preliminaryCheckDescription).toContain("без прямого evidence");
+    expect(preliminaryCheckDescription).toContain("Не проверяй повторно наличие");
+    expect(preliminaryCheckDescription).toContain("verification");
+
+    expect(remedyActionDescription).toContain("через требуемый результат");
+    expect(remedyActionDescription).toContain("прямого evidence");
+    expect(remedyActionDescription).toContain("не подтверждает способ ремонта");
+    expect(remedyActionDescription).toContain("Сохраняй");
+    expect(remedyActionDescription).toContain("установку отсутствующей детали");
+
+    expect(verificationDescription).toContain("отдельный предмет проверки");
+    expect(verificationDescription).toContain("укажи null");
+    expect(verificationDescription).toContain("без прямого evidence");
+    expect(verificationDescription).toContain("не дублируй preliminaryCheck");
   });
 
   it.each(
@@ -784,6 +836,7 @@ describe("provider-facing RequestDraft", () => {
         type: "string",
         minLength: 1,
         maxLength: primaryRequestDraftLimits.problem.max,
+        description: expect.stringContaining(PROBLEM_ROLE_DESCRIPTION_MARKER),
       },
       circumstances: {
         type: ["string", "null"],
@@ -800,6 +853,7 @@ describe("provider-facing RequestDraft", () => {
         type: ["string", "null"],
         minLength: 1,
         maxLength: primaryRequestDraftLimits.verification.max,
+        description: expect.stringContaining(VERIFICATION_ROLE_DESCRIPTION_MARKER),
       },
       subject: {
         type: "null",
@@ -910,6 +964,7 @@ describe("provider-facing RequestDraft", () => {
         type: "string",
         minLength: 1,
         maxLength: primaryRequestDraftLimits.action.max,
+        description: expect.stringContaining(REMEDY_ACTION_ROLE_DESCRIPTION_MARKER),
       });
     }
   });
