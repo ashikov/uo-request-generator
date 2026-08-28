@@ -502,16 +502,19 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     ]).toHaveLength(0);
   });
 
-  it("закрепляет общий для всех ролей запрет неподтверждённых конкретных деталей", () => {
+  it("делает общий evidence boundary финальным арбитром role-specific правил", () => {
     const unsupportedConcreteDetailGuardMarker =
-      '<unsupported-concrete-detail-guard roles="title,problem,circumstances,impact,verification,subject,actionPlan,warnings" evidence="direct-input-or-unambiguous-fact" observed-defect="insufficient-alone" object-mention="insufficient-alone" location-conflict="insufficient-alone" impact-or-consequence="insufficient-alone" affected-group="insufficient-alone" broad-desired-action="insufficient-alone" result-oriented-remedy="allowed" explicit-or-unambiguous-action="allowed">';
+      '<unsupported-concrete-detail-guard precedence="final" roles="title,problem,circumstances,impact,verification,subject,actionPlan,warnings" evidence="direct-input-or-unambiguous-fact" observed-defect="insufficient-alone" object-mention="insufficient-alone" location-conflict="insufficient-alone" impact-or-consequence="insufficient-alone" affected-group="insufficient-alone" broad-desired-action="insufficient-alone" safe-nontechnical-impact="preserve" explicit-consequence="preserve-in-impact" explicit-group="preserve-without-expansion" conflict-location="preserve-in-problem-with-warning" unknown-cause-establishment="preliminaryCheck-only" verification-duplicate="null" result-oriented-remedy="allowed" explicit-or-unambiguous-action="allowed">';
+    const finalRoleCheckMarker = "<problem-circumstances-final-check";
 
     for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
+      const guardPosition = prompt.indexOf(unsupportedConcreteDetailGuardMarker);
 
       expect([
         ...prompt.matchAll(new RegExp(unsupportedConcreteDetailGuardMarker, "g")),
       ]).toHaveLength(1);
+      expect(guardPosition).toBeGreaterThan(prompt.indexOf(finalRoleCheckMarker));
     }
   });
 
