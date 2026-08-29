@@ -180,14 +180,16 @@ regex/keyword routing, словари компонентов, symptom-to-remedy/
 
 Рассматривались альтернативы:
 
-| Вариант | Закрытие шести сбоев | Доверие к LLM | Сложность | Регресс качества | Контракт и вызов | Запрещённая механика |
+| Вариант | Закрытие исторических free-text ролей | Доверие к LLM | Сложность | Регресс качества | Контракт и вызов | Запрещённая механика |
 | --- | --- | --- | --- | --- | --- | --- |
 | A: свободный текст и metadata evidence | Нет | Высокое | Низкая | Сохраняет гибкость | Сохраняет public input/result и один вызов | Не добавляет |
-| B: закрытые решения, evidence и materializer | Да | Intent и полнота evidence остаются на LLM | Средняя | Есть ограничения proof v1 | Сохраняет | Нет NLP, regex, keywords, словарей, mappings, retry или второго вызова |
+| B: закрытые решения, evidence и materializer | Да, но semantic conflict classification не входит в эту гарантию | Intent и полнота evidence остаются на LLM | Средняя | Есть ограничения proof v1 | Сохраняет | Нет NLP, regex, keywords, словарей, mappings, retry или второго вызова |
 | C: fallback над свободным текстом | Нет | Высокое | Высокая и эвристическая | Непредсказуемый fallback | Сохраняет | Потребовал бы запрещённые средства |
 
-Вариант B выбран как единственный закрывающий safety-critical роли без изменения
-публичного контракта и числа вызовов.
+Вариант B выбран как единственный структурно закрывающий safety-critical
+free-text роли без изменения публичного контракта и числа вызовов. Выбор
+подходящего bounded intent, включая распознавание semantic location conflict,
+остаётся обязанностью LLM classification.
 
 В варианте A сочетание `valid quote + arbitrary LLM free text` подтверждает
 только provenance цитаты. Оно не даёт semantic authorization произвольному
@@ -220,10 +222,14 @@ materialization и проверкой существующего renderer. От�
 `description` с обычным `location` без ложного warning. Adversarial location case
 передаёт полное конфликтующее evidence, а кандидат с удалённым install-intent
 структурно отклоняется даже для обычного дефекта.
-Rejection
-matrix проверяет malformed union, legacy safety-critical prose, source confusion,
-partial authority, противоречивые решения, шесть исторических outputs в их
-прежних свободных ролях и строгую ветку `multiple_issues`. Production isolation
+Rejection matrix проверяет malformed union, legacy safety-critical prose, source
+confusion, partial authority, противоречивые решения и строгую ветку
+`multiple_issues`. Исторические assertions точно фиксируют структурное закрытие
+unsupported technical component, diagnostic operation и remedy, дублирования
+`verification` и `preliminaryCheck`, расширения затронутой группы через generated
+`impact` и legacy free-text location mixing через поле `problem`. Последний
+assertion доказывает отсутствие прежнего free-text contract-слота, но не
+детерминированное распознавание semantic location conflict. Production isolation
 подтверждается отсутствием imports из proof и build-конфигурацией, исключающей
 `tests/**`.
 
@@ -234,14 +240,28 @@ Proof v1 отключает `circumstances` и `verification`, ограничи�
 Это решения proof v1, а не тихое изменение production-контракта, и их нужно
 пересмотреть в задаче реализации.
 
+### Структурная гарантия для location
+
 Наличие структурированного `location` и неполное цитирование `description` сами
-по себе не требуют warning. При выбранном `check_location` materializer
-гарантированно исключает provider-selected prose из заголовка и проблемы. Но
-proof не доказывает, что провайдер всегда правильно распознает semantic location
-conflict и выберет `check_location`. Поэтому распознавание каждого location
-conflict остаётся ограничением LLM classification, хотя после такого решения
-materializer не может смешать места. В общем случае semantic correctness
-выбранных моделью bounded intents структурной схемой сама по себе не доказана.
+по себе не требуют warning. После выбора `check_location` materializer
+гарантированно исключает provider-selected conflicting excerpts из `title` и
+`problem`, использует фиксированные безопасные формулировки, добавляет только
+authoritative structured `location` и детерминированно строит warning. На этой
+границе смешение мест невозможно даже при exact evidence полного конфликтующего
+`description`.
+
+### Остаточный semantic risk
+
+Evidence gate не определяет сам факт location conflict. Decision для
+конфликтующего input без `check_location` остаётся структурно допустимым, а при
+`locationWarning === null` materializer использует `problemEvidence` и дописывает
+authoritative structured `location`. Если LLM ошибочно не выберет
+`check_location`, схема сама по себе не гарантирует отсутствие semantic mixing.
+Исполняемый contract assertion отдельно фиксирует эту границу. Корректность
+classification остаётся известным bounded LLM risk и должна проверяться будущим
+live semantic acceptance после production wiring. В общем случае semantic
+correctness выбранных моделью bounded intents структурной схемой сама по себе не
+доказана.
 
 Proof отклоняет legacy free-text procedural fields: `title`, `problem`,
 `circumstances`, `impact`, `verification`, `actionPlan` и `warnings`.
@@ -262,9 +282,11 @@ proof.
 
 ## Последствия
 
-Неподтверждённые технические детали и расширение группы становятся
-непредставимыми на границе materializer. Публичные input/result контракты,
-один вызов, текущий renderer и независимость `core` сохраняются.
+Неподтверждённые технические детали, расширение группы и legacy free-text
+location mixing становятся непредставимыми на границе materializer. Эта
+структурная гарантия не включает распознавание semantic location conflict.
+Публичные input/result контракты, один вызов, текущий renderer и независимость
+`core` сохраняются.
 
 Цена решения заключается в закрытом словаре intent и необходимости
 исчерпывающе обновлять schema, materializer и proof-тест при добавлении нового
