@@ -23,24 +23,34 @@ permissions:
   contents: read
 
 jobs:
-  validate-pr-title:
+  validate-pr-commits:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Validate PR title follows Conventional Commits
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Validate PR commits follow Conventional Commits
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          title="$(curl --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
-            | jq -r '.title')"
           conventional_commit_pattern='^(feat|fix|perf|docs|test|refactor|style|chore|ci|build)(\([^)]+\))?!?:[[:space:]].+'
-          if [[ ! "$title" =~ $conventional_commit_pattern ]]; then
-            echo "::error::PR title must follow the Conventional Commits specification"
+          invalid_subjects=()
+
+          while IFS= read -r subject; do
+            if [[ ! "$subject" =~ $conventional_commit_pattern ]]; then
+              invalid_subjects+=("$subject")
+            fi
+          done < <(git log --format=%s "${BASE_SHA}..${HEAD_SHA}")
+
+          if (( ${#invalid_subjects[@]} > 0 )); then
+            printf '%s\n' "::error::Each PR commit must follow the Conventional Commits specification"
+            printf 'Invalid commit subjects:\n'
+            printf '%s\n' "${invalid_subjects[@]}"
             exit 1
           fi
 
@@ -174,7 +184,7 @@ jobs:
 
   release:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    needs: [quality, test, build]
+    needs: [quality, test, build, browser]
     runs-on: ubuntu-latest
     concurrency:
       group: release
