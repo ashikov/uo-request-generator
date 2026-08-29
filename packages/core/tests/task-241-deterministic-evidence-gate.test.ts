@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { GenerateRequestInput } from "../src/contracts.js";
+import { type GenerateRequestInput, generateRequestInputSchema } from "../src/contracts.js";
 import {
   type PrimaryRequestDraft,
+  primaryRequestDraftSchema,
   renderPrimaryRequestDraft,
 } from "../src/primary-request-draft.js";
 import { scenarios } from "./fixtures.js";
@@ -28,14 +29,12 @@ const ID = {
   explicitGroup: "impact-subject-explicit-group",
 } as const;
 const INTENT = {
-  install: "install_observed_missing_element",
   restore: "restore_observed_state",
   cause: "establish_and_remove_cause",
   requested: "perform_requested_action",
 } as const;
 const EXPECTED_TEXT = {
   impact: "Проблема может затруднять пользование общим имуществом",
-  install: "Установить отсутствующий элемент",
   restore: "Восстановить наблюдаемое состояние",
   establish: "Установить причину наблюдаемой проблемы",
   removeCause: "Устранить установленную причину наблюдаемой проблемы",
@@ -76,7 +75,6 @@ function assertNever(_value: never): never {
 
 function resolutionFor(intent: ProofSpec["intent"], input: GenerateRequestInput, quote: string) {
   switch (intent) {
-    case INTENT.install:
     case INTENT.restore:
     case INTENT.cause:
       return { intent, evidence: descriptionEvidence(quote) } as const;
@@ -134,7 +132,6 @@ function plan(preliminaryCheck: string | null, remedy: string, resultCheck: stri
 
 // biome-ignore format: Фиксированные планы легче сравнивать построчно.
 const PLAN = {
-  install: plan(null, EXPECTED_TEXT.install, null),
   restore: plan(null, EXPECTED_TEXT.restore, null),
   cause: plan(EXPECTED_TEXT.establish, EXPECTED_TEXT.removeCause, null),
   causeCheck: plan(EXPECTED_TEXT.establish, EXPECTED_TEXT.removeCause, EXPECTED_TEXT.resultCheck),
@@ -178,7 +175,7 @@ const PROOF_CASES = [
   acceptanceCase({ id: ID.wording, intent: INTENT.cause, resultCheck: true }, expectedDraft(ID.wording, PLAN.causeCheck)),
   acceptanceCase({ id: ID.minimum, intent: INTENT.cause, resultCheck: true, resolutionQuote: "Источник протечки неизвестен." }, expectedDraft(ID.minimum, PLAN.causeCheck)),
   acceptanceCase({ id: ID.locationDeduplication, intent: INTENT.cause, resultCheck: true, resolutionQuote: "Источник протечки неизвестен." }, expectedDraft(ID.locationDeduplication, PLAN.causeCheck)),
-  acceptanceCase({ id: ID.simple, intent: INTENT.install }, expectedDraft(ID.simple, PLAN.install)),
+  acceptanceCase({ id: ID.simple, intent: INTENT.restore }, expectedDraft(ID.simple, PLAN.restore)),
   acceptanceCase({ id: ID.locationPreservation, intent: INTENT.restore }, expectedDraft(ID.locationPreservation, PLAN.restore)),
   acceptanceCase({ id: ID.unknownLighting, intent: INTENT.cause, resultCheck: true, resolutionQuote: "Причина неизвестна." }, expectedDraft(ID.unknownLighting, PLAN.causeCheck)),
   acceptanceCase({ id: ID.conflict, intent: INTENT.restore, locationWarning: true, problemQuotes: ["Дверь в помещении общего пользования", "не закрывается полностью."] }, expectedDraft(ID.conflict, PLAN.restore, { title: EXPECTED_TEXT.locationTitle, problem: `${EXPECTED_TEXT.locationProblem}. Место: подъезд 3, этаж 4`, subject: { kind: "common_area_entrance_door", evidence: [descriptionEvidence("Дверь в помещении общего пользования")] }, warnings: [`${EXPECTED_TEXT.locationWarning}: подъезд 3, этаж 4`] })),
@@ -288,5 +285,57 @@ describe("детерминированная materialization", () => {
     expect(draft.title).toBe(EXPECTED_TEXT.locationTitle);
     expect(draft.problem).toBe(`${EXPECTED_TEXT.locationProblem}. Место: подъезд 3, этаж 4`);
     expect(draft.problem).not.toContain("втором подъезде");
+  });
+
+  it.each([
+    {
+      name: "описание длиннее evidence quote",
+      description: `На лестничной площадке не работает освещение. ${"Дополнительное наблюдение. ".repeat(12)}`,
+      quote: "На лестничной площадке не работает освещение.",
+    },
+    {
+      name: "многострочное описание",
+      description: "На лестничной площадке не работает освещение.\nПроблема наблюдается вечером.",
+      quote: "На лестничной площадке не работает освещение.",
+    },
+  ])("не создаёт location conflict: $name", ({ description, quote }) => {
+    const input = generateRequestInputSchema.parse({
+      description,
+      location: "подъезд 2, этаж 3",
+    });
+    const evidence = descriptionEvidence(quote);
+    const decision = {
+      outcome: "generated",
+      titleEvidence: evidence,
+      problemEvidence: [evidence],
+      inferredImpact: null,
+      resolution: { intent: INTENT.restore, evidence },
+      resultCheck: null,
+      locationWarning: null,
+      subject: null,
+    } as const;
+
+    const draft = materializeDecision(input, decision);
+
+    expect(draft.problem).toBe(`${quote} Место: подъезд 2, этаж 3`);
+    expect(draft.warnings).toEqual([]);
+  });
+
+  it("нормализует переводы строк в authoritative consequences", () => {
+    const consequences =
+      "Пожилым жильцам\r\nтрудно открыть дверь.\rЖильцы\nждут устранения проблемы.";
+    const input = generateRequestInputSchema.parse({
+      ...inputFor(ID.explicitGroup),
+      consequences,
+    });
+    const proof = proofCase({ id: ID.explicitGroup, intent: INTENT.restore });
+
+    const draft = materializeDecision(input, proof.decision);
+
+    expect(draft.impact).toBe(
+      "Пожилым жильцам трудно открыть дверь. Жильцы ждут устранения проблемы.",
+    );
+    expect(draft.impact).not.toContain("всех жильцов");
+    expect(primaryRequestDraftSchema.safeParse(draft).success).toBe(true);
   });
 });

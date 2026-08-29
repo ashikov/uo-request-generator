@@ -11,7 +11,6 @@ import {
 
 export const FIXED_TEXT = {
   impact: "Проблема может затруднять пользование общим имуществом",
-  install: "Установить отсутствующий элемент",
   restore: "Восстановить наблюдаемое состояние",
   establish: "Установить причину наблюдаемой проблемы",
   removeCause: "Устранить установленную причину наблюдаемой проблемы",
@@ -51,12 +50,6 @@ const titleEvidenceSchema = descriptionEvidenceSchema.refine(
   "Цитата заголовка превышает лимит",
 );
 const resolutionSchema = z.discriminatedUnion("intent", [
-  z
-    .object({
-      intent: z.literal("install_observed_missing_element"),
-      evidence: descriptionEvidenceSchema,
-    })
-    .strict(),
   z
     .object({
       intent: z.literal("restore_observed_state"),
@@ -166,16 +159,6 @@ function validateDecision(input: GenerateRequestInput, decision: GeneratedDecisi
   if (decision.inferredImpact !== null) validateEvidence(input, decision.inferredImpact.evidence);
   validateEvidence(input, decision.resolution.evidence);
   if (decision.resultCheck !== null) validateEvidence(input, decision.resultCheck.evidence);
-  const keepsCompleteDescription = decision.problemEvidence.some(
-    ({ quote }) => quote === input.description.trim(),
-  );
-  if (
-    input.location !== undefined &&
-    !keepsCompleteDescription &&
-    decision.locationWarning === null
-  ) {
-    reject("Сокращённое описание с location требует warning");
-  }
   if (decision.locationWarning !== null) {
     validateEvidence(input, decision.locationWarning.descriptionEvidence);
     validateEvidence(input, decision.locationWarning.locationEvidence);
@@ -204,8 +187,6 @@ function assertNever(_value: never): never {
 
 function materializeResolution(resolution: GeneratedDecision["resolution"]) {
   switch (resolution.intent) {
-    case "install_observed_missing_element":
-      return { preliminaryCheck: null, remedyActions: [FIXED_TEXT.install] };
     case "restore_observed_state":
       return { preliminaryCheck: null, remedyActions: [FIXED_TEXT.restore] };
     case "establish_and_remove_cause":
@@ -247,7 +228,10 @@ export function materializeDecision(
       : `${decision.problemEvidence.map(({ quote }) => quote).join(" ")}${locationSuffix}`,
     circumstances: null,
     impact:
-      input.consequences?.trim() ?? (decision.inferredImpact === null ? null : FIXED_TEXT.impact),
+      (input.consequences === undefined
+        ? undefined
+        : normalizeAuthoritativeText(input.consequences)) ??
+      (decision.inferredImpact === null ? null : FIXED_TEXT.impact),
     verification: null,
     subject: decision.subject,
     actionPlan: {

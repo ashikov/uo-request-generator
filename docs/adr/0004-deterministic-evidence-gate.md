@@ -51,10 +51,6 @@ const locationEvidence = evidenceFor(
 
 const resolution = z.discriminatedUnion("intent", [
   z.object({
-    intent: z.literal("install_observed_missing_element"),
-    evidence: descriptionEvidence,
-  }).strict(),
-  z.object({
     intent: z.literal("restore_observed_state"),
     evidence: descriptionEvidence,
   }).strict(),
@@ -107,19 +103,19 @@ JSON-форма результата: `{"outcome":"generated","titleEvidence":{"
 `desiredActionsEvidence` допускает 1–500 символов и требует полного равенства
 обрезанному `desiredActions`. `locationEvidence` допускает 1–120 символов и
 требует полного равенства обрезанному `location`. Эти authoritative evidence
-сохраняют допустимые внутренние переводы строк. Перед записью в существующий
-однострочный `PrimaryRequestDraft` backend детерминированно заменяет только
-переводы строк пробелами. Явные `consequences` не проходят через решение
-провайдера и копируются backend целиком. `locationWarning` требует двух
-объектов: фрагмента `description` и полного структурированного `location`.
+сохраняют допустимые внутренние переводы строк. Явные `consequences` не проходят
+через решение провайдера и также сохраняются backend целиком. Перед записью
+`desiredActions`, `location` и `consequences` в однострочные поля существующего
+`PrimaryRequestDraft` backend детерминированно заменяет `CRLF`, `CR` и `LF`
+пробелами и обрезает края. Содержание и семантика полей не переписываются.
+`locationWarning` требует двух объектов: фрагмента `description` и полного
+структурированного `location`.
 `titleEvidence` содержит
 фрагмент `description`, совпадает с одним из элементов `problemEvidence` и
 укладывается в существующий лимит заголовка.
 
-Семь закрытых решений имеют следующие правила:
+Шесть закрытых решений имеют следующие правила:
 
-- `install_observed_missing_element` устанавливает отсутствующий по наблюдению
-  элемент.
 - `restore_observed_state` восстанавливает наблюдаемое состояние.
 - `establish_and_remove_cause` является одним решением и материализуется в
   таком порядке: предварительно установить причину, затем устранить её.
@@ -134,30 +130,35 @@ JSON-форма результата: `{"outcome":"generated","titleEvidence":{"
 
 Детерминированный materializer исходит из структурированных полей ввода и
 закрытых intent, а не из provider-authored prose. Заголовок равен точному
-`titleEvidence`. Проблема объединяет точные `problemEvidence` и дописывает
-авторитетное структурированное `location`. В proof v1 `circumstances` и
-`verification` всегда равны `null`. `impact` копирует полное `consequences`,
-если оно есть, иначе использует фиксированный необязательный intent
-`possible_use_impediment` или `null`. Единственное предупреждение строится из
-фиксированного `locationWarning`. При `check_location` materializer не переносит
-выбранные моделью excerpts в `title` и `problem`: он использует фиксированные
-безопасные формулировки и только полное authoritative `location`. Поэтому
-распознанный конфликт не может объединить места даже при exact evidence полного
-конфликтующего `description`. Полные `desiredActions` и `location` проходят
-только whitespace-normalization переводов строк перед однострочными полями
-существующего draft. `subject` проходит существующий строгий
+`titleEvidence`. Проблема объединяет точные `problemEvidence` и независимо от
+полноты этих цитат дописывает авторитетное структурированное `location`. В proof
+v1 `circumstances` и `verification` всегда равны `null`. `impact` копирует полное
+`consequences` с нормализацией только переводов строк, если оно есть, иначе
+использует фиксированный необязательный intent `possible_use_impediment` или
+`null`. `check_location` означает выбранное провайдером решение о смысловом
+конфликте мест, а не fallback из-за неполного цитирования `description`.
+Единственное предупреждение строится из фиксированного `locationWarning`. При
+`check_location` materializer не переносит выбранные моделью excerpts в `title`
+и `problem`: он использует фиксированные безопасные формулировки и только полное
+authoritative `location`. Поэтому распознанный конфликт не может объединить
+места даже при exact evidence полного конфликтующего `description`. Полные
+`desiredActions`, `location` и `consequences` проходят только детерминированную
+нормализацию переводов строк перед однострочными полями существующего draft.
+`subject` проходит существующий строгий
 evidence gate. Результат проверяется `primaryRequestDraftSchema` и передаётся
 существующему renderer. Используется именно `primaryRequestSubjectSchema`: его
 source fields остаются `description`, `location`, `consequences` и
 `desiredActions`. Union role evidence не сужает subject evidence.
 
-Для простой неисправности формируется только непосредственное устранение без
-отдельной диагностики. Фиксированные выходы включают непосредственное
-восстановление наблюдаемого состояния, проверку результата только при наличии
-`resultCheck`, предварительную проверку и устранение причины для
-`establish_and_remove_cause`, а также generic remedy «установить отсутствующий
-элемент» для `install_observed_missing_element`. Proof сознательно выбирает
-безопасное общее действие вместо morphology/domain mapping для называния части.
+Для простой неисправности без явного `desiredActions` формируется только
+`restore_observed_state`: непосредственное восстановление наблюдаемого состояния
+без отдельной диагностики. Конкретное пользовательское действие разрешено только
+через `perform_requested_action` с полным authoritative `desiredActions`.
+Отдельного intent для установки отсутствующего элемента нет, поскольку exact
+evidence из `description` доказывает provenance, но не даёт semantic
+authorization установочной операции. Фиксированные выходы также включают
+проверку результата только при наличии `resultCheck`, предварительную проверку и
+устранение причины для `establish_and_remove_cause`.
 `establish_and_remove_cause` даёт одну предварительную
 проверку и одну роль устранения. Дублирование установления причины структурно
 невозможно: отдельной provider-facing роли `verification` или произвольного
@@ -215,7 +216,10 @@ Regression strategy фиксирует 14 acceptance-сценариев на с�
 synthetic fixtures с независимо заданным полным `PrimaryRequestDraft`, повторной
 materialization и проверкой существующего renderer. Отдельные boundary-проверки
 покрывают полный диапазон и multiline-форму authoritative `desiredActions` и
-`location`, а adversarial location case передаёт полное конфликтующее evidence.
+`location`, multiline `consequences`, а также длинное и многострочное
+`description` с обычным `location` без ложного warning. Adversarial location case
+передаёт полное конфликтующее evidence, а кандидат с удалённым install-intent
+структурно отклоняется даже для обычного дефекта.
 Rejection
 matrix проверяет malformed union, legacy safety-critical prose, source confusion,
 partial authority, противоречивые решения, шесть исторических outputs в их
@@ -225,19 +229,19 @@ partial authority, противоречивые решения, шесть ис�
 
 Proof v1 отключает `circumstances` и `verification`, ограничивает warnings
 только location warning, берёт не более трёх excerpt по 300 символов вместо
-полного `description` до 2000 символов, копирует `consequences` без нормализации
-и сохраняет полное `desiredActions` одним remedy с нормализацией только переводов
-строк. Generic missing-element action избегает morphology/domain mapping. Это
-решения proof v1, а не тихое изменение production-контракта, и их нужно
+полного `description` до 2000 символов и сохраняет полные `consequences` и
+`desiredActions` с нормализацией только переводов строк для однострочного draft.
+Это решения proof v1, а не тихое изменение production-контракта, и их нужно
 пересмотреть в задаче реализации.
 
-При наличии структурированного `location` и problem evidence, не содержащего
-полное описание, proof требует warning. При выбранном `check_location`
-materializer гарантированно исключает provider-selected prose из заголовка и
-проблемы. Но proof не доказывает, что провайдер всегда правильно распознает
-semantic location conflict и выберет `check_location`. Поэтому распознавание
-каждого location conflict остаётся ограничением LLM classification, хотя после
-такого решения materializer не может смешать места.
+Наличие структурированного `location` и неполное цитирование `description` сами
+по себе не требуют warning. При выбранном `check_location` materializer
+гарантированно исключает provider-selected prose из заголовка и проблемы. Но
+proof не доказывает, что провайдер всегда правильно распознает semantic location
+conflict и выберет `check_location`. Поэтому распознавание каждого location
+conflict остаётся ограничением LLM classification, хотя после такого решения
+materializer не может смешать места. В общем случае semantic correctness
+выбранных моделью bounded intents структурной схемой сама по себе не доказана.
 
 Proof отклоняет legacy free-text procedural fields: `title`, `problem`,
 `circumstances`, `impact`, `verification`, `actionPlan` и `warnings`.
