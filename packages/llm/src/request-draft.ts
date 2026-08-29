@@ -35,8 +35,29 @@ const nullableDraftStringJsonSchema = (maxLength: number) => ({
 });
 
 const actionStringJsonSchema = draftStringJsonSchema(primaryRequestDraftLimits.action.max);
+const problemJsonSchemaDescription =
+  '<problem-role facts="direct-input" conflicting-location="separate-location-only" unknown-cause="preserve-as-unknown" technical-detail-evidence="required"> Сохраняй здесь наблюдаемую проблему и прямо переданные существенные факты. Если отдельно переданное location противоречит месту из description, используй только location и не смешивай несовместимые места. Явно указанную неизвестность причины сохраняй как неизвестность. Не добавляй техническую причину, компонент, повреждение или способ устранения без прямого evidence либо однозначной необходимости из подтверждённого факта без диагностики.';
 const impactJsonSchemaDescription =
-  '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden"> Помещай сюда весь смысл явно переданных consequences ровно один раз. Сохраняй фактический смысл, конкретность, объём и уже естественную формулировку. Перефразируй только контекстно неестественную формулировку, не добавляя исполнителя, группы людей, обстоятельства или последствия.';
+  '<impact-role source="consequences-or-safe-direct-inference" safe-inferred-nontechnical="allowed" technical-inference="forbidden" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden"> Помещай сюда весь смысл явно переданных consequences ровно один раз. Сохраняй фактический смысл, конкретность, объём, явно указанную группу без расширения и уже естественную формулировку. Перефразируй только контекстно неестественную формулировку, не добавляя исполнителя, группы людей, обстоятельства или последствия. При отсутствии consequences допускается непосредственно вытекающее нетехническое практическое значение. Не выводи из impact техническую причину, компонент или способ устранения.';
+const verificationJsonSchemaDescription =
+  '<verification-role separate-unknown="independent-required" unknown-cause-owned-by-preliminary-check="null" technical-detail-evidence="required" preliminary-check-duplication="forbidden"> Это отдельный реальный предмет проверки, а не автоматическая диагностика любого дефекта. Он допустим при явно переданном предположении, прямо указанной необходимости установить неизвестное обстоятельство, обоснованной обстоятельствами проверке связанных элементов либо отдельном неизвестном обстоятельстве, которое требуется установить для относящегося к проблеме действия. Если неизвестная причина уже выражена в problem и устанавливается через preliminaryCheck, укажи null, если другого самостоятельного предмета проверки нет. Не добавляй технические компоненты, конкретные причины или конкретные диагностические операции без прямого evidence и не дублируй preliminaryCheck.';
+const preliminaryCheckJsonSchemaDescription =
+  '<preliminary-check-role count="one-or-null" timing="before-remedy" unknown-cause-owner="general" technical-detail-evidence="required" observed-defect-recheck="forbidden" verification-duplication="forbidden"> Это одно минимальное действие до устранения, которое устанавливает существенное неизвестное обстоятельство. Если причина неизвестна, установи её в целом. Не выбирай самостоятельно компонент, механизм, повреждение, предполагаемую причину или конкретную диагностическую операцию без прямого evidence. Не проверяй повторно наличие уже непосредственно наблюдаемого дефекта. Если установление причины здесь покрывает неизвестность, не дублируй его в verification.';
+const remedyActionJsonSchemaDescription =
+  '<remedy-action-role unknown-cause="result-oriented" concrete-action-evidence="direct-or-unambiguous" broad-result="insufficient-for-method" explicit-or-unambiguous-action="preserve" simple-missing-part-installation="preserve"> При неизвестной причине формулируй действие через требуемый результат. Конкретный технический метод, компонент или операция допустимы только при наличии прямого evidence либо однозначной необходимости из подтверждённого факта без диагностики. Общее желаемое действие уровня «восстановить работу» не подтверждает способ ремонта. Сохраняй явно переданное или однозначно необходимое действие. Простую подтверждённую установку отсутствующей детали не обобщай до диагностики.';
+
+const preliminaryCheckStringJsonSchema = {
+  ...actionStringJsonSchema,
+  description: preliminaryCheckJsonSchemaDescription,
+} as const;
+const preliminaryCheckNullJsonSchema = {
+  type: "null",
+  description: preliminaryCheckJsonSchemaDescription,
+} as const;
+const remedyActionJsonSchema = {
+  ...actionStringJsonSchema,
+  description: remedyActionJsonSchemaDescription,
+} as const;
 
 function createActionPlanJsonSchema(
   preliminaryCheckType: "string" | "null",
@@ -47,12 +68,14 @@ function createActionPlanJsonSchema(
     type: "object",
     properties: {
       preliminaryCheck:
-        preliminaryCheckType === "string" ? actionStringJsonSchema : ({ type: "null" } as const),
+        preliminaryCheckType === "string"
+          ? preliminaryCheckStringJsonSchema
+          : preliminaryCheckNullJsonSchema,
       remedyActions: {
         type: "array",
         minItems: primaryRequestDraftLimits.actionPlan.remedyActionsMin,
         maxItems: remedyActionsMax,
-        items: actionStringJsonSchema,
+        items: remedyActionJsonSchema,
       },
       resultCheck:
         resultCheckType === "string" ? actionStringJsonSchema : ({ type: "null" } as const),
@@ -128,13 +151,19 @@ function createGeneratedRequestDraftJsonSchema(
         enum: ["generated"],
       },
       title: draftStringJsonSchema(primaryRequestDraftLimits.title.max),
-      problem: draftStringJsonSchema(primaryRequestDraftLimits.problem.max),
+      problem: {
+        ...draftStringJsonSchema(primaryRequestDraftLimits.problem.max),
+        description: problemJsonSchemaDescription,
+      },
       circumstances: nullableDraftStringJsonSchema(primaryRequestDraftLimits.circumstances.max),
       impact: {
         ...nullableDraftStringJsonSchema(primaryRequestDraftLimits.impact.max),
         description: impactJsonSchemaDescription,
       },
-      verification: nullableDraftStringJsonSchema(primaryRequestDraftLimits.verification.max),
+      verification: {
+        ...nullableDraftStringJsonSchema(primaryRequestDraftLimits.verification.max),
+        description: verificationJsonSchemaDescription,
+      },
       subject: subjectSchema,
       actionPlan: generatedActionPlanJsonSchema,
       warnings: {
@@ -375,6 +404,8 @@ const requestDraftSystemPromptParts = [
   "- actionPlan.resultCheck содержит отдельную проверку после работ только при выполнении правил ниже; иначе укажи null",
   "",
   "Различай факты и безопасные выводы:",
+  '<unsupported-concrete-detail-guard roles="title,problem,circumstances,impact,verification,subject,actionPlan,warnings" evidence="direct-input-or-unambiguous-fact" observed-defect="insufficient-alone" object-mention="insufficient-alone" location-conflict="insufficient-alone" impact-or-consequence="insufficient-alone" affected-group="insufficient-alone" broad-desired-action="insufficient-alone" result-oriented-remedy="allowed" explicit-or-unambiguous-action="allowed">',
+  "Во всех ролях draft сохраняй неизвестную причину неизвестной. Наблюдаемый симптом или дефект, упоминание объекта, противоречие места, практическое значение или последствия, явно указанная затронутая группа либо общее желаемое действие на уровне результата сами по себе не подтверждают конкретную техническую причину, компонент, повреждение, способ ремонта или операцию с частями объекта. Такие конкретные сведения и действия допустимы только когда они прямо указаны во вводе пользователя либо однозначно следуют из прямо указанного факта без диагностики. Общая просьба восстановить работу не подтверждает способ, но сохраняй действия, сформулированные через требуемый результат, и явно переданные или однозначно необходимые действия; не создавай обязательную цепочку диагностика → ремонт → проверка.",
   "- Установленные факты, причины, повреждения, уже наступившие последствия и выполненные работы могут происходить только из пользовательского ввода",
   "- Явно переданные consequences имеют приоритет перед самостоятельно выводимым impact: сохрани все существенные сведения, их фактический смысл, конкретность, объём и уже естественную формулировку; перефразируй только контекстно неестественную формулировку; не заменяй наблюдаемое последствие общим выводом и не превращай риск в событие",
   '<consequence-action-contrast semantic-role="decision" self-motion-rewrite="contextual" external-object-manual-operation="preserve" token-replacement="forbidden" impact-owner="impact" impact-occurrence="exactly-once" source-facts="only" natural-wording="preserve" subject-expansion="forbidden">',

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { generateRequestInputSchema } from "../src/index.js";
 import { type ScenarioCategory, scenarios } from "./fixtures.js";
 
+const ISSUE_233_GENERAL_SEMANTIC_INVARIANT =
+  "Не добавлять: конкретную причину, конкретный компонент, конкретное повреждение, конкретный способ ремонта или конкретную операцию без прямого указания во входе или однозначной необходимости из подтверждённого факта.";
+
 const REQUIRED_CATEGORIES: ScenarioCategory[] = [
   "only_required_description",
   "description_with_location",
@@ -85,7 +88,7 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("сохраняет synthetic regression cases из #200, #201, #202, #203 и #218 с typed expectations", () => {
+  it("сохраняет synthetic regression cases из #200, #201, #202, #203, #218 и #233 с typed expectations", () => {
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
 
     expect(byId.get("cleaning-elevator-cabin")).toMatchObject({
@@ -179,6 +182,63 @@ describe("test scenario fixtures", () => {
       "impact-subject-subjective",
       "impact-subject-objective",
       "impact-subject-explicit-group",
+    ]);
+    expect(
+      scenarios
+        .filter((scenario) => scenario.provenance?.issue === 233)
+        .map((scenario) => scenario.id),
+    ).toEqual(["only-description", "conflicting-location"]);
+  });
+
+  it("закрепляет общий смысловой инвариант #233 для пяти релевантных контекстов", () => {
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+    const relevantScenarioIds = [
+      "only-description",
+      "conflicting-location",
+      "consequences",
+      "impact-subject-objective",
+      "impact-subject-explicit-group",
+    ] as const;
+
+    for (const scenarioId of relevantScenarioIds) {
+      expect(byId.get(scenarioId)?.semanticExpectations).toContain(
+        ISSUE_233_GENERAL_SEMANTIC_INVARIANT,
+      );
+    }
+    expect(byId.get("conflicting-location")?.hardExpectations).toContainEqual({
+      kind: "warning_presence",
+      expected: true,
+    });
+    expect(byId.get("impact-subject-explicit-group")).toMatchObject({
+      provenance: { issue: 203 },
+      mustPreserveFacts: expect.arrayContaining([
+        "пожилым жильцам трудно открыть дверь",
+        "явно указанная группа людей сохранена без расширения",
+      ]),
+    });
+  });
+
+  it("сохраняет структурные controls сценариев, контрастных для #233", () => {
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+
+    for (const scenarioId of [
+      "unconfirmed-remedy-lighting",
+      "unconfirmed-remedy-door",
+      "simple-defect",
+    ]) {
+      expect(byId.get(scenarioId)?.hardExpectations).toEqual([
+        { kind: "warning_presence", expected: false },
+      ]);
+    }
+    for (const scenarioId of ["unknown-remedy-lighting", "unknown-remedy-functional-defect"]) {
+      expect(byId.get(scenarioId)?.hardExpectations).toEqual([
+        { kind: "warning_presence", expected: false },
+        { kind: "procedural_plan", preliminaryCheck: "present", remedyActions: "present" },
+      ]);
+    }
+    expect(byId.get("confirmed-remedy-door-handle")?.hardExpectations).toEqual([
+      { kind: "warning_presence", expected: false },
+      { kind: "procedural_plan", preliminaryCheck: "absent", remedyActions: "present" },
     ]);
   });
 

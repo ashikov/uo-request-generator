@@ -36,7 +36,7 @@ export type HardExpectation =
       resultCheck?: "present" | "absent";
     };
 
-export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 };
+export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 | 233 };
 
 type TestScenarioBase = {
   id: string;
@@ -83,6 +83,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
   {
     id: "only-description",
     category: "only_required_description",
+    provenance: { issue: 233 },
     expectedOutcome: "generated",
     input: {
       description: "На лестничной площадке не работает освещение.",
@@ -98,6 +99,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "факт падения",
       "факт травмы",
       "угроза жизни",
+      "конкретную причину, конкретный компонент, конкретное повреждение, конкретный способ ремонта или конкретную операцию без прямого указания во входе или однозначной необходимости из подтверждённого факта",
     ],
     expectWarning: false,
   },
@@ -131,6 +133,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "утверждение, что имущество уже утрачено",
       "факт кражи",
       "конкретная неисправность двери",
+      "конкретную причину, конкретный компонент, конкретное повреждение, конкретный способ ремонта или конкретную операцию без прямого указания во входе или однозначной необходимости из подтверждённого факта",
     ],
     expectWarning: false,
   },
@@ -315,6 +318,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
   {
     id: "conflicting-location",
     category: "conflicting_location",
+    provenance: { issue: 233 },
     expectedOutcome: "generated",
     input: {
       description:
@@ -328,7 +332,11 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "этаж 4",
       "предупреждение о необходимости проверить место",
     ],
-    mustNotInvent: ["объединение второго и третьего подъездов", "фактически верное место"],
+    mustNotInvent: [
+      "объединение второго и третьего подъездов",
+      "фактически верное место",
+      "конкретную причину, конкретный компонент, конкретное повреждение, конкретный способ ремонта или конкретную операцию без прямого указания во входе или однозначной необходимости из подтверждённого факта",
+    ],
     expectWarning: true,
   },
   {
@@ -379,6 +387,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "затруднение прохода жильцов",
       "массовое неудобство",
       "неопределённое количество затронутых людей",
+      "конкретную причину, конкретный компонент, конкретное повреждение, конкретный способ ремонта или конкретную операцию без прямого указания во входе или однозначной необходимости из подтверждённого факта",
     ],
     expectWarning: false,
   },
@@ -399,6 +408,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "всем жителям трудно открыть дверь",
       "большому числу жильцов",
       "другой группе людей",
+      "конкретную причину, конкретный компонент, конкретное повреждение, конкретный способ ремонта или конкретную операцию без прямого указания во входе или однозначной необходимости из подтверждённого факта",
     ],
     expectWarning: false,
   },
