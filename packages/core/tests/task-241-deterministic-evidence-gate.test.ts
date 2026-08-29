@@ -273,7 +273,7 @@ describe("детерминированная materialization", () => {
     if (proof.id === ID.explicitGroup) expect(rendered.body).not.toContain("всех жильцов");
   });
 
-  it("не переносит конфликтующее место даже из полного exact evidence", () => {
+  it("при check_location не переносит конфликтующее место даже из полного exact evidence", () => {
     const proof = proofCase({ id: ID.conflict, intent: INTENT.restore, locationWarning: true });
     const fullDescriptionEvidence = descriptionEvidence(proof.input.description);
     const decision = {
@@ -285,6 +285,18 @@ describe("детерминированная materialization", () => {
     expect(draft.title).toBe(EXPECTED_TEXT.locationTitle);
     expect(draft.problem).toBe(`${EXPECTED_TEXT.locationProblem}. Место: подъезд 3, этаж 4`);
     expect(draft.problem).not.toContain("втором подъезде");
+  });
+
+  it("фиксирует допустимость semantic conflict в schema без check_location", () => {
+    const proof = proofCase({ id: ID.conflict, intent: INTENT.restore });
+    const parsed = decisionSchema.safeParse(proof.decision);
+
+    expect(parsed.success).toBe(true);
+
+    const draft = materializeDecision(proof.input, proof.decision);
+    expect(draft.problem).toContain("втором подъезде");
+    expect(draft.problem).toContain("Место: подъезд 3, этаж 4");
+    expect(draft.warnings).toEqual([]);
   });
 
   it.each([

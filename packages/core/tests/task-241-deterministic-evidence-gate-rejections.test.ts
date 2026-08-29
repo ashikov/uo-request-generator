@@ -159,7 +159,7 @@ const observedFailures = [
   ["unsupported concrete diagnostic operation", { ...BASE, actionPlan: { preliminaryCheck: "Проверить электропроводку измерительным прибором", remedyActions: ["Восстановить освещение"], resultCheck: null } }],
   ["unsupported concrete remedyAction", { ...BASE, actionPlan: { preliminaryCheck: null, remedyActions: ["Смазать и отрегулировать механизм"], resultCheck: null } }],
   ["duplication verification and preliminaryCheck", { ...BASE, verification: "Установить причину проблемы", actionPlan: { preliminaryCheck: "Установить причину проблемы", remedyActions: ["Устранить причину"], resultCheck: null } }],
-  ["location mixing", { ...CONFLICT, problem: `${CONFLICT_INPUT.description} Место: ${CONFLICT_INPUT.location}` }],
+  ["legacy free-text location mixing", { ...CONFLICT, problem: `${CONFLICT_INPUT.description} Место: ${CONFLICT_INPUT.location}` }],
   ["affected-group expansion", { ...CONSEQUENCES, impact: "Проблема затрагивает всех жильцов" }],
 ] as const;
 
