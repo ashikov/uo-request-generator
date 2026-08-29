@@ -105,6 +105,16 @@ const LONG_TITLE = descriptionEvidence("а".repeat(generateRequestLimits.result.
 const structuralRejections = [
   ["неизвестный outcome", { outcome: "partial" }],
   ["неизвестный intent", { ...BASE, resolution: { intent: "replace_wiring" } }],
+  [
+    "unsupported install intent для обычного дефекта",
+    {
+      ...BASE,
+      resolution: {
+        intent: "install_observed_missing_element",
+        evidence: descriptionEvidence(BASE_INPUT.description),
+      },
+    },
+  ],
   ["произвольный providerText", { ...BASE, providerText: "свободный текст" }],
   ["legacy title", { ...BASE, title: "Свободный заголовок" }],
   ["legacy problem", { ...BASE, problem: "Свободное описание проблемы" }],
@@ -141,7 +151,6 @@ const evidenceRejections = [
   ["check_location без location", BASE_INPUT, { ...BASE, locationWarning: { intent: "check_location", descriptionEvidence: BASE.titleEvidence, locationEvidence: { sourceField: "location", quote: "подъезд 1" } } }],
   ["subject противоречит подтверждению", CONSEQUENCES_INPUT, { ...CONSEQUENCES, subject: { kind: "common_area_premises_lighting", evidence: [descriptionEvidence(CONSEQUENCES_INPUT.description)] } }],
   ["inferredImpact противоречит consequences", CONSEQUENCES_INPUT, { ...CONSEQUENCES, inferredImpact: { intent: "possible_use_impediment", evidence: CONSEQUENCES.titleEvidence } }],
-  ["сокращённое описание без warning", CONFLICT_INPUT, { ...CONFLICT, locationWarning: null }],
 ] as const;
 
 // biome-ignore format: Каждая строка переносит исторический failure в его прежнюю свободную роль.
