@@ -40,10 +40,32 @@ const descriptionTargetEvidenceSchema = evidenceFor(
   "description",
   oneLineEvidenceQuote.min(1).max(120),
 );
-const desiredActionsEvidenceSchema = evidenceFor(
-  "desiredActions",
-  z.string().trim().min(1).max(generateRequestLimits.desiredActions.max),
-);
+const desiredActionSourceSchema = z.discriminatedUnion("selection", [
+  z
+    .object({
+      sourceField: z.literal("desiredActions"),
+      selection: z.literal("whole"),
+    })
+    .strict(),
+  z
+    .object({
+      sourceField: z.literal("desiredActions"),
+      selection: z.literal("exact_fragment"),
+      quote: z
+        .string()
+        .min(1)
+        .max(generateRequestLimits.desiredActions.max)
+        .refine((value) => value.trim().length > 0),
+    })
+    .strict(),
+]);
+
+const explicitDesiredActionDecisionSchema = z
+  .object({
+    intent: z.literal("use_explicit_desired_action"),
+    source: desiredActionSourceSchema,
+  })
+  .strict();
 
 const verificationDecisionSchema = z
   .object({
@@ -52,12 +74,15 @@ const verificationDecisionSchema = z
   })
   .strict();
 
-const preliminaryCheckDecisionSchema = z
-  .object({
-    intent: z.literal("establish_unknown_cause"),
-    evidence: descriptionEvidenceSchema,
-  })
-  .strict();
+const preliminaryCheckDecisionSchema = z.discriminatedUnion("intent", [
+  z
+    .object({
+      intent: z.literal("establish_unknown_cause"),
+      evidence: descriptionEvidenceSchema,
+    })
+    .strict(),
+  explicitDesiredActionDecisionSchema,
+]);
 
 const remedyDecisionSchema = z.discriminatedUnion("intent", [
   z
@@ -73,28 +98,39 @@ const remedyDecisionSchema = z.discriminatedUnion("intent", [
       targetEvidence: descriptionTargetEvidenceSchema,
     })
     .strict(),
-  z
-    .object({
-      intent: z.literal("perform_explicit_desired_actions"),
-      evidence: desiredActionsEvidenceSchema,
-    })
-    .strict(),
+  explicitDesiredActionDecisionSchema,
 ]);
 
-const resultCheckDecisionSchema = z
-  .object({
-    intent: z.literal("confirm_problem_resolved"),
-    evidence: descriptionEvidenceSchema,
-  })
-  .strict();
+const resultCheckDecisionSchema = z.discriminatedUnion("intent", [
+  z
+    .object({
+      intent: z.literal("confirm_problem_resolved"),
+      evidence: descriptionEvidenceSchema,
+    })
+    .strict(),
+  explicitDesiredActionDecisionSchema,
+]);
 
 const actionPlanDecisionSchema = z
   .object({
     preliminaryCheck: preliminaryCheckDecisionSchema.nullable(),
-    remedy: remedyDecisionSchema,
+    remedyActions: z.array(remedyDecisionSchema).min(1),
     resultCheck: resultCheckDecisionSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((actionPlan, context) => {
+    const itemCount =
+      Number(actionPlan.preliminaryCheck !== null) +
+      actionPlan.remedyActions.length +
+      Number(actionPlan.resultCheck !== null);
+
+    if (itemCount > primaryRequestDraftLimits.actionPlan.itemsMax) {
+      context.addIssue({
+        code: "custom",
+        message: "Слишком много пунктов procedural plan",
+      });
+    }
+  });
 
 const generatedSelectiveDraftSchema = z
   .object({
@@ -121,6 +157,7 @@ type GeneratedSelectiveDraft = z.infer<typeof generatedSelectiveDraftSchema>;
 type DescriptionEvidence = z.infer<
   typeof descriptionEvidenceSchema | typeof descriptionTargetEvidenceSchema
 >;
+type ExplicitDesiredActionDecision = z.infer<typeof explicitDesiredActionDecisionSchema>;
 
 export class SelectiveGateRejectionError extends Error {
   override name = "SelectiveGateRejectionError";
@@ -135,7 +172,7 @@ function sourceDescription(input: GenerateRequestInput): string {
 }
 
 function sourceDesiredActions(input: GenerateRequestInput): string {
-  const desiredActions = input.desiredActions?.trim();
+  const desiredActions = input.desiredActions;
   return desiredActions === undefined ? reject("Отсутствует поле desiredActions") : desiredActions;
 }
 
@@ -148,43 +185,67 @@ function validateDescriptionEvidence(
   }
 }
 
+function isExplicitDesiredActionDecision(
+  decision:
+    | GeneratedSelectiveDraft["actionPlanDecision"]["preliminaryCheck"]
+    | GeneratedSelectiveDraft["actionPlanDecision"]["remedyActions"][number]
+    | GeneratedSelectiveDraft["actionPlanDecision"]["resultCheck"],
+): decision is ExplicitDesiredActionDecision {
+  return decision?.intent === "use_explicit_desired_action";
+}
+
+function selectDesiredActionSource(
+  input: GenerateRequestInput,
+  decision: ExplicitDesiredActionDecision,
+): string {
+  const source = sourceDesiredActions(input);
+  if (decision.source.selection === "whole") return source;
+
+  const start = source.indexOf(decision.source.quote);
+  if (start === -1) reject("Desired actions fragment не найден во входе");
+  return source.slice(start, start + decision.source.quote.length);
+}
+
+function validateProceduralDecision(
+  input: GenerateRequestInput,
+  decision:
+    | NonNullable<GeneratedSelectiveDraft["actionPlanDecision"]["preliminaryCheck"]>
+    | GeneratedSelectiveDraft["actionPlanDecision"]["remedyActions"][number]
+    | NonNullable<GeneratedSelectiveDraft["actionPlanDecision"]["resultCheck"]>,
+): void {
+  switch (decision.intent) {
+    case "establish_unknown_cause":
+    case "resolve_observed_problem":
+    case "confirm_problem_resolved":
+      validateDescriptionEvidence(input, decision.evidence);
+      break;
+    case "install_observed_missing_element":
+      validateDescriptionEvidence(input, decision.observationEvidence);
+      validateDescriptionEvidence(input, decision.targetEvidence);
+      if (!decision.observationEvidence.quote.includes(decision.targetEvidence.quote)) {
+        reject("Target evidence не входит в observation evidence");
+      }
+      break;
+    case "use_explicit_desired_action":
+      selectDesiredActionSource(input, decision);
+      break;
+  }
+}
+
 function validateDecision(input: GenerateRequestInput, draft: GeneratedSelectiveDraft): void {
   if (draft.verificationDecision !== null) {
     validateDescriptionEvidence(input, draft.verificationDecision.evidence);
   }
 
-  const { preliminaryCheck, remedy, resultCheck } = draft.actionPlanDecision;
-  if (preliminaryCheck !== null) validateDescriptionEvidence(input, preliminaryCheck.evidence);
-  if (resultCheck !== null) validateDescriptionEvidence(input, resultCheck.evidence);
+  const { preliminaryCheck, remedyActions, resultCheck } = draft.actionPlanDecision;
+  if (preliminaryCheck !== null) validateProceduralDecision(input, preliminaryCheck);
+  for (const remedy of remedyActions) validateProceduralDecision(input, remedy);
+  if (resultCheck !== null) validateProceduralDecision(input, resultCheck);
 
-  switch (remedy.intent) {
-    case "resolve_observed_problem":
-      validateDescriptionEvidence(input, remedy.evidence);
-      break;
-    case "install_observed_missing_element":
-      validateDescriptionEvidence(input, remedy.observationEvidence);
-      validateDescriptionEvidence(input, remedy.targetEvidence);
-      if (!remedy.observationEvidence.quote.includes(remedy.targetEvidence.quote)) {
-        reject("Target evidence не входит в observation evidence");
-      }
-      break;
-    case "perform_explicit_desired_actions":
-      if (sourceDesiredActions(input) !== remedy.evidence.quote) {
-        reject("Desired actions evidence должно быть полным");
-      }
-      break;
-  }
-
-  if (input.desiredActions !== undefined && remedy.intent !== "perform_explicit_desired_actions") {
-    reject("Явные desiredActions требуют authoritative path");
-  }
-
-  if (
-    draft.verificationDecision !== null &&
-    preliminaryCheck !== null &&
-    draft.verificationDecision.evidence.quote === preliminaryCheck.evidence.quote
-  ) {
-    reject("Verification не должно точно дублировать preliminaryCheck");
+  const proceduralDecisions = [preliminaryCheck, ...remedyActions, resultCheck];
+  const hasExplicitDesiredAction = proceduralDecisions.some(isExplicitDesiredActionDecision);
+  if (input.desiredActions !== undefined && !hasExplicitDesiredAction) {
+    reject("Явные desiredActions требуют source-bound allocation");
   }
 
   if (draft.subject !== null) {
@@ -193,8 +254,13 @@ function validateDecision(input: GenerateRequestInput, draft: GeneratedSelective
   }
 }
 
-function normalizeAuthoritativeText(value: string): string {
-  return value.replaceAll("\r\n", " ").replaceAll("\r", " ").replaceAll("\n", " ").trim();
+function normalizeAuthoritativeAction(value: string): string {
+  return value
+    .replaceAll("\r\n", " ")
+    .replaceAll("\r", " ")
+    .replaceAll("\n", " ")
+    .trim()
+    .replace(/^прошу\s*:\s*/iu, "");
 }
 
 function materializeVerification(
@@ -208,29 +274,47 @@ function materializeActionPlan(
   input: GenerateRequestInput,
   decision: GeneratedSelectiveDraft["actionPlanDecision"],
 ): PrimaryRequestDraft["actionPlan"] {
-  const preliminaryCheck =
-    decision.preliminaryCheck === null
-      ? null
-      : `Установить причину наблюдаемой проблемы: «${decision.preliminaryCheck.evidence.quote}»`;
-  const resultCheck =
-    decision.resultCheck === null
-      ? null
-      : `После работ проверить устранение наблюдаемой проблемы: «${decision.resultCheck.evidence.quote}»`;
+  const preliminaryCheck = materializePreliminaryCheck(input, decision.preliminaryCheck);
+  const remedyActions = decision.remedyActions.map((remedy) => materializeRemedy(input, remedy));
+  const resultCheck = materializeResultCheck(input, decision.resultCheck);
 
-  let remedy: string;
-  switch (decision.remedy.intent) {
-    case "resolve_observed_problem":
-      remedy = `Устранить наблюдаемую проблему: «${decision.remedy.evidence.quote}»`;
-      break;
-    case "install_observed_missing_element":
-      remedy = `Установить отсутствующий элемент, указанный пользователем: «${decision.remedy.targetEvidence.quote}»`;
-      break;
-    case "perform_explicit_desired_actions":
-      remedy = normalizeAuthoritativeText(sourceDesiredActions(input));
-      break;
+  return { preliminaryCheck, remedyActions, resultCheck };
+}
+
+function materializePreliminaryCheck(
+  input: GenerateRequestInput,
+  decision: GeneratedSelectiveDraft["actionPlanDecision"]["preliminaryCheck"],
+): string | null {
+  if (decision === null) return null;
+  if (decision.intent === "use_explicit_desired_action") {
+    return normalizeAuthoritativeAction(selectDesiredActionSource(input, decision));
   }
+  return `Установить причину наблюдаемой проблемы: «${decision.evidence.quote}»`;
+}
 
-  return { preliminaryCheck, remedyActions: [remedy], resultCheck };
+function materializeRemedy(
+  input: GenerateRequestInput,
+  decision: GeneratedSelectiveDraft["actionPlanDecision"]["remedyActions"][number],
+): string {
+  switch (decision.intent) {
+    case "resolve_observed_problem":
+      return `Устранить наблюдаемую проблему: «${decision.evidence.quote}»`;
+    case "install_observed_missing_element":
+      return `Установить отсутствующий элемент, указанный пользователем: «${decision.targetEvidence.quote}»`;
+    case "use_explicit_desired_action":
+      return normalizeAuthoritativeAction(selectDesiredActionSource(input, decision));
+  }
+}
+
+function materializeResultCheck(
+  input: GenerateRequestInput,
+  decision: GeneratedSelectiveDraft["actionPlanDecision"]["resultCheck"],
+): string | null {
+  if (decision === null) return null;
+  if (decision.intent === "use_explicit_desired_action") {
+    return normalizeAuthoritativeAction(selectDesiredActionSource(input, decision));
+  }
+  return `После работ проверить устранение наблюдаемой проблемы: «${decision.evidence.quote}»`;
 }
 
 export function materializeSelectiveDraft(
