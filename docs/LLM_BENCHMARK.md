@@ -212,6 +212,8 @@ Reviewer для каждого scenario/repeat отдельно оценивае
 - допустимость safe inferred impact
 - потенциальную формулировку inferred risk без драматичного каскада
 - приоритет explicit consequences и desiredActions
+- полноту source-bound segmentation `desiredActions` и корректное распределение
+  explicit actions между preliminary, remedy и result roles
 - обоснованность procedural enrichment
 - отсутствие искусственного раздувания простого дефекта
 - отказ объединять несколько несвязанных проблем в одну заявку
@@ -220,6 +222,8 @@ Reviewer для каждого scenario/repeat отдельно оценивае
 - сохранение location и desiredActions
 - отсутствие существенного semantic duplication или contradiction между
   `problem`, `circumstances`, `impact`, `verification` и procedural plan
+- cross-role duplication независимо от equality или inequality exact evidence
+  quotes
 - сохранение одного смысла при разных естественных формулировках stochastic
   repeats
 
