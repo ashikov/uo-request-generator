@@ -102,6 +102,46 @@ Zod-схема расширяет `primaryRequestDraftSchema`, поэтому п
 удаляет discriminator и передаёт `PrimaryRequestDraft` единственному renderer
 вместе с исходным `GenerateRequestInput`.
 
+### Предлагаемая граница ADR-0004
+
+Proposed ADR-0004 сохраняет provider-authored prose для `title`, `problem`,
+`circumstances`, `impact` и `warnings`, но заменяет свободные `verification` и
+`actionPlan` закрытыми procedural decisions. После одного provider call
+`packages/llm` проверяет strict JSON shape, а provider-independent materializer
+в `packages/core` проверяет exact evidence и строит защищённые роли существующего
+`PrimaryRequestDraft`. Текущий renderer и public result остаются последним
+этапом без изменения.
+
+```text
+GenerateRequestInput
+→ один provider call
+→ generative prose + bounded procedural decisions
+→ strict provider schema
+→ core evidence validation и procedural materializer
+→ PrimaryRequestDraft
+→ существующий deterministic renderer
+→ GenerateRequestResult
+```
+
+Hard boundary запрещает arbitrary technical method slot в `verification`,
+`preliminaryCheck`, `remedyActions` и `resultCheck`, требует полное authoritative
+`desiredActions` на explicit path и отклоняет malformed или inconsistent
+decisions fail closed. Набор решений описывает общие операции: сохранить
+пользовательскую неопределённость, установить неизвестную причину, устранить
+наблюдаемую проблему, установить явно отсутствующий элемент, выполнить полное
+`desiredActions` и проверить устранение проблемы.
+
+Schema не содержит ремонтов, компонентов, инженерных систем, причин или
+symptom-to-remedy mappings. Exact evidence подтверждает provenance, но не
+семантическую правильность intent. Естественность descriptive prose,
+non-invention, полнота фактов, impact, группы и location остаются semantic/live
+acceptance.
+
+Эта граница пока существует только как Proposed ADR и test-only proof
+`packages/core/tests/task-243-selective-procedural-gate*.ts`. Production gateway
+по-прежнему использует описанный ниже свободноформатный generated draft. #233
+может быть закрыта только после отдельного wiring и acceptance.
+
 Публичный вход содержит необязательное поле `confirmedProblemSubject`,
 принимаемое как закрытый enum. Форма отправляет его только после выбора пункта в
 `select`. Проверенное значение сохраняется в HTTP/core-вводе и не сериализуется

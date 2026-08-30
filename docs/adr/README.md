@@ -5,4 +5,4 @@ ADR фиксируют принятые и предлагаемые сущест
 - [ADR-0001: Монорепозиторий и модульный монолит](0001-modular-monolith.md)
 - [ADR-0002: TypeScript, Fastify и статический frontend](0002-typescript-fastify.md)
 - [ADR-0003: Провайдер-независимая граница LLM](0003-provider-independent-llm.md)
-- [ADR-0004: Детерминированный evidence gate для смысловых решений](0004-deterministic-evidence-gate.md)
+- [ADR-0004: Selective procedural evidence gate для LLM-черновика](0004-deterministic-evidence-gate.md)

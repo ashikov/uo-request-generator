@@ -99,6 +99,13 @@ normative module и структуры procedural plan. `semanticExpectations` �
 проверяемые смысловые инварианты человеческим языком, а не эталонную
 формулировку модели. Их не меняют после просмотра конкретного ответа.
 
+Для генеративных `title`, `problem`, `circumstances` и `impact` не задают одну
+каноническую фразу как hard expectation. Разные stochastic repeats могут
+формулировать один смысл по-разному. После production implementation ADR-0004
+hard checks отдельно проверят bounded procedural decisions, exact evidence и
+результат deterministic materialization, а выбор решения и описательный текст
+останутся semantic expectations.
+
 Hard checks используют validated structured draft и ту же deterministic
 normative selection, что и production renderer. Они не выводятся из regex по
 готовой заявке. Если смысловой критерий нельзя надёжно формализовать, его
@@ -213,6 +220,8 @@ Reviewer для каждого scenario/repeat отдельно оценивае
 - сохранение location и desiredActions
 - отсутствие существенного semantic duplication или contradiction между
   `problem`, `circumstances`, `impact`, `verification` и procedural plan
+- сохранение одного смысла при разных естественных формулировках stochastic
+  repeats
 
 Классификация review: `PASS` — semantic contract соблюдён. `REGRESSION` —
 ответ нарушает scenario contract. `UNSTABLE` — repeats дают противоречивый

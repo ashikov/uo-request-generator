@@ -1,4 +1,4 @@
-# ADR-0004: Детерминированный evidence gate для смысловых решений
+# ADR-0004: Selective procedural evidence gate для LLM-черновика
 
 ## Статус
 
@@ -6,288 +6,508 @@ Proposed
 
 ## Контекст
 
-Проверки в рамках #233 выявили шесть сбоев в schema-valid результатах. В двух
-случаях группа затронутых людей расширялась, ещё в четырёх результат добавлял
-неподтверждённые механизмы, компоненты, повреждения или способы ремонта.
-Свободный текст в процедурных ролях позволяет этим сведениям пройти локальную
-проверку. Простое точное цитирование не решает проблему: оно доказывает
-происхождение фрагмента, но не его смысловую связанность с выбранным действием.
+Проверки в рамках #233 подтвердили устойчивый класс ошибок в schema-valid
+ответах LLM. Модель способна превратить наблюдаемую проблему в
+неподтверждённый технический компонент, причину, повреждение, способ ремонта
+или техническое предписание. В результат попадали, например, петли, смазка,
+регулировка, выключатели, элементы освещения, ремонт и замена деталей.
 
-Нужна граница, которая сохраняет публичные контракты ввода и результата, один
-вызов провайдера, текущий renderer и независимость `core` от провайдера. Решение
-не должно добавлять NLP, эвристики или второй вызов модели.
+Prompt-only подход исчерпан. Дополнительные case-specific инструкции уменьшают
+отдельные проявления ошибки, но не закрывают свободные процедурные роли по
+конструкции. Новый реальный сценарий не должен автоматически добавлять ещё один
+специальный абзац в production prompt.
+
+Исследование #241 и PR #242 предложило закрытые semantic intents, exact evidence
+и детерминированный materializer для всего черновика. Test-only proof v1
+детерминированно строил `title` и `problem`, отключал `circumstances` и
+`verification`, сильно ограничивал `impact`, а также материализовал план и
+warnings из фиксированных фраз.
+
+Такой full gate закрывает свободные текстовые слоты, но одновременно устраняет
+основную продуктовую ценность LLM. Проекту нужна стохастическая семантическая
+нормализация бытового текста в естественную, профессиональную и компактную
+заявку. Формулировки вроде «течёт с потолка» и «наблюдается поступление воды с
+потолка» могут быть равноценными. Их различие между корректными прогонами не
+является дефектом.
+
+Backend без понимания русского текста не может доказать семантическую
+эквивалентность такой нормализации. Попытка сделать это через exact quote,
+регулярные выражения, словари или symptom-to-remedy mapping превратила бы
+backend в неполную NLP- или экспертную систему ЖКХ.
+
+Нужна минимальная граница между двумя разными обязанностями:
+
+- семантической нормализацией пользовательских фактов
+- формированием технических и процедурных требований
+
+Граница должна сохранить публичные `GenerateRequestInput` и
+`GenerateRequestResult`, один вызов провайдера, независимость `packages/core`
+от провайдера и существующий детерминированный renderer.
+
+Текущий production runtime по-прежнему принимает свободноформатный
+`PrimaryRequestDraft`. Описанная ниже граница ещё не подключена и сама по себе
+не закрывает #233 в production.
 
 ## Решение
 
-Выбрать вариант B: закрытые смысловые решения, точное evidence с указанием поля
-и детерминированный materializer. Provider-facing контракт на архитектурном
-уровне задаётся в форме TypeScript/Zod/JSON:
+Выбрать selective boundary B с hybrid procedural representation:
+
+- LLM свободно генерирует `title`, `problem`, `circumstances`, `impact` и
+  `warnings`
+- `verification` формируется только из bounded decision с exact evidence
+- `actionPlan.preliminaryCheck`, `actionPlan.remedyActions` и
+  `actionPlan.resultCheck` формируются только из bounded decisions
+- существующий evidence gate для `subject` сохраняется независимо от этой
+  границы
+- renderer продолжает детерминированно собирать один связный
+  human-readable результат из проверенного `PrimaryRequestDraft`
+
+Это не граница между всей LLM и всем приложением. Она проходит перед ролями,
+которые в итоговом документе становятся проверкой, требованием к исполнителю
+или процедурным планом.
+
+`verification` входит в защищённую границу. Свободная фраза в этой роли способна
+внести неподтверждённую техническую гипотезу или предписать проверку конкретного
+компонента в обход `actionPlan`. Более слабый prose-контракт проверил бы только
+форму строки, но не закрыл бы этот обход.
+
+`warnings` остаются генеративными, потому что они не материализуются как часть
+требований к исполнителю. Их фактическая уместность и отсутствие технических
+предписаний остаются semantic guarantee. Если live regression покажет, что
+warnings устойчиво становятся вторым процедурным каналом, границу нужно будет
+пересмотреть отдельным решением, а не скрывать это предположение в текущей
+схеме.
+
+### Граница по ролям
+
+| Роль | Источник результата | Класс гарантии |
+| --- | --- | --- |
+| `title` | LLM prose | Semantic/live-eval |
+| `problem` | LLM prose | Semantic/live-eval |
+| `circumstances` | LLM prose или `null` | Semantic/live-eval |
+| `impact` | LLM prose или `null` | Semantic/live-eval |
+| `verification` | Bounded decision и deterministic materializer | Hard для формы и provenance, semantic для выбора решения |
+| `subject` | Существующий subject evidence gate | Текущий отдельный контракт |
+| `actionPlan.preliminaryCheck` | Bounded decision и deterministic materializer | Hard для формы и provenance, semantic для выбора решения |
+| `actionPlan.remedyActions` | Bounded decision или полное `desiredActions` | Hard для отсутствия arbitrary method slot |
+| `actionPlan.resultCheck` | Bounded decision и deterministic materializer | Hard для формы и provenance, semantic для выбора решения |
+| `warnings` | LLM prose | Semantic/live-eval |
+
+### Provider-facing контракт
+
+На архитектурном уровне generated-ветка состоит из свободных описательных
+полей и закрытых процедурных решений:
 
 ```ts
-const sourceFields = ["description", "desiredActions", "location"] as const;
-type SourceField = (typeof sourceFields)[number];
+type ExactEvidence<SourceField extends "description" | "desiredActions"> = {
+  sourceField: SourceField;
+  quote: string;
+};
 
-const evidenceFor = <T extends SourceField>(sourceField: T, quote: z.ZodString) => z.object({
-  sourceField: z.literal(sourceField),
-  quote,
-}).strict();
+type VerificationDecision =
+  | {
+      intent: "preserve_user_stated_uncertainty";
+      evidence: ExactEvidence<"description">;
+    }
+  | null;
 
-const oneLineQuote = z.string().refine(
-  (quote) => !quote.includes("\r") && !quote.includes("\n"),
-).trim();
-const authoritativeQuote = z.string().trim();
-const descriptionEvidence = evidenceFor(
-  "description",
-  oneLineQuote.min(10).max(300),
-);
-const desiredActionsEvidence = evidenceFor(
-  "desiredActions",
-  authoritativeQuote.min(1).max(generateRequestLimits.desiredActions.max),
-);
-const locationEvidence = evidenceFor(
-  "location",
-  authoritativeQuote.min(1).max(generateRequestLimits.location.max),
-);
+type PreliminaryCheckDecision =
+  | {
+      intent: "establish_unknown_cause";
+      evidence: ExactEvidence<"description">;
+    }
+  | null;
 
-const resolution = z.discriminatedUnion("intent", [
-  z.object({
-    intent: z.literal("restore_observed_state"),
-    evidence: descriptionEvidence,
-  }).strict(),
-  z.object({
-    intent: z.literal("establish_and_remove_cause"),
-    evidence: descriptionEvidence,
-  }).strict(),
-  z.object({
-    intent: z.literal("perform_requested_action"),
-    evidence: desiredActionsEvidence,
-  }).strict(),
-]);
+type RemedyDecision =
+  | {
+      intent: "resolve_observed_problem";
+      evidence: ExactEvidence<"description">;
+    }
+  | {
+      intent: "install_observed_missing_element";
+      observationEvidence: ExactEvidence<"description">;
+      targetEvidence: ExactEvidence<"description">;
+    }
+  | {
+      intent: "perform_explicit_desired_actions";
+      evidence: ExactEvidence<"desiredActions">;
+    };
 
-const generatedDecision = z.object({
-  outcome: z.literal("generated"),
-  titleEvidence: descriptionEvidence,
-  problemEvidence: z.array(descriptionEvidence).min(1).max(3),
-  inferredImpact: z.object({
-    intent: z.literal("possible_use_impediment"),
-    evidence: descriptionEvidence,
-  }).strict().nullable(),
-  resolution,
-  resultCheck: z.object({
-    intent: z.literal("confirm_problem_resolved"),
-    evidence: descriptionEvidence,
-  }).strict().nullable(),
-  locationWarning: z.nullable(z.object({
-    intent: z.literal("check_location"),
-    descriptionEvidence,
-    locationEvidence,
-  }).strict()),
-  subject: primaryRequestSubjectSchema,
-}).strict();
-const decision = z.discriminatedUnion("outcome", [
-  generatedDecision,
-  z.object({ outcome: z.literal("multiple_issues") }).strict(),
-]);
+type ResultCheckDecision =
+  | {
+      intent: "confirm_problem_resolved";
+      evidence: ExactEvidence<"description">;
+    }
+  | null;
+
+type GeneratedSelectiveDraft = {
+  outcome: "generated";
+  title: string;
+  problem: string;
+  circumstances: string | null;
+  impact: string | null;
+  verificationDecision: VerificationDecision;
+  subject: PrimaryRequestSubject;
+  actionPlanDecision: {
+    preliminaryCheck: PreliminaryCheckDecision;
+    remedy: RemedyDecision;
+    resultCheck: ResultCheckDecision;
+  };
+  warnings: string[];
+};
+
+type SelectiveProviderDraft =
+  | GeneratedSelectiveDraft
+  | { outcome: "multiple_issues" };
 ```
 
-JSON-форма результата: `{"outcome":"generated","titleEvidence":{"sourceField":"description","quote":"..."},"problemEvidence":[{"sourceField":"description","quote":"..."}],"inferredImpact":null,"resolution":{"intent":"restore_observed_state","evidence":{"sourceField":"description","quote":"..."}},"resultCheck":null,"locationWarning":null,"subject":null}`. Ветка `multiple_issues` содержит только `{"outcome":"multiple_issues"}`. Provider JSON Schema повторяет эту discriminated union: обе ветки имеют `additionalProperties: false`, все поля generated-ветки обязательны, необязательные смысловые решения представлены required nullable-полями, а evidence-объекты фиксируют `sourceField` через одно допустимое `const`. Bounds для `description`, `desiredActions` и `location` совпадают с Zod-схемами выше.
+Production JSON Schema должна выражать ту же strict discriminated union.
+Generated-ветка содержит все перечисленные поля. Необязательные решения
+представляются required nullable-полями. Обе ветки запрещают дополнительные
+свойства.
 
-`evidenceFor(sourceField)` означает закрытую схему с тем же значением
-`sourceField`, а не свободную строку. Evidence должно быть дословным,
-непрерывным, обрезанным по краям, регистрозависимым и находиться в полном
-значении указанного поля. Цитата из `description` однострочная, ограничена
-10–300 символами после обрезки и точно совпадает с непрерывным фрагментом
-указанного поля.
-Определяются отдельные варианты `descriptionEvidence`, `locationEvidence` и
-`desiredActionsEvidence` с соответствующим литералом `sourceField`.
-`desiredActionsEvidence` допускает 1–500 символов и требует полного равенства
-обрезанному `desiredActions`. `locationEvidence` допускает 1–120 символов и
-требует полного равенства обрезанному `location`. Эти authoritative evidence
-сохраняют допустимые внутренние переводы строк. Явные `consequences` не проходят
-через решение провайдера и также сохраняются backend целиком. Перед записью
-`desiredActions`, `location` и `consequences` в однострочные поля существующего
-`PrimaryRequestDraft` backend детерминированно заменяет `CRLF`, `CR` и `LF`
-пробелами и обрезает края. Содержание и семантика полей не переписываются.
-`locationWarning` требует двух объектов: фрагмента `description` и полного
-структурированного `location`.
-`titleEvidence` содержит
-фрагмент `description`, совпадает с одним из элементов `problemEvidence` и
-укладывается в существующий лимит заголовка.
+Набор решений описывает общие смысловые операции, а не предметный каталог. В
+контракте нет enum конкретных ремонтов, компонентов, инженерных систем, причин
+или связей «симптом → способ ремонта».
 
-Шесть закрытых решений имеют следующие правила:
+У bounded decisions нет соседнего свободного слота для метода ремонта,
+компонента, диагноза или provider-authored действия. Добавление такого поля
+делало бы структурную гарантию фиктивной.
 
-- `restore_observed_state` восстанавливает наблюдаемое состояние.
-- `establish_and_remove_cause` является одним решением и материализуется в
-  таком порядке: предварительно установить причину, затем устранить её.
-- `perform_requested_action` допускает в результате только полное проверенное
-  значение `desiredActions` с детерминированной нормализацией переводов строк.
-- `confirm_problem_resolved` проверяет устранение наблюдаемой проблемы.
-- `possible_use_impediment` добавляет только фиксированное нейтральное
-  практическое значение или потенциальный риск, когда он непосредственно
-  следует из описания.
-- `check_location` проверяет место, используя авторитетное структурированное
-  `location`.
+### Exact evidence
 
-Детерминированный materializer исходит из структурированных полей ввода и
-закрытых intent, а не из provider-authored prose. Заголовок равен точному
-`titleEvidence`. Проблема объединяет точные `problemEvidence` и независимо от
-полноты этих цитат дописывает авторитетное структурированное `location`. В proof
-v1 `circumstances` и `verification` всегда равны `null`. `impact` копирует полное
-`consequences` с нормализацией только переводов строк, если оно есть, иначе
-использует фиксированный необязательный intent `possible_use_impediment` или
-`null`. `check_location` означает выбранное провайдером решение о смысловом
-конфликте мест, а не fallback из-за неполного цитирования `description`.
-Единственное предупреждение строится из фиксированного `locationWarning`. При
-`check_location` materializer не переносит выбранные моделью excerpts в `title`
-и `problem`: он использует фиксированные безопасные формулировки и только полное
-authoritative `location`. Поэтому распознанный конфликт не может объединить
-места даже при exact evidence полного конфликтующего `description`. Полные
-`desiredActions`, `location` и `consequences` проходят только детерминированную
-нормализацию переводов строк перед однострочными полями существующего draft.
-`subject` проходит существующий строгий
-evidence gate. Результат проверяется `primaryRequestDraftSchema` и передаётся
-существующему renderer. Используется именно `primaryRequestSubjectSchema`: его
-source fields остаются `description`, `location`, `consequences` и
-`desiredActions`. Union role evidence не сужает subject evidence.
+Exact evidence обязательна только там, где deterministic materializer переносит
+пользовательское основание в защищённую процедурную роль:
 
-Для простой неисправности без явного `desiredActions` формируется только
-`restore_observed_state`: непосредственное восстановление наблюдаемого состояния
-без отдельной диагностики. Конкретное пользовательское действие разрешено только
-через `perform_requested_action` с полным authoritative `desiredActions`.
-Отдельного intent для установки отсутствующего элемента нет, поскольку exact
-evidence из `description` доказывает provenance, но не даёт semantic
-authorization установочной операции. Фиксированные выходы также включают
-проверку результата только при наличии `resultCheck`, предварительную проверку и
-устранение причины для `establish_and_remove_cause`.
-`establish_and_remove_cause` даёт одну предварительную
-проверку и одну роль устранения. Дублирование установления причины структурно
-невозможно: отдельной provider-facing роли `verification` или произвольного
-текста для этой цели нет. Неподтверждённые причины, компоненты, методы,
-повреждения и новые группы не имеют contract-слота и не могут
-materialize. Техническая конкретика допустима только внутри полного
-пользовательского `desiredActions`, которое materializer копирует без замены
-другим ремонтом. Иначе говоря,
-установленная группа переносится только полным явным `consequences`, а не
-расширяется renderer.
+- `preserve_user_stated_uncertainty` ссылается на точный фрагмент
+  `description`
+- `establish_unknown_cause` ссылается на точный фрагмент `description`
+- `resolve_observed_problem` ссылается на точный фрагмент `description`
+- `install_observed_missing_element` ссылается на наблюдение и на вложенный в
+  него точный target из `description`
+- `perform_explicit_desired_actions` требует полное обрезанное значение
+  `desiredActions`
+- `confirm_problem_resolved` ссылается на точный фрагмент `description`
 
-Перед materialization проверяются закрытый enum, соответствие каждого evidence
-его полю и точное присутствие цитаты во входе. Противоречивые, неполные или
-невалидные решения отклоняются по принципу fail closed. Не используются fallback
-на свободный текст, частичный черновик, retry, prompt tuning, NLP, semantic
-regex/keyword routing, словари компонентов, symptom-to-remedy/domain mappings
-или второй вызов. Закрытый switch `intent → fixed text` является самим
-детерминированным materializer, а не диагностическим mapping.
+Evidence должно быть дословным, непрерывным, обрезанным по краям,
+регистрозависимым и находиться в заявленном source field. Полное
+`desiredActions` является authoritative path. При его наличии модель не может
+заменить пользовательское действие generic remedy.
 
-Рассматривались альтернативы:
+Exact evidence сознательно не требуется для `title`, `problem`,
+`circumstances`, `impact` и `warnings`. Для этих полей provenance отдельной
+цитаты не доказывает корректность естественной переформулировки и только
+ограничивает генеративную ценность.
 
-| Вариант | Закрытие исторических free-text ролей | Доверие к LLM | Сложность | Регресс качества | Контракт и вызов | Запрещённая механика |
-| --- | --- | --- | --- | --- | --- | --- |
-| A: свободный текст и metadata evidence | Нет | Высокое | Низкая | Сохраняет гибкость | Сохраняет public input/result и один вызов | Не добавляет |
-| B: закрытые решения, evidence и materializer | Да, но semantic conflict classification не входит в эту гарантию | Intent и полнота evidence остаются на LLM | Средняя | Есть ограничения proof v1 | Сохраняет | Нет NLP, regex, keywords, словарей, mappings, retry или второго вызова |
-| C: fallback над свободным текстом | Нет | Высокое | Высокая и эвристическая | Непредсказуемый fallback | Сохраняет | Потребовал бы запрещённые средства |
+Exact evidence доказывает происхождение текста, но не доказывает правильность
+intent. Например схема может проверить, что слово «ручка» находится внутри
+цитаты «На входной двери отсутствует ручка», но не понимает русский смысл
+отсутствия. Корректность выбора `install_observed_missing_element` остаётся
+semantic/live-eval guarantee.
 
-Вариант B выбран как единственный структурно закрывающий safety-critical
-free-text роли без изменения публичного контракта и числа вызовов. Выбор
-подходящего bounded intent, включая распознавание semantic location conflict,
-остаётся обязанностью LLM classification.
+По той же причине exact target исключает полностью отсутствующий во входе
+компонент, но не доказывает, что названный элемент действительно отсутствует.
+Для фразы «петли исправны, ручка отсутствует» схема сама по себе не отличит
+правильный target «ручка» от неправильного target «петли». Ошибочное применение
+bounded operation к семантически несовместимому evidence остаётся live-eval
+risk.
 
-В варианте A сочетание `valid quote + arbitrary LLM free text` подтверждает
-только provenance цитаты. Оно не даёт semantic authorization произвольному
-техническому действию рядом: свободный prose всё ещё может добавить
-неподтверждённый компонент, диагноз или способ ремонта.
+### Materialization
 
-Вариант C не даёт backend надёжного условия включения fallback. Чтобы решить,
-безопасен ли произвольный русский technical prose и требуется ли замена,
-backend сначала должен семантически понять этот prose. Без NLP, словаря,
-regex/keyword routing или второго семантического судьи fallback остаётся
-эвристическим и не закрывает failure class по конструкции.
+Materializer находится в provider-independent `packages/core`. Он получает
+проверенный публичный input и внутреннее provider-facing решение, валидирует
+evidence и строит существующий `PrimaryRequestDraft`.
 
-Точное evidence доказывает provenance, но не смысловую выводимость. Поэтому это
-решение не утверждает корректность намерения провайдера, юридическую
-корректность или качество живых ответов.
+Решения материализуются общими result-oriented формулировками:
 
-Изолированное исполняемое доказательство состоит из test-local схемы,
-materializer и тестов в
-`packages/core/tests/task-241-deterministic-evidence-gate*.ts`. Эти файлы не
-входят в production build. Production по-прежнему использует свободноформатный
-draft. Провайдерские вызовы для этого решения не выполнялись. Перед заявлением
-о production-защите потребуется отдельная задача реализации и подключения
-gate.
+- `preserve_user_stated_uncertainty` сохраняет указанное пользователем
+  обстоятельство как предмет проверки
+- `establish_unknown_cause` требует установить причину наблюдаемой проблемы,
+  но не называет возможную причину или компонент
+- `resolve_observed_problem` требует устранить наблюдаемую проблему без метода
+  ремонта
+- `install_observed_missing_element` требует установить отсутствующий элемент
+  и использует только exact target пользователя
+- `perform_explicit_desired_actions` переносит полное authoritative
+  `desiredActions` с детерминированной нормализацией переводов строк
+- `confirm_problem_resolved` требует проверить устранение наблюдаемой проблемы
 
-Regression strategy фиксирует 14 acceptance-сценариев на существующих
-synthetic fixtures с независимо заданным полным `PrimaryRequestDraft`, повторной
-materialization и проверкой существующего renderer. Отдельные boundary-проверки
-покрывают полный диапазон и multiline-форму authoritative `desiredActions` и
-`location`, multiline `consequences`, а также длинное и многострочное
-`description` с обычным `location` без ложного warning. Adversarial location case
-передаёт полное конфликтующее evidence, а кандидат с удалённым install-intent
-структурно отклоняется даже для обычного дефекта.
-Rejection matrix проверяет malformed union, legacy safety-critical prose, source
-confusion, partial authority, противоречивые решения и строгую ветку
-`multiple_issues`. Исторические assertions точно фиксируют структурное закрытие
-unsupported technical component, diagnostic operation и remedy, дублирования
-`verification` и `preliminaryCheck`, расширения затронутой группы через generated
-`impact` и legacy free-text location mixing через поле `problem`. Последний
-assertion доказывает отсутствие прежнего free-text contract-слота, но не
-детерминированное распознавание semantic location conflict. Production isolation
-подтверждается отсутствием imports из proof и build-конфигурацией, исключающей
-`tests/**`.
+В `simple-defect` фраза «На входной двери отсутствует ручка» поэтому не
+превращается в бессодержательное «Восстановить наблюдаемое состояние».
+Универсальный intent установки отсутствующего элемента вместе с exact target
+даёт естественное требование установить ручку. Backend при этом не содержит
+словаря дверей, ручек или других компонентов и не выводит ремонт по симптому.
 
-Proof v1 отключает `circumstances` и `verification`, ограничивает warnings
-только location warning, берёт не более трёх excerpt по 300 символов вместо
-полного `description` до 2000 символов и сохраняет полные `consequences` и
-`desiredActions` с нормализацией только переводов строк для однострочного draft.
-Это решения proof v1, а не тихое изменение production-контракта, и их нужно
-пересмотреть в задаче реализации.
+Явные `desiredActions` имеют приоритет. Их полное значение сохраняется как
+пользовательское техническое предписание, даже если оно конкретнее generic
+operations. Модель не вправе изменить или заменить его внутри remedy. Отдельные
+bounded `preliminaryCheck` и `resultCheck` могут присутствовать рядом. Их
+смысловая необходимость остаётся live-eval guarantee.
 
-### Структурная гарантия для location
+Явные `consequences`, группа затронутых людей, location compatibility и
+естественная нормализация impact не переводятся в новый deterministic engine.
+Их сохранность и корректность проверяются semantic regression. Существующий
+детерминированный renderer и нормативные модули продолжают работать после
+materialization без изменений публичного результата.
 
-Наличие структурированного `location` и неполное цитирование `description` сами
-по себе не требуют warning. После выбора `check_location` materializer
-гарантированно исключает provider-selected conflicting excerpts из `title` и
-`problem`, использует фиксированные безопасные формулировки, добавляет только
-authoritative structured `location` и детерминированно строит warning. На этой
-границе смешение мест невозможно даже при exact evidence полного конфликтующего
-`description`.
+### Fail closed
 
-### Остаточный semantic risk
+До materialization проверяются:
 
-Evidence gate не определяет сам факт location conflict. Decision для
-конфликтующего input без `check_location` остаётся структурно допустимым, а при
-`locationWarning === null` materializer использует `problemEvidence` и дописывает
-authoritative structured `location`. Если LLM ошибочно не выберет
-`check_location`, схема сама по себе не гарантирует отсутствие semantic mixing.
-Исполняемый contract assertion отдельно фиксирует эту границу. Корректность
-classification остаётся известным bounded LLM risk и должна проверяться будущим
-live semantic acceptance после production wiring. В общем случае semantic
-correctness выбранных моделью bounded intents структурной схемой сама по себе не
-доказана.
+- strict JSON/schema shape
+- известный bounded intent
+- соответствие `sourceField`
+- точное присутствие evidence во входном поле
+- полное равенство authoritative `desiredActions`
+- вложенность install target в observation evidence
+- согласованность решения с наличием `desiredActions`
+- отсутствие точного дублирования `verification` и `preliminaryCheck`
+- существующий subject evidence contract
+- итоговый `primaryRequestDraftSchema`
 
-Proof отклоняет legacy free-text procedural fields: `title`, `problem`,
-`circumstances`, `impact`, `verification`, `actionPlan` и `warnings`.
+Malformed, unknown, extra или inconsistent decision отклоняется. Защищённые
+роли не получают fallback на provider prose или частичный черновик. Это решение
+не добавляет retry, второй LLM-вызов, LLM-as-a-judge, NLP, embeddings,
+regex/keyword repair detection, dictionaries или domain mappings.
 
-Затронутые production-модули: `packages/core` для внутреннего контракта и
-materializer, `packages/llm` для provider JSON Schema и parser, gateway перед
-существующим renderer. `apps/web` сохраняет публичный HTTP-контракт и один
-вызов.
+Конкретное отображение ошибки через существующий публичный
+`GenerateRequestResult` определяется production implementation. Оно не должно
+неявно менять публичный контракт.
 
-PR #240 сохраняется как evidence prompt-эксперимента, но не расширяется и не
-вливается как gate. Отдельная implementation task/PR должна перенести контракт
-и materializer в `core`, обновить schema/parser в `packages/llm`, подключить gate
-перед renderer, сохранить public HTTP и one-call поведение, обновить
-`REQUEST_RULES`, `ARCHITECTURE` и `CONTEXT` только при принятии терминологии,
-сначала выполнить offline regression и не запускать платный gate без отдельного
-явного разрешения. Issue #233 закрывается только после production wiring, не этим
-proof.
+## Гарантии
+
+### Hard / structural guarantees
+
+Код без понимания русского текста может гарантировать:
+
+- строгую форму internal/provider JSON
+- допустимый закрытый набор общих procedural decisions
+- отсутствие arbitrary technical method slot в `verification` и `actionPlan`
+- exact provenance для evidence в защищённых ролях
+- полное сохранение authoritative `desiredActions` на выбранном explicit path
+- невозможность generic remedy при наличии `desiredActions`
+- deterministic materialization защищённых ролей
+- сохранение существующего subject gate и normative modules
+- проверку итогового `PrimaryRequestDraft`
+- fail-closed обработку malformed и inconsistent decisions
+- один provider call после production wiring
+- независимость `packages/core` от конкретного провайдера
+- неизменность публичных input/result без отдельного доказанного решения
+
+Эта структурная гарантия закрывает arbitrary provider-authored method и
+полностью отсутствующий во входе install target внутри `verification` и
+`actionPlan`. Модель не может записать в эти роли свободную смазку,
+регулировку, ремонт или замену детали рядом с bounded decision. Неправильный
+выбор допустимой общей операции или семантически нерелевантного exact target
+остаётся частью #233 residual semantic risk.
+
+### Semantic / live-eval guarantees
+
+Понимания смысла требуют:
+
+- естественная нормализация `title`, `problem`, `circumstances` и `impact`
+- сохранение всех существенных пользовательских фактов
+- отсутствие новых причин, повреждений и компонентов в generative prose
+- корректность и meaningful normalization `impact`
+- сохранение explicit consequences
+- сохранение явно указанной группы без расширения
+- semantic compatibility или conflict между description и location
+- уместность и безопасность warnings
+- правильность выбора bounded decision моделью
+- semantic relevance выбранного evidence
+- отсутствие применения bounded operation к упомянутому, но семантически
+  несовместимому target
+- качество result-oriented формулировок
+- стабильность смысла при разных stochastic repeats
+
+Zod-схема не доказывает эти свойства. Они остаются regression/live-eval
+acceptance и не должны описываться как hard guarantees.
+
+## Рассмотренные границы
+
+### A. Gate только `actionPlan`
+
+Этот вариант закрывает произвольный текст в трёх ролях плана и сохраняет
+остальной черновик генеративным. Он недостаточен, потому что свободный
+`verification` остаётся параллельным procedural slot. Через него модель может
+ввести неподтверждённый компонент или техническую проверку, после чего renderer
+поместит её в итоговую заявку.
+
+### B. Gate `actionPlan` и `verification`
+
+Этот вариант закрывает оба канала, которые прямо формируют проверку и требование
+к исполнителю. Он выбран как минимальная hard boundary для доказанного failure
+class.
+
+### C. Hybrid procedural representation
+
+Hybrid representation уточняет B. Модель выбирает, что требуется установить,
+устранить, выполнить или проверить, но не пишет произвольный способ ремонта в
+защищённый slot. Наблюдаемая проблема и её значение остаются LLM prose.
+
+B и C используются совместно: B определяет охваченные роли, C определяет форму
+их внутреннего контракта.
+
+### Full deterministic materializer из proof v1
+
+Full gate больше не является production target ADR-0004. Его отклонение не
+связано с невозможностью реализации. Он чрезмерно уменьшает генеративную
+ценность продукта, задаёт одну каноническую формулировку и переносит слишком
+много языковой работы в backend.
+
+История исходного решения остаётся в #241, Git и PR #242. Stale proof не должен
+оставаться действующим архитектурным контрактом только ради истории.
+
+## Offline proof
+
+Test-only proof selective boundary находится в файлах
+`packages/core/tests/task-243-selective-procedural-gate*.ts`. Он не входит в
+production build и не импортируется production-кодом.
+
+Proof проверяет:
+
+- сохранение двух разных естественных prose-вариантов при одинаковом смысле
+- одинаковую deterministic materialization защищённых решений
+- все обязательные regression scenarios
+- полезное действие для `simple-defect` без component catalog
+- полное multiline `desiredActions`
+- сохранение authoritative `desiredActions` рядом с отдельными bounded checks
+- bounded `verification` из user-stated uncertainty
+- отклонение legacy free procedural prose, unknown intents и extra fields
+- отклонение неверного evidence и неполного authoritative path
+- сохранение существующего subject gate и renderer
+- явную границу hard guarantee через допустимый adversarial generative prose
+- явную границу install evidence через допустимый семантически неверный target
+
+Последняя проверка намеренно показывает, что schema-valid `problem`, `impact`
+или `warnings` всё ещё могут содержать invention. Это не желаемый продуктовый
+результат, а executable доказательство того, что данный риск честно оставлен в
+semantic/live-eval слое и не объявлен закрытым TypeScript-схемой.
+
+Старые `task-241-*` assertions full materializer заменены. Production behavior
+при этом не изменён. Provider requests в proof не выполняются.
+
+## Сопоставление regression scenarios
+
+Во всех строках stochastic-часть проверяется не по одной канонической фразе, а
+по сохранению смысла, фактов и non-invention.
+
+| Scenario | Stochastic | Structural boundary | Offline proof | Live semantic gate |
+| --- | --- | --- | --- | --- |
+| `only-description` | Заголовок, проблема, обстоятельства, impact, warnings | Unknown-cause check, generic resolution, result check | Schema, evidence, plan и renderer | Полнота и естественность нормализации |
+| `wording-normalization` | Все descriptive roles | Generic resolution и existing subject gate | Естественный вариант проходит без exact prose | Эквивалентность бытового и профессионального текста |
+| `minimum-sufficient-requests` | Компактное описание проблемы и значения | Cause, resolution и result decisions | Минимальный bounded plan без method slot | Достаточность просьб и отсутствие новых фактов |
+| `simple-defect` | Естественные title и problem | Install-missing intent с exact target | Конкретное действие содержит «ручка» | Корректность выбора install intent |
+| `location-preservation` | Descriptive prose с location | Generic resolution, result и subject | Location не мешает selective materialization | Сохранение места без смыслового искажения |
+| `conflicting-location` | Problem, impact и warning | Plan и subject без location mapping | Контракт не смешивает location с repair method | Распознавание конфликта и полезный warning |
+| `impact-subject-objective` | Meaningful impact | Generic resolution | Impact сохраняется как prose | Корректный субъект impact без расширения группы |
+| `impact-subject-explicit-group` | Impact с явной группой | Generic resolution | Группа не создаёт procedural slot | Точное сохранение явно указанной группы |
+| `unconfirmed-remedy-lighting` | Описание и impact | Полный explicit `desiredActions` | Authoritative действие сохраняется без изменения | Отсутствие invention и уместность bounded checks |
+| `unconfirmed-remedy-door` | Описание и impact | Полный explicit `desiredActions` | Authoritative path без петель и методов | Семантическая верность остального draft |
+| `confirmed-remedy-door-handle` | Естественная нормализация | Полный explicit `desiredActions` | Подтверждённое действие сохраняется | Качество result-oriented текста |
+| `unknown-remedy-lighting` | Описание и impact | Unknown cause, generic resolution, result | Нет выключателя, проводки или repair method slot | Правильность смысла и отсутствие invention в prose |
+| `unknown-remedy-functional-defect` | Описание и impact | Unknown cause, generic resolution, result | Нет symptom-to-remedy mapping | Достаточность и естественность результата |
+| `lighting-elevator-cabin` | Descriptive roles | Explicit action и existing lighting subject | Authoritative action и выбранный subject | Не расширить предмет до всего лифта |
+| `elevator-position-indicator` | Descriptive roles | Explicit action и existing elevator subject | Authoritative action и выбранный subject | Не подменить индикатор другой неисправностью |
+
+Offline proof не подменяет live acceptance. После production wiring stochastic
+repeats должны проверяться semantic review по смыслу, фактам и non-invention, а
+не сравнением с одной фразой.
+
+## Prompt growth после implementation
+
+Текущий `packages/llm/src/request-draft.ts` не изменяется в этом проходе. Его
+правила делятся на три группы.
+
+Остаются необходимыми semantic instructions:
+
+- естественно и компактно нормализовать пользовательский текст
+- не добавлять новые факты, причины, повреждения, последствия и группы
+- сохранять location, explicit consequences и meaningful impact
+- различать проблему, обстоятельства и влияние
+- выбирать только подтверждённый subject
+- возвращать единый согласованный черновик
+
+Потенциально становятся структурно избыточными после production wiring:
+
+- запреты писать arbitrary repair method в `verification` и `actionPlan`
+- инструкции не дублировать одну техническую проверку между procedural roles
+- ограничения формы действий, уже выраженные strict schema и materializer
+- правила полного переноса `desiredActions`, проверяемые authoritative path
+
+Case-specific debt включает инструкции, добавленные под отдельные компоненты,
+ремонты или формулировки исторических regressions. Их нельзя удалять заранее.
+Каждая такая инструкция удаляется только после offline regression proof и
+отдельно разрешённого live acceptance.
+
+Целевой порядок работы:
+
+`новый semantic regression → новый fixture/eval`
+
+Production prompt paragraph добавляется только при доказанном общем semantic
+правиле, а не как реакция на один scenario.
+
+## Acceptance strategy
+
+Production implementation сначала должна пройти бесплатные проверки:
+
+- unit tests schema, parser, evidence validation и materializer
+- integration tests одного provider response без реального provider request
+- regression fixtures всех перечисленных сценариев
+- renderer tests и public contract tests
+- rejection matrix для arbitrary procedural slots
+- typecheck, lint, build и static analysis
+
+После этого live semantic acceptance выполняется отдельно и только после
+явного подтверждения платного запуска. Оно использует несколько stochastic
+repeats, сохраняет исходные semantic expectations и оценивает смысл, факты,
+non-invention и естественность. LLM-as-a-judge в это решение не входит.
+
+Issue #233 закрывается только после production wiring и требуемого acceptance,
+а не после merge этого Proposed ADR или test-only proof.
+
+## Изменения production architecture в следующем проходе
+
+Отдельная implementation Task #244 должна:
+
+- перенести internal decisions и materializer в `packages/core`
+- определить provider JSON Schema и parser в `packages/llm`
+- подключить selective gate в существующий one-call gateway flow
+- сохранить `GenerateRequestInput`, `GenerateRequestResult` и renderer
+- адаптировать regression suite без изменения semantic expectations
+- доказать production isolation от старого free procedural contract
+- упростить prompt только после regression evidence
+- обновить документацию фактического runtime после реализации
+
+Этот ADR не выполняет production schema migration, prompt refactor или gateway
+wiring.
+
+## Известные остаточные риски
+
+- LLM может исказить или пропустить факт в generative prose
+- LLM может добавить причину, повреждение или группу в descriptive roles
+- LLM может выбрать неправильный bounded decision при валидном evidence
+- LLM может выбрать нерелевантный exact excerpt
+- LLM может не распознать semantic location conflict
+- warnings могут содержать неуместную техническую рекомендацию
+- естественность и полнота могут различаться между stochastic repeats
+
+Эти риски не закрываются схемой. Они ограничиваются semantic prompt rules,
+regression corpus и отдельно разрешённым live acceptance.
 
 ## Последствия
 
-Неподтверждённые технические детали, расширение группы и legacy free-text
-location mixing становятся непредставимыми на границе materializer. Эта
-структурная гарантия не включает распознавание semantic location conflict.
-Публичные input/result контракты, один вызов, текущий renderer и независимость
-`core` сохраняются.
+ADR-0004 больше не задаёт `intent → fixed text` для всей заявки. LLM сохраняет
+роль стохастического генеративного механизма естественной нормализации, а
+детерминированная граница охватывает только `verification` и `actionPlan`.
 
-Цена решения заключается в закрытом словаре intent и необходимости
-исчерпывающе обновлять schema, materializer и proof-тест при добавлении нового
-решения. До отдельной реализации текущий runtime не получает эту защиту.
+Arbitrary provider-authored #233 repair detail становится непредставимой в
+защищённых ролях, а полностью отсутствующий во входе install target отклоняется.
+Неправильный bounded intent или нерелевантный exact target остаются возможными,
+как и invention в generative prose, и честно относятся к semantic/live-eval
+guarantees.
+
+Цена решения заключается в internal/provider schema, exhaustive materializer и
+необходимости semantic acceptance для выбора решений. Full materializer больше
+не является production target. До отдельной реализации текущий runtime не
+получает новую hard guarantee.
