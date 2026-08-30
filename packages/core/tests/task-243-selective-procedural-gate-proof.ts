@@ -255,12 +255,14 @@ function validateDecision(input: GenerateRequestInput, draft: GeneratedSelective
 }
 
 function normalizeAuthoritativeAction(value: string): string {
-  return value
+  const normalizedAction = value
     .replaceAll("\r\n", " ")
     .replaceAll("\r", " ")
     .replaceAll("\n", " ")
     .trim()
     .replace(/^прошу\s*:\s*/iu, "");
+
+  return normalizedAction.replace(/\p{L}/u, (letter) => letter.toLocaleUpperCase("ru-RU"));
 }
 
 function materializeVerification(

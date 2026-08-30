@@ -272,9 +272,12 @@ evidence и строит существующий `PrimaryRequestDraft`.
 
 Для backend-owned action text допустима только presentation normalization:
 обрезка внешних пробелов, замена `CRLF`, `CR` и `LF` пробелом для one-line
-контракта и удаление одного начального префикса `Прошу:`, который иначе нарушил
-бы действующий `PrimaryRequestDraft`. Общего grammar или rewrite engine нет.
-Обычный текст без этого префикса семантически не переписывается.
+контракта, удаление одного начального префикса `Прошу:` и перевод первой
+применимой буквы в прописную с сохранением начальных кавычек, скобок и знаков
+пунктуации. Это обеспечивает presentation-инвариант `PrimaryRequestDraft`, но
+не проверяет грамматическую полноценность или семантическую естественность
+фрагмента. Общего grammar или rewrite engine нет. Слова, их порядок, объекты и
+техническое содержание семантически не переписываются.
 
 Явные `desiredActions` имеют приоритет, но не сводятся автоматически к одному
 opaque remedy. Модель определяет только source-bound segmentation и allocation,
@@ -331,7 +334,8 @@ regex/keyword repair detection, dictionaries или domain mappings.
 - materialization explicit action только из backend-owned `desiredActions`
 - отсутствие обязательного provider echo для selection `whole`
 - точное происхождение выбранных fragments без provider-authored replacement
-- безопасную presentation normalization backend-owned action text
+- безопасную presentation normalization backend-owned action text, включая
+  прописную первую применимую букву
 - роли `preliminaryCheck: 0..1`, `remedyActions: 1..N` и
   `resultCheck: 0..1` в пределах общего лимита
 - наличие source-bound allocation при переданном `desiredActions`
@@ -425,8 +429,8 @@ Proof проверяет:
 - все обязательные regression scenarios
 - полезное действие для `simple-defect` без component catalog
 - backend-owned `desiredActions` без обязательного полного provider echo
-- presentation normalization для `Прошу:`, переводов строк, внешних пробелов и
-  допустимой границы длины
+- presentation normalization для `Прошу:`, переводов строк, внешних пробелов,
+  первой применимой буквы после начальной пунктуации и допустимой границы длины
 - несколько exact source fragments в разных procedural roles без склеивания в
   один opaque remedy
 - preliminary-only explicit action, которое не становится remedy

@@ -137,7 +137,9 @@ explicit action и проверить устранение проблемы.
 source fragments между `preliminaryCheck`, `remedyActions: 1..N` и
 `resultCheck`. Materializer берёт текст только из исходного input и выполняет
 ограниченную presentation normalization: trim, замену переводов строк пробелом
-и удаление одного начального `Прошу:`. Правильность segmentation, полнота
+и удаление одного начального `Прошу:`, после чего переводит первую применимую
+букву в прописную, сохраняя начальную пунктуацию. Это не проверяет
+грамматическую полноценность фрагмента. Правильность segmentation, полнота
 explicit actions и semantic allocation остаются live-eval guarantees.
 
 Schema не содержит ремонтов, компонентов, инженерных систем, причин или
