@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { GenerateRequestInput } from "../src/contracts.js";
+import { generateRequestLimits, type GenerateRequestInput } from "../src/contracts.js";
 import type { PrimaryRequestDraft } from "../src/primary-request-draft.js";
-import { renderPrimaryRequestDraft } from "../src/primary-request-draft.js";
+import {
+  primaryRequestDraftLimits,
+  renderPrimaryRequestDraft,
+} from "../src/primary-request-draft.js";
 import { scenarios } from "./fixtures.js";
 import {
   materializeSelectiveDraft,
@@ -12,6 +15,8 @@ const REQUIRED_SCENARIO_IDS = [
   "only-description",
   "wording-normalization",
   "minimum-sufficient-requests",
+  "desired-actions",
+  "all-fields",
   "simple-defect",
   "location-preservation",
   "conflicting-location",
@@ -29,8 +34,6 @@ const REQUIRED_SCENARIO_IDS = [
 type RequiredScenarioId = (typeof REQUIRED_SCENARIO_IDS)[number];
 
 const descriptionEvidence = (quote: string) => ({ sourceField: "description", quote }) as const;
-const desiredActionsEvidence = (quote: string) =>
-  ({ sourceField: "desiredActions", quote }) as const;
 
 function required<Value>(value: Value | undefined, name: string): Value {
   if (value === undefined) throw new TypeError(`Нет обязательного значения ${name}`);
@@ -67,10 +70,17 @@ function installObservedMissingElement(observationQuote: string, targetQuote: st
   } as const;
 }
 
-function performExplicitDesiredActions(desiredActions: string) {
+function exactDesiredAction(quote: string) {
   return {
-    intent: "perform_explicit_desired_actions",
-    evidence: desiredActionsEvidence(desiredActions),
+    intent: "use_explicit_desired_action",
+    source: { sourceField: "desiredActions", selection: "exact_fragment", quote },
+  } as const;
+}
+
+function wholeDesiredAction() {
+  return {
+    intent: "use_explicit_desired_action",
+    source: { sourceField: "desiredActions", selection: "whole" },
   } as const;
 }
 
@@ -85,19 +95,36 @@ function actionPlanDecision(
   remedy:
     | ReturnType<typeof resolveObservedProblem>
     | ReturnType<typeof installObservedMissingElement>
-    | ReturnType<typeof performExplicitDesiredActions>,
-  preliminaryCheck: ReturnType<typeof establishUnknownCause> | null = null,
-  resultCheck: ReturnType<typeof confirmProblemResolved> | null = null,
+    | ReturnType<typeof exactDesiredAction>
+    | ReturnType<typeof wholeDesiredAction>
+    | readonly (
+        | ReturnType<typeof resolveObservedProblem>
+        | ReturnType<typeof installObservedMissingElement>
+        | ReturnType<typeof exactDesiredAction>
+        | ReturnType<typeof wholeDesiredAction>
+      )[],
+  preliminaryCheck:
+    | ReturnType<typeof establishUnknownCause>
+    | ReturnType<typeof exactDesiredAction>
+    | ReturnType<typeof wholeDesiredAction>
+    | null = null,
+  resultCheck:
+    | ReturnType<typeof confirmProblemResolved>
+    | ReturnType<typeof exactDesiredAction>
+    | ReturnType<typeof wholeDesiredAction>
+    | null = null,
 ) {
-  return { preliminaryCheck, remedy, resultCheck } as const;
+  const remedyActions = Array.isArray(remedy) ? remedy : [remedy];
+  return { preliminaryCheck, remedyActions, resultCheck } as const;
 }
 
 function materializedPlan(
-  remedy: string,
+  remedy: string | readonly string[],
   preliminaryCheck: string | null = null,
   resultCheck: string | null = null,
 ) {
-  return { preliminaryCheck, remedyActions: [remedy], resultCheck };
+  const remedyActions = typeof remedy === "string" ? [remedy] : [...remedy];
+  return { preliminaryCheck, remedyActions, resultCheck };
 }
 
 function expectedCause(quote: string): string {
@@ -144,18 +171,20 @@ const SCENARIO_PROOFS: readonly ScenarioProof[] = [
   { id: "only-description", actionPlanDecision: actionPlanDecision(resolveObservedProblem(fullDescription("only-description")), establishUnknownCause(fullDescription("only-description")), confirmProblemResolved(fullDescription("only-description"))), expectedActionPlan: materializedPlan(expectedResolution(fullDescription("only-description")), expectedCause(fullDescription("only-description")), expectedResultCheck(fullDescription("only-description"))) },
   { id: "wording-normalization", actionPlanDecision: actionPlanDecision(resolveObservedProblem(fullDescription("wording-normalization")), establishUnknownCause(fullDescription("wording-normalization")), confirmProblemResolved(fullDescription("wording-normalization"))), expectedActionPlan: materializedPlan(expectedResolution(fullDescription("wording-normalization")), expectedCause(fullDescription("wording-normalization")), expectedResultCheck(fullDescription("wording-normalization"))), subject: subjectFor("common_area_entrance_door", fullDescription("wording-normalization")) },
   { id: "minimum-sufficient-requests", actionPlanDecision: actionPlanDecision(resolveObservedProblem("С потолка в общем коридоре капает вода."), establishUnknownCause("Источник протечки неизвестен."), confirmProblemResolved("С потолка в общем коридоре капает вода.")), expectedActionPlan: materializedPlan(expectedResolution("С потолка в общем коридоре капает вода."), expectedCause("Источник протечки неизвестен."), expectedResultCheck("С потолка в общем коридоре капает вода.")) },
+  { id: "desired-actions", actionPlanDecision: actionPlanDecision(exactDesiredAction("заменить повреждённый участок трубы"), null, exactDesiredAction("проверить герметичность соединений.")), expectedActionPlan: materializedPlan("заменить повреждённый участок трубы", null, "проверить герметичность соединений.") },
+  { id: "all-fields", actionPlanDecision: actionPlanDecision([exactDesiredAction("откачать воду"), exactDesiredAction("установить и устранить причину скопления воды"), exactDesiredAction("обработать помещение от плесени.")], exactDesiredAction("провести осмотр")), expectedActionPlan: materializedPlan(["откачать воду", "установить и устранить причину скопления воды", "обработать помещение от плесени."], "провести осмотр") },
   { id: "simple-defect", actionPlanDecision: actionPlanDecision(installObservedMissingElement(fullDescription("simple-defect"), "ручка")), expectedActionPlan: materializedPlan(expectedInstallation("ручка")) },
   { id: "location-preservation", actionPlanDecision: actionPlanDecision(resolveObservedProblem(fullDescription("location-preservation")), null, confirmProblemResolved(fullDescription("location-preservation"))), expectedActionPlan: materializedPlan(expectedResolution(fullDescription("location-preservation")), null, expectedResultCheck(fullDescription("location-preservation"))), subject: subjectFor("common_area_entrance_door", fullDescription("location-preservation")) },
   { id: "conflicting-location", actionPlanDecision: actionPlanDecision(resolveObservedProblem("Дверь в помещении общего пользования"), null, confirmProblemResolved("не закрывается полностью.")), expectedActionPlan: materializedPlan(expectedResolution("Дверь в помещении общего пользования"), null, expectedResultCheck("не закрывается полностью.")), subject: subjectFor("common_area_entrance_door", "Дверь в помещении общего пользования"), warnings: ["Проверьте место проблемы перед подачей заявки"] },
   { id: "impact-subject-objective", actionPlanDecision: actionPlanDecision(resolveObservedProblem(fullDescription("impact-subject-objective")), null, confirmProblemResolved(fullDescription("impact-subject-objective"))), expectedActionPlan: materializedPlan(expectedResolution(fullDescription("impact-subject-objective")), null, expectedResultCheck(fullDescription("impact-subject-objective"))) },
   { id: "impact-subject-explicit-group", actionPlanDecision: actionPlanDecision(resolveObservedProblem(fullDescription("impact-subject-explicit-group")), null, confirmProblemResolved(fullDescription("impact-subject-explicit-group"))), expectedActionPlan: materializedPlan(expectedResolution(fullDescription("impact-subject-explicit-group")), null, expectedResultCheck(fullDescription("impact-subject-explicit-group"))) },
-  { id: "unconfirmed-remedy-lighting", actionPlanDecision: actionPlanDecision(performExplicitDesiredActions(explicitAction("unconfirmed-remedy-lighting"))), expectedActionPlan: materializedPlan(explicitAction("unconfirmed-remedy-lighting")) },
-  { id: "unconfirmed-remedy-door", actionPlanDecision: actionPlanDecision(performExplicitDesiredActions(explicitAction("unconfirmed-remedy-door"))), expectedActionPlan: materializedPlan(explicitAction("unconfirmed-remedy-door")) },
-  { id: "confirmed-remedy-door-handle", actionPlanDecision: actionPlanDecision(performExplicitDesiredActions(explicitAction("confirmed-remedy-door-handle"))), expectedActionPlan: materializedPlan(explicitAction("confirmed-remedy-door-handle")) },
+  { id: "unconfirmed-remedy-lighting", actionPlanDecision: actionPlanDecision(wholeDesiredAction()), expectedActionPlan: materializedPlan(explicitAction("unconfirmed-remedy-lighting")) },
+  { id: "unconfirmed-remedy-door", actionPlanDecision: actionPlanDecision(wholeDesiredAction()), expectedActionPlan: materializedPlan(explicitAction("unconfirmed-remedy-door")) },
+  { id: "confirmed-remedy-door-handle", actionPlanDecision: actionPlanDecision(wholeDesiredAction()), expectedActionPlan: materializedPlan(explicitAction("confirmed-remedy-door-handle")) },
   { id: "unknown-remedy-lighting", actionPlanDecision: actionPlanDecision(resolveObservedProblem("Освещение в помещении общего пользования не работает."), establishUnknownCause("Причина неизвестна."), confirmProblemResolved("Освещение в помещении общего пользования не работает.")), expectedActionPlan: materializedPlan(expectedResolution("Освещение в помещении общего пользования не работает."), expectedCause("Причина неизвестна."), expectedResultCheck("Освещение в помещении общего пользования не работает.")) },
   { id: "unknown-remedy-functional-defect", actionPlanDecision: actionPlanDecision(resolveObservedProblem("Вентиляция в помещении общего пользования не работает."), establishUnknownCause("Причина неизвестна."), confirmProblemResolved("Вентиляция в помещении общего пользования не работает.")), expectedActionPlan: materializedPlan(expectedResolution("Вентиляция в помещении общего пользования не работает."), expectedCause("Причина неизвестна."), expectedResultCheck("Вентиляция в помещении общего пользования не работает.")) },
-  { id: "lighting-elevator-cabin", actionPlanDecision: actionPlanDecision(performExplicitDesiredActions(explicitAction("lighting-elevator-cabin"))), expectedActionPlan: materializedPlan(explicitAction("lighting-elevator-cabin")), subject: subjectFor("common_area_premises_lighting", fullDescription("lighting-elevator-cabin")) },
-  { id: "elevator-position-indicator", actionPlanDecision: actionPlanDecision(performExplicitDesiredActions(explicitAction("elevator-position-indicator"))), expectedActionPlan: materializedPlan(explicitAction("elevator-position-indicator")), subject: subjectFor("common_area_elevator", fullDescription("elevator-position-indicator")) },
+  { id: "lighting-elevator-cabin", actionPlanDecision: actionPlanDecision(wholeDesiredAction()), expectedActionPlan: materializedPlan(explicitAction("lighting-elevator-cabin")), subject: subjectFor("common_area_premises_lighting", fullDescription("lighting-elevator-cabin")) },
+  { id: "elevator-position-indicator", actionPlanDecision: actionPlanDecision(wholeDesiredAction()), expectedActionPlan: materializedPlan(explicitAction("elevator-position-indicator")), subject: subjectFor("common_area_elevator", fullDescription("elevator-position-indicator")) },
 ];
 
 function candidateFor(proof: ScenarioProof) {
@@ -174,7 +203,170 @@ function candidateFor(proof: ScenarioProof) {
   } as const;
 }
 
+function candidateWithWholeDesiredActions() {
+  return {
+    outcome: "generated",
+    title: "Требуется выполнить желаемое действие",
+    problem: "Освещение в помещении общего пользования не работает.",
+    circumstances: null,
+    impact: null,
+    verificationDecision: null,
+    subject: null,
+    actionPlanDecision: {
+      preliminaryCheck: null,
+      remedyActions: [
+        {
+          intent: "use_explicit_desired_action",
+          source: { sourceField: "desiredActions", selection: "whole" },
+        },
+      ],
+      resultCheck: null,
+    },
+    warnings: [],
+  } as const;
+}
+
 describe("selective procedural gate", () => {
+  it.each([
+    {
+      name: "presentation prefix",
+      desiredActions: "Прошу: восстановить освещение.",
+      expectedAction: "восстановить освещение.",
+    },
+    {
+      name: "multiline",
+      desiredActions: "Восстановить\r\nработу\rобщего\nосвещения.",
+      expectedAction: "Восстановить работу общего освещения.",
+    },
+    {
+      name: "outer whitespace",
+      desiredActions: "  Восстановить работу освещения.  ",
+      expectedAction: "Восстановить работу освещения.",
+    },
+    {
+      name: "public length boundary",
+      desiredActions: "В".repeat(generateRequestLimits.desiredActions.max),
+      expectedAction: "В".repeat(generateRequestLimits.desiredActions.max),
+    },
+    {
+      name: "ordinary value",
+      desiredActions: "Восстановить работу освещения.",
+      expectedAction: "Восстановить работу освещения.",
+    },
+  ])("использует backend-owned desiredActions без provider echo: $name", ({
+    desiredActions,
+    expectedAction,
+  }) => {
+    const input = {
+      description: "Освещение в помещении общего пользования не работает.",
+      desiredActions,
+    };
+    const candidate = candidateWithWholeDesiredActions();
+
+    expect(JSON.stringify(candidate)).not.toContain(desiredActions.trim());
+    expect(materializeSelectiveDraft(input, candidate).actionPlan).toEqual({
+      preliminaryCheck: null,
+      remedyActions: [expectedAction],
+      resultCheck: null,
+    });
+  });
+
+  it("сохраняет несколько source-bound explicit действий в отдельных procedural roles", () => {
+    const input = {
+      description: "С потолка в помещении общего пользования поступает вода.",
+      desiredActions:
+        "Осмотреть место течи, устранить источник воды, восстановить отделку и после работ проверить отсутствие течи.",
+    };
+    const candidate = {
+      outcome: "generated",
+      title: "Поступление воды с потолка",
+      problem: input.description,
+      circumstances: null,
+      impact: null,
+      verificationDecision: null,
+      subject: null,
+      actionPlanDecision: {
+        preliminaryCheck: exactDesiredAction("Осмотреть место течи"),
+        remedyActions: [
+          exactDesiredAction("устранить источник воды"),
+          exactDesiredAction("восстановить отделку"),
+        ],
+        resultCheck: exactDesiredAction("после работ проверить отсутствие течи."),
+      },
+      warnings: [],
+    } as const;
+
+    const actionPlan = materializeSelectiveDraft(input, candidate).actionPlan;
+
+    expect(actionPlan).toEqual({
+      preliminaryCheck: "Осмотреть место течи",
+      remedyActions: ["устранить источник воды", "восстановить отделку"],
+      resultCheck: "после работ проверить отсутствие течи.",
+    });
+    const itemCount =
+      Number(actionPlan.preliminaryCheck !== null) +
+      actionPlan.remedyActions.length +
+      Number(actionPlan.resultCheck !== null);
+    expect(itemCount).toBeLessThanOrEqual(primaryRequestDraftLimits.actionPlan.itemsMax);
+  });
+
+  it("не превращает explicit preliminary-only action в remedy", () => {
+    const input = {
+      description: "Освещение в помещении общего пользования не работает.",
+      desiredActions: "Проверить причину неисправности.",
+    };
+    const candidate = {
+      outcome: "generated",
+      title: "Не работает освещение",
+      problem: input.description,
+      circumstances: null,
+      impact: null,
+      verificationDecision: null,
+      subject: null,
+      actionPlanDecision: {
+        preliminaryCheck: wholeDesiredAction(),
+        remedyActions: [resolveObservedProblem(input.description)],
+        resultCheck: null,
+      },
+      warnings: [],
+    } as const;
+
+    expect(materializeSelectiveDraft(input, candidate).actionPlan).toEqual({
+      preliminaryCheck: input.desiredActions,
+      remedyActions: [expectedResolution(input.description)],
+      resultCheck: null,
+    });
+  });
+
+  it("распределяет explicit check, remedy и result check без invention", () => {
+    const input = {
+      description: "С потолка поступает вода.",
+      desiredActions:
+        "Установить источник воды, устранить причину и после работ проверить прекращение течи.",
+    };
+    const candidate = {
+      outcome: "generated",
+      title: "Поступление воды с потолка",
+      problem: input.description,
+      circumstances: null,
+      impact: null,
+      verificationDecision: null,
+      subject: null,
+      actionPlanDecision: {
+        preliminaryCheck: exactDesiredAction("Установить источник воды"),
+        remedyActions: [exactDesiredAction("устранить причину")],
+        resultCheck: exactDesiredAction("после работ проверить прекращение течи."),
+      },
+      warnings: [],
+    } as const;
+
+    expect(materializeSelectiveDraft(input, candidate).actionPlan).toEqual({
+      preliminaryCheck: "Установить источник воды",
+      remedyActions: ["устранить причину"],
+      resultCheck: "после работ проверить прекращение течи.",
+    });
+  });
+
   it("сохраняет stochastic prose variants и материализует одинаковые защищённые роли", () => {
     const input = {
       description:
@@ -285,32 +477,7 @@ describe("selective procedural gate", () => {
     expect(draft.actionPlan.remedyActions).toEqual([expectedInstallation("Петли")]);
   });
 
-  it("сохраняет полный authoritative desiredActions и нормализует только переводы строк", () => {
-    const desiredActions = "Проверить причину\r\nи восстановить работу освещения.";
-    const input = {
-      description: "В общем коридоре не работает освещение.",
-      desiredActions,
-    };
-    const candidate = {
-      outcome: "generated",
-      title: "Не работает освещение",
-      problem: "В общем коридоре отсутствует освещение.",
-      circumstances: null,
-      impact: null,
-      verificationDecision: null,
-      subject: null,
-      actionPlanDecision: actionPlanDecision(performExplicitDesiredActions(desiredActions)),
-      warnings: [],
-    } as const;
-
-    expect(materializeSelectiveDraft(input, candidate).actionPlan).toEqual({
-      preliminaryCheck: null,
-      remedyActions: ["Проверить причину и восстановить работу освещения."],
-      resultCheck: null,
-    });
-  });
-
-  it("не изменяет desiredActions при отдельных bounded проверках", () => {
+  it("не изменяет ordinary whole desiredActions при отдельных bounded проверках", () => {
     const input = {
       description: "Освещение в общем коридоре не работает. Причина неизвестна.",
       desiredActions: "Восстановить работу освещения.",
@@ -324,7 +491,7 @@ describe("selective procedural gate", () => {
       verificationDecision: null,
       subject: null,
       actionPlanDecision: actionPlanDecision(
-        performExplicitDesiredActions(input.desiredActions),
+        wholeDesiredAction(),
         establishUnknownCause("Причина неизвестна."),
         confirmProblemResolved("Освещение в общем коридоре не работает."),
       ),
