@@ -159,9 +159,11 @@ source. Provider не должен полностью повторять это 
 `whole` для одного семантически атомарного действия или распределяет exact
 source fragments между `preliminaryCheck`, несколькими `remedyActions` и
 `resultCheck`. Backend материализует только исходный текст с trim, заменой
-переводов строк пробелом и удалением одного presentation-prefix `Прошу:`.
+переводов строк пробелом, удалением одного presentation-prefix `Прошу:` и
+прописной первой применимой буквой с сохранением начальной пунктуации.
 Provider-authored replacement не допускается, а действующие cardinality и общий
-лимит procedural plan сохраняются.
+лимит procedural plan сохраняются. Backend не проверяет грамматическую
+полноценность или семантическую естественность выбранного фрагмента.
 
 Полнота segmentation, правильность procedural roles и отсутствие semantic
 duplication остаются live-eval guarantees. Равенство двух exact quotes не

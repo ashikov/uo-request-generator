@@ -171,8 +171,8 @@ const SCENARIO_PROOFS: readonly ScenarioProof[] = [
   { id: "only-description", actionPlanDecision: actionPlanDecision(resolveObservedProblem(fullDescription("only-description")), establishUnknownCause(fullDescription("only-description")), confirmProblemResolved(fullDescription("only-description"))), expectedActionPlan: materializedPlan(expectedResolution(fullDescription("only-description")), expectedCause(fullDescription("only-description")), expectedResultCheck(fullDescription("only-description"))) },
   { id: "wording-normalization", actionPlanDecision: actionPlanDecision(resolveObservedProblem(fullDescription("wording-normalization")), establishUnknownCause(fullDescription("wording-normalization")), confirmProblemResolved(fullDescription("wording-normalization"))), expectedActionPlan: materializedPlan(expectedResolution(fullDescription("wording-normalization")), expectedCause(fullDescription("wording-normalization")), expectedResultCheck(fullDescription("wording-normalization"))), subject: subjectFor("common_area_entrance_door", fullDescription("wording-normalization")) },
   { id: "minimum-sufficient-requests", actionPlanDecision: actionPlanDecision(resolveObservedProblem("С потолка в общем коридоре капает вода."), establishUnknownCause("Источник протечки неизвестен."), confirmProblemResolved("С потолка в общем коридоре капает вода.")), expectedActionPlan: materializedPlan(expectedResolution("С потолка в общем коридоре капает вода."), expectedCause("Источник протечки неизвестен."), expectedResultCheck("С потолка в общем коридоре капает вода.")) },
-  { id: "desired-actions", actionPlanDecision: actionPlanDecision(exactDesiredAction("заменить повреждённый участок трубы"), null, exactDesiredAction("проверить герметичность соединений.")), expectedActionPlan: materializedPlan("заменить повреждённый участок трубы", null, "проверить герметичность соединений.") },
-  { id: "all-fields", actionPlanDecision: actionPlanDecision([exactDesiredAction("откачать воду"), exactDesiredAction("установить и устранить причину скопления воды"), exactDesiredAction("обработать помещение от плесени.")], exactDesiredAction("провести осмотр")), expectedActionPlan: materializedPlan(["откачать воду", "установить и устранить причину скопления воды", "обработать помещение от плесени."], "провести осмотр") },
+  { id: "desired-actions", actionPlanDecision: actionPlanDecision(exactDesiredAction("заменить повреждённый участок трубы"), null, exactDesiredAction("проверить герметичность соединений.")), expectedActionPlan: materializedPlan("Заменить повреждённый участок трубы", null, "Проверить герметичность соединений.") },
+  { id: "all-fields", actionPlanDecision: actionPlanDecision([exactDesiredAction("откачать воду"), exactDesiredAction("установить и устранить причину скопления воды"), exactDesiredAction("обработать помещение от плесени.")], exactDesiredAction("провести осмотр")), expectedActionPlan: materializedPlan(["Откачать воду", "Установить и устранить причину скопления воды", "Обработать помещение от плесени."], "Провести осмотр") },
   { id: "simple-defect", actionPlanDecision: actionPlanDecision(installObservedMissingElement(fullDescription("simple-defect"), "ручка")), expectedActionPlan: materializedPlan(expectedInstallation("ручка")) },
   { id: "location-preservation", actionPlanDecision: actionPlanDecision(resolveObservedProblem(fullDescription("location-preservation")), null, confirmProblemResolved(fullDescription("location-preservation"))), expectedActionPlan: materializedPlan(expectedResolution(fullDescription("location-preservation")), null, expectedResultCheck(fullDescription("location-preservation"))), subject: subjectFor("common_area_entrance_door", fullDescription("location-preservation")) },
   { id: "conflicting-location", actionPlanDecision: actionPlanDecision(resolveObservedProblem("Дверь в помещении общего пользования"), null, confirmProblemResolved("не закрывается полностью.")), expectedActionPlan: materializedPlan(expectedResolution("Дверь в помещении общего пользования"), null, expectedResultCheck("не закрывается полностью.")), subject: subjectFor("common_area_entrance_door", "Дверь в помещении общего пользования"), warnings: ["Проверьте место проблемы перед подачей заявки"] },
@@ -231,7 +231,7 @@ describe("selective procedural gate", () => {
     {
       name: "presentation prefix",
       desiredActions: "Прошу: восстановить освещение.",
-      expectedAction: "восстановить освещение.",
+      expectedAction: "Восстановить освещение.",
     },
     {
       name: "multiline",
@@ -253,6 +253,11 @@ describe("selective procedural gate", () => {
       desiredActions: "Восстановить работу освещения.",
       expectedAction: "Восстановить работу освещения.",
     },
+    {
+      name: "leading presentation punctuation",
+      desiredActions: "«восстановить освещение».\n",
+      expectedAction: "«Восстановить освещение».",
+    },
   ])("использует backend-owned desiredActions без provider echo: $name", ({
     desiredActions,
     expectedAction,
@@ -271,11 +276,23 @@ describe("selective procedural gate", () => {
     });
   });
 
+  it("передаёт в renderer action с прописной после удаления префикса", () => {
+    const input = {
+      description: "Освещение в помещении общего пользования не работает.",
+      desiredActions: "Прошу: восстановить освещение.",
+    };
+    const draft = materializeSelectiveDraft(input, candidateWithWholeDesiredActions());
+
+    expect(draft.actionPlan.remedyActions).toEqual(["Восстановить освещение."]);
+    expect(renderPrimaryRequestDraft(draft, input).body).toContain(
+      "Прошу:\n1. Восстановить освещение.",
+    );
+  });
+
   it("сохраняет несколько source-bound explicit действий в отдельных procedural roles", () => {
     const input = {
       description: "С потолка в помещении общего пользования поступает вода.",
-      desiredActions:
-        "Осмотреть место течи, устранить источник воды, восстановить отделку и после работ проверить отсутствие течи.",
+      desiredActions: "Осмотреть место течи, устранить источник воды, восстановить отделку...",
     };
     const candidate = {
       outcome: "generated",
@@ -291,7 +308,7 @@ describe("selective procedural gate", () => {
           exactDesiredAction("устранить источник воды"),
           exactDesiredAction("восстановить отделку"),
         ],
-        resultCheck: exactDesiredAction("после работ проверить отсутствие течи."),
+        resultCheck: null,
       },
       warnings: [],
     } as const;
@@ -300,8 +317,8 @@ describe("selective procedural gate", () => {
 
     expect(actionPlan).toEqual({
       preliminaryCheck: "Осмотреть место течи",
-      remedyActions: ["устранить источник воды", "восстановить отделку"],
-      resultCheck: "после работ проверить отсутствие течи.",
+      remedyActions: ["Устранить источник воды", "Восстановить отделку"],
+      resultCheck: null,
     });
     const itemCount =
       Number(actionPlan.preliminaryCheck !== null) +
@@ -362,8 +379,8 @@ describe("selective procedural gate", () => {
 
     expect(materializeSelectiveDraft(input, candidate).actionPlan).toEqual({
       preliminaryCheck: "Установить источник воды",
-      remedyActions: ["устранить причину"],
-      resultCheck: "после работ проверить прекращение течи.",
+      remedyActions: ["Устранить причину"],
+      resultCheck: "После работ проверить прекращение течи.",
     });
   });
 
