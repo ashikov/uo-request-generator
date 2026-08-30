@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { generateRequestLimits, type GenerateRequestInput } from "../src/contracts.js";
+import {
+  generateRequestInputSchema,
+  generateRequestLimits,
+  type GenerateRequestInput,
+} from "../src/contracts.js";
 import type { PrimaryRequestDraft } from "../src/primary-request-draft.js";
 import {
   primaryRequestDraftLimits,
@@ -274,6 +278,40 @@ describe("selective procedural gate", () => {
       remedyActions: [expectedAction],
       resultCheck: null,
     });
+  });
+
+  it("сохраняет длину lowercase Cyrillic action на public boundary", () => {
+    const desiredActions = `в${"а".repeat(generateRequestLimits.desiredActions.max - 1)}`;
+    const input = {
+      description: "Освещение в помещении общего пользования не работает.",
+      desiredActions,
+    };
+
+    expect(desiredActions).toHaveLength(generateRequestLimits.desiredActions.max);
+    expect(generateRequestInputSchema.safeParse(input).success).toBe(true);
+
+    const draft = materializeSelectiveDraft(input, candidateWithWholeDesiredActions());
+    const [action] = draft.actionPlan.remedyActions;
+
+    expect(action).toBe(`В${desiredActions.slice(1)}`);
+    expect(action).toHaveLength(generateRequestLimits.desiredActions.max);
+  });
+
+  it("не применяет расширяющий Unicode uppercase mapping на public boundary", () => {
+    const desiredActions = `ß${"а".repeat(generateRequestLimits.desiredActions.max - 1)}`;
+    const input = {
+      description: "Освещение в помещении общего пользования не работает.",
+      desiredActions,
+    };
+
+    expect(desiredActions).toHaveLength(generateRequestLimits.desiredActions.max);
+    expect(generateRequestInputSchema.safeParse(input).success).toBe(true);
+
+    const draft = materializeSelectiveDraft(input, candidateWithWholeDesiredActions());
+    const [action] = draft.actionPlan.remedyActions;
+
+    expect(action).toBe(desiredActions);
+    expect(action).toHaveLength(generateRequestLimits.desiredActions.max);
   });
 
   it("передаёт в renderer action с прописной после удаления префикса", () => {

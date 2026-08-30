@@ -262,7 +262,10 @@ function normalizeAuthoritativeAction(value: string): string {
     .trim()
     .replace(/^прошу\s*:\s*/iu, "");
 
-  return normalizedAction.replace(/\p{L}/u, (letter) => letter.toLocaleUpperCase("ru-RU"));
+  return normalizedAction.replace(/\p{L}/u, (letter) => {
+    const uppercaseLetter = letter.toLocaleUpperCase("ru-RU");
+    return uppercaseLetter.length === letter.length ? uppercaseLetter : letter;
+  });
 }
 
 function materializeVerification(
