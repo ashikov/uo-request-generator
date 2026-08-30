@@ -160,7 +160,10 @@ source. Provider не должен полностью повторять это 
 source fragments между `preliminaryCheck`, несколькими `remedyActions` и
 `resultCheck`. Backend материализует только исходный текст с trim, заменой
 переводов строк пробелом, удалением одного presentation-prefix `Прошу:` и
-прописной первой применимой буквой с сохранением начальной пунктуации.
+безопасным length-preserving приведением первой применимой буквы к прописной.
+Начальная пунктуация сохраняется, а case mapping, увеличивающий длину
+source-bound action как JS-строки, не применяется. Это presentation limitation,
+а не semantic risk.
 Provider-authored replacement не допускается, а действующие cardinality и общий
 лимит procedural plan сохраняются. Backend не проверяет грамматическую
 полноценность или семантическую естественность выбранного фрагмента.

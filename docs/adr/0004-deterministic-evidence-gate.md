@@ -272,12 +272,15 @@ evidence и строит существующий `PrimaryRequestDraft`.
 
 Для backend-owned action text допустима только presentation normalization:
 обрезка внешних пробелов, замена `CRLF`, `CR` и `LF` пробелом для one-line
-контракта, удаление одного начального префикса `Прошу:` и перевод первой
-применимой буквы в прописную с сохранением начальных кавычек, скобок и знаков
-пунктуации. Это обеспечивает presentation-инвариант `PrimaryRequestDraft`, но
-не проверяет грамматическую полноценность или семантическую естественность
-фрагмента. Общего grammar или rewrite engine нет. Слова, их порядок, объекты и
-техническое содержание семантически не переписываются.
+контракта, удаление одного начального префикса `Прошу:` и безопасное
+length-preserving приведение первой применимой буквы к прописной с сохранением
+начальных кавычек, скобок и знаков пунктуации. Case mapping, увеличивающий длину
+source-bound action как JS-строки, не применяется. Это presentation limitation,
+а не semantic risk. Нормализация обеспечивает presentation-инвариант
+`PrimaryRequestDraft`, но не проверяет грамматическую полноценность или
+семантическую естественность фрагмента. Общего grammar или rewrite engine нет.
+Слова, их порядок, объекты и техническое содержание семантически не
+переписываются.
 
 Явные `desiredActions` имеют приоритет, но не сводятся автоматически к одному
 opaque remedy. Модель определяет только source-bound segmentation и allocation,
@@ -335,7 +338,7 @@ regex/keyword repair detection, dictionaries или domain mappings.
 - отсутствие обязательного provider echo для selection `whole`
 - точное происхождение выбранных fragments без provider-authored replacement
 - безопасную presentation normalization backend-owned action text, включая
-  прописную первую применимую букву
+  length-preserving приведение первой применимой буквы к прописной
 - роли `preliminaryCheck: 0..1`, `remedyActions: 1..N` и
   `resultCheck: 0..1` в пределах общего лимита
 - наличие source-bound allocation при переданном `desiredActions`
