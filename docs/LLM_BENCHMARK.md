@@ -99,6 +99,12 @@ normative module и структуры procedural plan. `semanticExpectations` �
 проверяемые смысловые инварианты человеческим языком, а не эталонную
 формулировку модели. Их не меняют после просмотра конкретного ответа.
 
+Если scenario проверяет обработку материальной неоднозначности, его
+`semanticExpectations` явно называют ambiguity handling. Если `warning` не
+является обязательной частью продуктового контракта, scenario не закрепляет его
+наличие или отсутствие. Typed `warning_presence` используют только там, где
+warning сам является проверяемым контрактом.
+
 Hard checks используют validated structured draft и ту же deterministic
 normative selection, что и production renderer. Они не выводятся из regex по
 готовой заявке. Если смысловой критерий нельзя надёжно формализовать, его
@@ -198,6 +204,9 @@ report по возможности различает attempted, model-local ski
 Reviewer для каждого scenario/repeat отдельно оценивает:
 
 - сохранение explicit facts
+- сохранение однозначного explicit fact вместе с его референтом
+- fail-closed обработку materially ambiguous input без выбора конкретной
+  неподтверждённой трактовки
 - отсутствие новых установленных фактов
 - отсутствие новых причин, повреждений, людей, событий и произошедшего ущерба
 - отсутствие неподтверждённого конкретного ремонта
@@ -213,6 +222,13 @@ Reviewer для каждого scenario/repeat отдельно оценивае
 - сохранение location и desiredActions
 - отсутствие существенного semantic duplication или contradiction между
   `problem`, `circumstances`, `impact`, `verification` и procedural plan
+
+Отсутствие однозначного explicit fact в результате является `REGRESSION`.
+Для materially ambiguous input выбор конкретной неподтверждённой трактовки также
+является `REGRESSION`. Отсутствие выбранной трактовки допустимо, если остальные
+однозначные факты сохранены. Необязательный корректный warning с просьбой об
+уточнении не меняет оценку. Такое ожидание должно быть явно зафиксировано в
+`semanticExpectations` scenario и не ослабляет правила для однозначного ввода.
 
 Классификация review: `PASS` — semantic contract соблюдён. `REGRESSION` —
 ответ нарушает scenario contract. `UNSTABLE` — repeats дают противоречивый

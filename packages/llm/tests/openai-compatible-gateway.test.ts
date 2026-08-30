@@ -1,3 +1,4 @@
+import * as core from "@uo-request-generator/core";
 import {
   COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
@@ -281,21 +282,32 @@ describe("OpenAiCompatibleGateway", () => {
 
   it.each(
     PRIMARY_REQUEST_SUBJECT_KINDS,
-  )("сохраняет provider-facing coverage поддержанного subject %s", (confirmedProblemSubject) => {
-    const requestBody = createOpenAiCompatibleRequestBody(
-      { apiProtocol: "chat-completions", model: "benchmark-model", maxOutputTokens: 1200 },
-      { ...VALID_INPUT, confirmedProblemSubject },
-    );
+  )("ограничивает provider-facing candidate подтверждённым subject %s в обоих протоколах", (confirmedProblemSubject) => {
+    for (const apiProtocol of ["chat-completions", "responses"] as const) {
+      const requestBody = createOpenAiCompatibleRequestBody(
+        { apiProtocol, model: "benchmark-model", maxOutputTokens: 1200 },
+        { ...VALID_INPUT, confirmedProblemSubject },
+      );
+      const expectedPrompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+      const expectedSchema = createRequestDraftJsonSchema(confirmedProblemSubject);
+      const subjectSchema = expectedSchema.properties.draft.anyOf[0].properties.subject;
 
-    if (!("messages" in requestBody)) {
-      throw new Error("Ожидался Chat Completions request");
+      if (!("anyOf" in subjectSchema)) {
+        throw new Error("Ожидалась schema подтверждения subject");
+      }
+      expect(subjectSchema.anyOf[0].properties.kind.enum).toEqual([confirmedProblemSubject]);
+
+      if ("messages" in requestBody) {
+        expect(requestBody.messages[0]?.content).toBe(expectedPrompt);
+        expect(requestBody.response_format.json_schema).toMatchObject({
+          strict: true,
+          schema: expectedSchema,
+        });
+      } else {
+        expect(requestBody.instructions).toBe(expectedPrompt);
+        expect(requestBody.text.format).toMatchObject({ strict: true, schema: expectedSchema });
+      }
     }
-    expect(requestBody.messages[0]?.content).toBe(
-      createRequestDraftSystemPrompt(PRIMARY_REQUEST_SUBJECT_KINDS[0]),
-    );
-    expect(requestBody.response_format.json_schema.schema).toEqual(
-      createRequestDraftJsonSchema(PRIMARY_REQUEST_SUBJECT_KINDS[0]),
-    );
   });
 
   it("возвращает optional usage из Chat Completions без изменения LlmGateway outcome", async () => {
@@ -609,6 +621,49 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.warnings).toHaveLength(2);
   });
 
+  it.each([
+    { caseName: "без warning", warnings: [] },
+    {
+      caseName: "с необязательным warning",
+      warnings: ["Уточните, к чему относится слово «последний», перед подачей заявки"],
+    },
+  ])("не разрешает неоднозначный референт в backend и делает один вызов: $caseName", async ({
+    warnings,
+  }) => {
+    const mockFetch = createMockFetch(
+      createLlmText({
+        ...VALID_DRAFT,
+        problem: "В первом подъезде на пятом этаже протекает люк.",
+        impact: "Затопило весь подъезд.",
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: ["Устранить причину протечки"],
+          resultCheck: null,
+        },
+        warnings,
+      }),
+    );
+
+    const result = await createGateway().generateRequest({
+      description: "Протекает люк на пятом этаже, он последний.",
+      location: "первый подъезд, пятый этаж",
+      consequences: "Затопило весь подъезд.",
+      desiredActions: "Нужно устранить причину протечки.",
+    });
+
+    expect(result.status).toBe("generated");
+    if (result.status !== "generated") {
+      throw new Error("Ожидался готовый результат");
+    }
+    expect(result.result.warnings).toEqual(warnings);
+    for (const warning of warnings) {
+      expect(result.result.body).not.toContain(warning);
+    }
+    expect(result.result.body).not.toContain("верхний");
+    expect(result.result.body).not.toContain("последний");
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
   it("передаёт расширенный черновик входной двери напрямую в renderer одним вызовом", async () => {
     const draft = {
       outcome: "generated",
@@ -865,24 +920,35 @@ describe("OpenAiCompatibleGateway", () => {
     expect(generation.systemPromptHash).toMatch(/^sha256:/u);
   });
 
-  it("добавляет cleaning module ровно один раз для подтверждённого синтетического subject", async () => {
-    const description = "В подъезде грязно, уборка не проводится около двух недель.";
-    const location = "первый подъезд";
-    const desiredActions = "Обеспечить регулярную уборку помещения общего пользования.";
+  it.each([
+    [
+      "исправная входная дверь",
+      "На входной двери несколько дней остаётся загрязнение и неприятный запах. Дверь открывается и закрывается нормально.",
+      "Очистить входную дверь от загрязнения.",
+    ],
+    [
+      "работающая кабина лифта",
+      "В кабине грузового лифта несколько дней остаётся загрязнение и неприятный запах. Сам лифт работает.",
+      "Убрать загрязнение из кабины грузового лифта.",
+    ],
+    [
+      "стена в подъезде",
+      "На стене в подъезде несколько дней остаётся загрязнение и неприятный запах.",
+      "Очистить стену от загрязнения.",
+    ],
+  ] as const)("сохраняет cleaning subject и module для подтверждённого загрязнения: %s", async (_caseName, description, desiredActions) => {
+    const location = "второй подъезд";
     const paragraph = COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.paragraphs[0];
     const draft = {
       outcome: "generated",
-      title: "Не проводится уборка в подъезде",
-      problem: "В первом подъезде около двух недель не проводится уборка.",
+      title: "Не удалено загрязнение",
+      problem: description,
       circumstances: null,
       impact: null,
       verification: null,
       subject: {
         kind: "common_area_premises_cleaning",
-        evidence: [
-          { sourceField: "description", quote: description },
-          { sourceField: "location", quote: location },
-        ],
+        evidence: [{ sourceField: "description", quote: description }],
       },
       actionPlan: {
         preliminaryCheck: null,
@@ -893,23 +959,36 @@ describe("OpenAiCompatibleGateway", () => {
     };
     const mockFetch = createMockFetch(createLlmText(draft));
 
-    const result = await createGateway().generateRequest({
+    const generation = await createGateway().generateRequestForEvaluation({
       description,
       location,
       desiredActions,
       confirmedProblemSubject: "common_area_premises_cleaning",
     });
 
-    expect(result.status).toBe("generated");
-    if (result.status !== "generated") {
-      throw new Error("Ожидался готовый результат");
+    expect(generation.status).toBe("success");
+    if (
+      generation.status !== "success" ||
+      generation.observation.draftOutcome !== "generated" ||
+      generation.outcome.status !== "generated"
+    ) {
+      throw new Error("Ожидался generated evaluation result");
     }
-    expect(result.result.body.split(paragraph)).toHaveLength(2);
-    expect(result.result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK)).toBeLessThan(
-      result.result.body.indexOf(paragraph),
+    expect(generation.observation.draft.subject?.kind).toBe("common_area_premises_cleaning");
+    expect(generation.observation.specificLegalBasisSelectionStatus).toBe("applied");
+    expect(generation.observation.selectedNormativeModule).toBe("common-area-cleaning");
+    expect(generation.outcome.result.body.split(paragraph)).toHaveLength(2);
+    expect(generation.outcome.result.body.indexOf(COMMON_LEGAL_BASIS_BLOCK)).toBeLessThan(
+      generation.outcome.result.body.indexOf(paragraph),
     );
-    expect(result.result.body.indexOf(paragraph)).toBeLessThan(
-      result.result.body.indexOf("Прошу:"),
+    expect(generation.outcome.result.body.indexOf(paragraph)).toBeLessThan(
+      generation.outcome.result.body.indexOf("Прошу:"),
+    );
+    expect(generation.outcome.result.body).not.toContain(
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+    expect(generation.outcome.result.body).not.toContain(
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0],
     );
     expect(mockFetch).toHaveBeenCalledOnce();
   });
@@ -962,7 +1041,7 @@ describe("OpenAiCompatibleGateway", () => {
       "common_area_elevator",
       COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0],
     ],
-  ] as const)("сохраняет independently inferred cleaning, но fail closed для backend-подтверждения: %s", async (_caseName, description, confirmedProblemSubject, forbiddenTechnicalParagraph) => {
+  ] as const)("отклоняет competing structured cleaning subject в backend: %s", async (_caseName, description, confirmedProblemSubject, forbiddenTechnicalParagraph) => {
     const draft = {
       ...VALID_DRAFT,
       subject: {
@@ -988,6 +1067,45 @@ describe("OpenAiCompatibleGateway", () => {
     if (generation.outcome.status !== "generated") {
       throw new Error("Ожидалась готовая заявка");
     }
+    expect(generation.outcome.result.body).not.toContain(
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.paragraphs[0],
+    );
+    expect(generation.outcome.result.body).not.toContain(forbiddenTechnicalParagraph);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [
+      "ошибочное подтверждение двери",
+      "Технически исправная входная дверь загрязнена, но нормально открывается и закрывается.",
+      "common_area_entrance_door",
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    ],
+    [
+      "ошибочное подтверждение лифта",
+      "В исправной кабине лифта загрязнены пол и стены. Лифт работает.",
+      "common_area_elevator",
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0],
+    ],
+  ] as const)("оставляет cleaning-only evidence fail closed при %s", async (_caseName, description, confirmedProblemSubject, forbiddenTechnicalParagraph) => {
+    const mockFetch = createMockFetch(createLlmText({ ...VALID_DRAFT, subject: null }));
+
+    const generation = await createGateway().generateRequestForEvaluation({
+      description,
+      confirmedProblemSubject,
+    });
+
+    expect(generation.status).toBe("success");
+    if (
+      generation.status !== "success" ||
+      generation.observation.draftOutcome !== "generated" ||
+      generation.outcome.status !== "generated"
+    ) {
+      throw new Error("Ожидался generated evaluation result");
+    }
+    expect(generation.observation.draft.subject).toBeNull();
+    expect(generation.observation.specificLegalBasisSelectionStatus).toBe("subject_absent");
+    expect(generation.observation.selectedNormativeModule).toBeNull();
     expect(generation.outcome.result.body).not.toContain(
       COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.paragraphs[0],
     );
@@ -1088,11 +1206,18 @@ describe("OpenAiCompatibleGateway", () => {
   });
 
   it("возвращает multiple_issues без заявки и нормативного блока", async () => {
+    const evaluateSpecificLegalBasisSelection = vi.spyOn(
+      core,
+      "evaluateSpecificLegalBasisSelection",
+    );
+    const renderPrimaryRequestDraft = vi.spyOn(core, "renderPrimaryRequestDraft");
     const mockFetch = createMockFetch(MULTIPLE_ISSUES_LLM_TEXT);
 
     const result = await createGateway().generateRequest(VALID_INPUT);
 
     expect(result).toEqual({ status: "multiple_issues" });
+    expect(evaluateSpecificLegalBasisSelection).not.toHaveBeenCalled();
+    expect(renderPrimaryRequestDraft).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain("Общие нормативные основания:");
     expect(JSON.stringify(result)).not.toContain(HOUSING_CODE_URL);
     expect(JSON.stringify(result)).not.toContain(MANAGEMENT_RULES_URL);

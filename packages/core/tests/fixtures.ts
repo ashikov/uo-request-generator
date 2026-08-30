@@ -8,6 +8,7 @@ export type ScenarioCategory =
   | "all_fields"
   | "emotional_description"
   | "wording_normalization"
+  | "description_normalization"
   | "minimum_sufficient_requests"
   | "location_action_deduplication"
   | "simple_defect"
@@ -36,7 +37,7 @@ export type HardExpectation =
       resultCheck?: "present" | "absent";
     };
 
-export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 };
+export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 | 224 | 231 };
 
 type TestScenarioBase = {
   id: string;
@@ -49,7 +50,7 @@ export type TestScenario =
       expectedOutcome: "generated";
       mustPreserveFacts: string[];
       mustNotInvent: string[];
-      expectWarning: boolean;
+      expectWarning?: boolean;
       hardExpectations: readonly HardExpectation[];
       semanticExpectations: readonly string[];
       provenance?: IssueProvenance;
@@ -133,6 +134,11 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "конкретная неисправность двери",
     ],
     expectWarning: false,
+    hardExpectations: [
+      { kind: "subject_kind", expected: "common_area_entrance_door" },
+      { kind: "forbidden_subject_kind", forbidden: "common_area_premises_cleaning" },
+      { kind: "selected_normative_module", expected: "common-area-door" },
+    ],
   },
   {
     id: "desired-actions",
@@ -529,7 +535,7 @@ const regressionScenarios: TestScenario[] = [
   {
     id: "cleaning-entrance-door",
     category: "cleaning",
-    provenance: { issue: 200 },
+    provenance: { issue: 231 },
     expectedOutcome: "generated",
     input: {
       description:
@@ -570,7 +576,7 @@ const regressionScenarios: TestScenario[] = [
   {
     id: "cleaning-entrance-door-mistaken-door-confirmation",
     category: "cleaning",
-    provenance: { issue: 200 },
+    provenance: { issue: 231 },
     expectedOutcome: "generated",
     input: {
       description:
@@ -584,14 +590,14 @@ const regressionScenarios: TestScenario[] = [
     expectWarning: false,
     hardExpectations: [
       { kind: "warning_presence", expected: false },
-      { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+      { kind: "subject_kind", expected: null },
       { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],
     semanticExpectations: [
-      "Не выбирать технический предмет двери только из-за ошибочного backend-подтверждения.",
-      "Не применять ни door-, ни cleaning-module при расхождении подтверждённого и independently inferred subject.",
+      "Не выбирать технический предмет двери только из-за ошибочного подтверждения.",
+      "Не применять ни door-, ни cleaning-module, когда evidence не подтверждает выбранный пользователем технический предмет.",
     ],
   },
   {
@@ -610,14 +616,14 @@ const regressionScenarios: TestScenario[] = [
     expectWarning: false,
     hardExpectations: [
       { kind: "warning_presence", expected: false },
-      { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+      { kind: "subject_kind", expected: null },
       { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],
     semanticExpectations: [
-      "Не выбирать технический предмет лифта только из-за ошибочного backend-подтверждения.",
-      "Не применять ни elevator-, ни cleaning-module при расхождении подтверждённого и independently inferred subject.",
+      "Не выбирать технический предмет лифта только из-за ошибочного подтверждения.",
+      "Не применять ни elevator-, ни cleaning-module, когда evidence не подтверждает выбранный пользователем технический предмет.",
     ],
   },
   {
@@ -713,6 +719,7 @@ const regressionScenarios: TestScenario[] = [
     expectWarning: false,
     hardExpectations: [
       { kind: "warning_presence", expected: false },
+      { kind: "subject_kind", expected: null },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],
@@ -807,6 +814,89 @@ const regressionScenarios: TestScenario[] = [
       "Вывести последствие один раз в impact и не повторять его в circumstances или другой динамической роли без отдельного необходимого смысла.",
       "Не добавлять пользователей, жильцов или другую не указанную во входе группу людей.",
       "Не добавлять новые факты, обстоятельства или последствия.",
+    ],
+  },
+  {
+    id: "description-fact-preservation",
+    category: "description_normalization",
+    provenance: { issue: 224 },
+    expectedOutcome: "generated",
+    input: {
+      description: "Протекает люк на пятом этаже, он последний.",
+      location: "первый подъезд, пятый этаж",
+      consequences: "Затопило весь подъезд.",
+      desiredActions: "Нужно устранить причину протечки.",
+    },
+    mustPreserveFacts: [
+      "протечка люка на пятом этаже",
+      "пятый этаж",
+      "первый подъезд",
+      "затопление всего подъезда",
+      "устранение причины протечки",
+    ],
+    mustNotInvent: [
+      "утверждение, что слово «последний» относится к люку",
+      "утверждение, что слово «последний» относится к этажу",
+      "техническая причина протечки",
+      "неподтверждённый повреждённый элемент",
+      "источник воды",
+      "соединения, примыкания, коммуникации или другие связанные элементы",
+      "конкретный способ ремонта",
+      "расширение последствий или желаемых действий",
+    ],
+    hardExpectations: [{ kind: "procedural_plan", remedyActions: "present" }],
+    semanticExpectations: [
+      "Не утверждать, что слово «последний» относится именно к люку.",
+      "Не утверждать без дополнительного evidence, что слово «последний» относится именно к этажу.",
+      "Допускать безопасное опущение именно неоднозначной связи без признания этого потерей explicit fact.",
+      "Сохранить однозначные сведения о протечке, пятом этаже, первом подъезде, затоплении всего подъезда и требовании устранить причину.",
+      "Естественно нормализовать описание проблемы без обязательной эталонной формулировки.",
+      "Не размножать механически исходную бытовую конструкцию по смысловым ролям заявки.",
+      "Не добавлять техническую причину протечки, которой нет во входе.",
+      "Не добавлять неподтверждённый повреждённый элемент.",
+      "Не добавлять соединения, примыкания, коммуникации или другие связанные элементы без evidence.",
+      "Не назначать конкретный способ ремонта без пользовательского evidence.",
+      "Не расширять смысл явно переданного последствия о затоплении всего подъезда.",
+      "Не расширять смысл желаемого устранения причины протечки.",
+    ],
+  },
+  {
+    id: "description-explicit-referent-preservation",
+    category: "description_normalization",
+    provenance: { issue: 224 },
+    expectedOutcome: "generated",
+    input: {
+      description: "Протекает люк на пятом, верхнем этаже.",
+      location: "первый подъезд, пятый этаж",
+      consequences: "Затопило весь подъезд.",
+      desiredActions: "Нужно устранить причину протечки.",
+    },
+    mustPreserveFacts: [
+      "пятый этаж является верхним",
+      "протечка люка на пятом этаже",
+      "первый подъезд",
+      "затопление всего подъезда",
+      "устранение причины протечки",
+    ],
+    mustNotInvent: [
+      "техническая причина протечки",
+      "неподтверждённый повреждённый элемент",
+      "источник воды",
+      "соединения, примыкания, коммуникации или другие связанные элементы",
+      "конкретный способ ремонта",
+      "расширение последствий или желаемых действий",
+    ],
+    expectWarning: false,
+    hardExpectations: [{ kind: "warning_presence", expected: false }],
+    semanticExpectations: [
+      "Сохранить явно переданный факт, что указанный пятый этаж является верхним.",
+      "Не ослаблять и не менять связь признака верхнего этажа с пятым этажом.",
+      "Естественно нормализовать описание проблемы без обязательной эталонной формулировки.",
+      "Не размножать механически исходную бытовую конструкцию по смысловым ролям заявки.",
+      "Не добавлять техническую причину протечки, повреждённый элемент или источник воды.",
+      "Не добавлять соединения, примыкания, коммуникации или другие связанные элементы без evidence.",
+      "Не назначать конкретный способ ремонта без пользовательского evidence.",
+      "Не расширять смысл явно переданного последствия или желаемого действия.",
     ],
   },
 ];

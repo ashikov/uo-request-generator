@@ -37,6 +37,31 @@ const VENTILATION_SUBJECT_RULE =
 const ELEVATOR_SUBJECT_RULE = "проблему с лифтом, лифтовой шахтой или лифтовым оборудованием";
 const IMPACT_ROLE_DESCRIPTION_MARKER =
   '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden">';
+const DESCRIPTION_NORMALIZATION_MARKER =
+  '<description-normalization explicit-facts="preserve" unambiguous-referents="preserve" material-ambiguity="do-not-guess" ambiguous-relation="may-omit" attribution-without-evidence="forbidden" natural-language="normalize" new-facts="forbidden" role-allocation="owner-first" role-reuse="distinct-role-only">';
+const OBSOLETE_SYNTHETIC_REFERENT_CONTRAST =
+  "Контраст для определения референта: в сообщении «Датчик расположен в последней секции, она крайняя» позиционный признак относится к элементу упорядоченного места — секции; в сообщении «Датчик в секции неисправен, он повреждён» свойство проблемного объекта относится к самому объекту — датчику. Это общее смысловое различение, а не словарь или шаблон замены.";
+const DESCRIPTION_REGRESSION_FIXTURES = [
+  "Протекает люк на пятом этаже, он последний.",
+  "Протекает люк на пятом, верхнем этаже.",
+] as const;
+const DESCRIPTION_REGRESSION_REFERENCE_ANSWERS = [
+  "пятый этаж является верхним",
+  "последний относится к этажу",
+  "последний относится к люку",
+] as const;
+const UNKNOWN_CAUSE_NON_INVENTION_CONTRACT =
+  "Не расширяй установление неизвестной причины до проверки соединений, примыканий, соседних элементов, коммуникаций или компонентов без прямого основания во входе; устанавливай причину в целом, не перечисляя предполагаемые компоненты или закрытый набор вариантов";
+const EPISTEMIC_MODALITY_PRESERVATION_MARKER =
+  '<epistemic-modality-preservation occurred-event="occurred" risk="risk" assumption="assumption" unknown="unknown" desired-action="requirement" strengthening="forbidden" weakening="forbidden">';
+const VERIFICATION_PRELIMINARY_OWNERSHIP_MARKER =
+  '<verification-preliminary-ownership verification="unknown-or-assumption-state" preliminary-check="establishing-action" explicit-unknown="preserve" shared-underlying-unknown="distinct-roles-allowed" verification-action-restatement="forbidden" verification-null="declarative-owner-required">';
+const PROBLEM_ACTION_PLAN_OWNERSHIP_MARKER =
+  '<problem-action-plan-ownership problem="observed-state" action-plan="role-specific-action" problem-restatement="forbidden" object-location-reuse="minimum-disambiguation-only">';
+const FUNCTIONAL_MEANING_PRESERVATION_MARKER =
+  '<functional-meaning-preservation directly-supported-risk="preserve" affected-function="complete" symptom-only-narrowing="forbidden" simple-defect-enrichment="forbidden">';
+const MULTIPLE_ISSUES_CANONICAL_FIXTURE =
+  "На детской площадке сломаны качели, торчат острые болты. А ещё в соседнем дворе кто-то бросил старый диван возле мусорных баков, и он уже неделю там валяется.";
 
 function createDraft(overrides: Partial<GeneratedRequestDraft> = {}): GeneratedRequestDraft {
   return {
@@ -83,6 +108,16 @@ function expectGeneratedDraft(draft: RequestDraft): asserts draft is GeneratedRe
   expect(draft.outcome).toBe("generated");
   if (draft.outcome !== "generated") {
     throw new Error("Ожидался черновик готовой заявки");
+  }
+}
+
+function expectPromptContractMarker(marker: string): void {
+  for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+    const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+    const schema = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
+
+    expect(prompt.split(marker)).toHaveLength(2);
+    expect(schema).not.toContain(marker);
   }
 }
 
@@ -133,6 +168,59 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("desiredActions — отдельно переданные");
   });
 
+  it("задаёт общий контракт естественной нормализации description", () => {
+    expectPromptContractMarker(DESCRIPTION_NORMALIZATION_MARKER);
+  });
+
+  it("задаёт fail-closed ambiguity contract без fixture-specific referent tuning", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+      const schema = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
+
+      expect(prompt).not.toContain('referent-semantic-fit="required"');
+      expect(prompt).not.toContain('material-ambiguity="fail-closed-warning"');
+      expect(prompt).not.toContain(OBSOLETE_SYNTHETIC_REFERENT_CONTRAST);
+      expect(prompt).not.toContain("добавь понятный пользователю warning");
+      expect(schema).not.toContain(DESCRIPTION_NORMALIZATION_MARKER);
+      for (const fixture of DESCRIPTION_REGRESSION_FIXTURES) {
+        expect(prompt).not.toContain(fixture);
+        expect(schema).not.toContain(fixture);
+      }
+      for (const referenceAnswer of DESCRIPTION_REGRESSION_REFERENCE_ANSWERS) {
+        expect(prompt).not.toContain(referenceAnswer);
+        expect(schema).not.toContain(referenceAnswer);
+      }
+    }
+  });
+
+  it("сохраняет эпистемический и модальный статус явно переданного смысла", () => {
+    expectPromptContractMarker(EPISTEMIC_MODALITY_PRESERVATION_MARKER);
+  });
+
+  it("сохраняет explicit unknown отдельно от действия по её установлению", () => {
+    expectPromptContractMarker(VERIFICATION_PRELIMINARY_OWNERSHIP_MARKER);
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не отбрасывай явно переданную неизвестность только из-за наличия preliminaryCheck",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не считаются смысловым дублированием, поскольку декларативная и процедурная роли выполняют разные функции",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "verification не должно перефразировать preliminaryCheck как ещё одно требование выполнить то же действие",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "verification: null допустимо только если явно переданная неизвестность уже сохранена в другой допустимой декларативной роли",
+    );
+  });
+
+  it("разделяет наблюдаемое состояние и роль actionPlan без пересказа problem", () => {
+    expectPromptContractMarker(PROBLEM_ACTION_PLAN_OWNERSHIP_MARKER);
+  });
+
+  it("сохраняет прямой риск и полный объём функции без раздувания простого дефекта", () => {
+    expectPromptContractMarker(FUNCTIONAL_MEANING_PRESERVATION_MARKER);
+  });
+
   it("различает конфликт места и совместимое уточнение", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("location явно противоречит");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("используй location в problem");
@@ -163,15 +251,9 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
   });
 
   it("требует фактическое основание проверки без дублирования", () => {
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "обоснованную обстоятельствами проверку связанных элементов",
-    );
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Неизвестная причина сама по себе");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не превращай неизвестную причину");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("заполняй verification только ради");
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "verification только повторяет actionPlan.preliminaryCheck",
-    );
   });
 
   it("сохраняет приоритет желаемых действий", () => {
@@ -199,18 +281,67 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
       "Конкретный способ ремонта допустим, только если его необходимость прямо следует из пользовательского факта или явно переданного desiredActions и не требует догадки о причине",
     );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "preliminaryCheck должен устанавливать причину в целом, не перечисляя без основания предполагаемые компоненты",
-    );
-    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
-      "Не называй в preliminaryCheck компонент, механизм, признак или возможную причину, если они прямо не указаны во входе",
-    );
+  });
+
+  it("не расширяет неизвестную причину до неподтверждённых связанных элементов", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+
+      expect(prompt.split(UNKNOWN_CAUSE_NON_INVENTION_CONTRACT)).toHaveLength(2);
+      for (const fixture of DESCRIPTION_REGRESSION_FIXTURES) {
+        expect(prompt).not.toContain(fixture);
+      }
+      for (const referenceAnswer of DESCRIPTION_REGRESSION_REFERENCE_ANSWERS) {
+        expect(prompt).not.toContain(referenceAnswer);
+      }
+    }
   });
 
   it("оставляет multiple_issues без частичного actionPlan", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("outcome: multiple_issues");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("actionPlan: null");
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не выбирай одну проблему");
+  });
+
+  it("выбирает outcome до заполнения соответствующей ветки", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+
+      expect(prompt).toContain("Сначала выбери outcome по смыслу всего входа");
+      expect(prompt).toContain("Только после выбора generated заполняй поля этой ветки");
+      expect(prompt.indexOf("Сначала выбери outcome по смыслу всего входа")).toBeLessThan(
+        prompt.indexOf("Для одной связанной проблемы верни outcome: generated и поля:"),
+      );
+    }
+  });
+
+  it("различает самостоятельные проблемы и связанные проявления одной проблемы", () => {
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "различаются предметы или объекты либо описаны независимые события",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("для них требуются отдельные действия");
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "не является причиной, проявлением, последствием или уточнением другой",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "несколько признаков, последствий, желаемых действий и связанных мест проявления",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "одна причинно связанная цепочка, неизвестная причина или несколько элементов одного процедурного плана",
+    );
+    expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain(
+      "Один лишь союз «и», несколько предложений или несколько действий не доказывают",
+    );
+  });
+
+  it("не включает canonical multiple-issues fixture в provider-facing contract", () => {
+    for (const confirmedProblemSubject of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
+      const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
+      const schema = JSON.stringify(createRequestDraftJsonSchema(confirmedProblemSubject));
+
+      expect(prompt).not.toContain(MULTIPLE_ISSUES_CANONICAL_FIXTURE);
+      expect(schema).not.toContain(MULTIPLE_ISSUES_CANONICAL_FIXTURE);
+    }
   });
 
   it("сохраняет границу body, законодательства и URL", () => {
@@ -350,8 +481,8 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
       "Не устанавливай неисправность, повреждение, необходимость ремонта или замены",
     );
     expect(doorEvidenceRule).toContain("не используй kind common_area_entrance_door");
-    expect(doorEvidenceRule).toContain("независимо проверь правила остальных kind");
-    expect(doorEvidenceRule).not.toContain("укажи subject: null");
+    expect(doorEvidenceRule).toContain("укажи subject: null");
+    expect(doorEvidenceRule).not.toContain("независимо проверь правила остальных kind");
   });
 
   it("ограничивает cleaning subject уборкой помещений и загрязнений их элементов", () => {
@@ -463,8 +594,8 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     );
     expect(prompt).toContain("желаемое действие убрать загрязнение из кабины");
     expect(elevatorEvidenceRule).toContain("не используй kind common_area_elevator");
-    expect(elevatorEvidenceRule).toContain("независимо проверь правила остальных kind");
-    expect(elevatorEvidenceRule).not.toContain("укажи subject: null");
+    expect(elevatorEvidenceRule).toContain("укажи subject: null");
+    expect(elevatorEvidenceRule).not.toContain("независимо проверь правила остальных kind");
     expect(prompt).not.toContain(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.paragraphs[0]);
   });
 
@@ -488,12 +619,17 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it("закрепляет арбитраж subject по наблюдаемой проблеме с жёстким veto", () => {
     const subjectArbitrationMarker =
-      '<subject-arbitration basis="observable-problem" object-name-alone="insufficient" technical-door-elevator="observable-technical-problem-required" working-technical-object="cleaning-only-veto" cleaning-candidate="survives-when-supported" contradiction="hard-veto">';
+      '<subject-validation candidate-source="json-schema-confirmed-kind" competing-kind-selection="forbidden" evidence="required" contradiction="hard-veto">';
 
     for (const selectedSubjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
       const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
 
       expect([...prompt.matchAll(new RegExp(subjectArbitrationMarker, "g"))]).toHaveLength(1);
+      expect(prompt).toContain("Проверяй только kind, разрешённый JSON Schema");
+      expect(prompt).toContain("не выбирай и не возвращай конкурирующий kind");
+      expect(prompt).not.toContain("Независимо оцени все поддержанные kind");
+      expect(prompt).not.toContain("остаётся кандидатом");
+      expect(prompt).not.toContain("только если вход не подтверждает ни один другой");
     }
     expect([
       ...createRequestDraftSystemPrompt(undefined).matchAll(
@@ -510,33 +646,12 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     }
   });
 
-  it("формирует байт-в-байт одинаковый provider prompt для любого backend-подтверждения", () => {
-    const independentInferencePrompt = createRequestDraftSystemPrompt(
-      PRIMARY_REQUEST_SUBJECT_KINDS[0],
+  it("формирует отдельный provider prompt для каждого подтверждённого candidate", () => {
+    const prompts = PRIMARY_REQUEST_SUBJECT_KINDS.map((confirmedProblemSubject) =>
+      createRequestDraftSystemPrompt(confirmedProblemSubject),
     );
 
-    for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
-      expect(createRequestDraftSystemPrompt(confirmedProblemSubject)).toBe(
-        independentInferencePrompt,
-      );
-    }
-  });
-
-  it("закрепляет регрессию контракта ответственности location между problem и actionPlan", () => {
-    const actionPlanLocationResponsibilityMarker =
-      '<action-plan-location-responsibility general-location-role="problem" action-location-reuse="distinct-target-or-action-only">';
-
-    for (const selectedSubjectKind of [undefined, ...PRIMARY_REQUEST_SUBJECT_KINDS]) {
-      const prompt = createRequestDraftSystemPrompt(selectedSubjectKind);
-
-      expect([
-        ...prompt.matchAll(new RegExp(actionPlanLocationResponsibilityMarker, "g")),
-      ]).toHaveLength(1);
-      expect(prompt).toContain("Общее место остаётся в problem");
-      expect(prompt).toContain("не дублируется механически в каждом пункте actionPlan");
-      expect(prompt).toContain("только если без этого нельзя отличить");
-      expect(prompt).toContain("конкретный объект или действие");
-    }
+    expect(new Set(prompts)).toHaveLength(PRIMARY_REQUEST_SUBJECT_KINDS.length);
   });
 
   it("закрепляет единственную роль и естественную нормализацию явно переданных последствий", () => {
@@ -612,12 +727,17 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 
   it.each(
     PRIMARY_REQUEST_SUBJECT_KINDS,
-  )("включает routing-bearing правила всех поддержанных subject: %s", (confirmedProblemSubject) => {
+  )("включает routing-bearing правила только подтверждённого subject: %s", (confirmedProblemSubject) => {
     const prompt = createRequestDraftSystemPrompt(confirmedProblemSubject);
 
     for (const subjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
-      expect(prompt).toContain(`- используй kind ${subjectKind},`);
-      expect(prompt).toContain(`- для kind ${subjectKind} evidence`);
+      if (subjectKind === confirmedProblemSubject) {
+        expect(prompt).toContain(`- используй kind ${subjectKind},`);
+        expect(prompt).toContain(`- для kind ${subjectKind} evidence`);
+      } else {
+        expect(prompt).not.toContain(`- используй kind ${subjectKind},`);
+        expect(prompt).not.toContain(`- для kind ${subjectKind} evidence`);
+      }
     }
   });
 
@@ -644,6 +764,29 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
 });
 
 describe("provider-facing RequestDraft", () => {
+  it.each(
+    PRIMARY_REQUEST_SUBJECT_KINDS,
+  )("сохраняет строгую локальную Zod-валидацию поддержанного subject %s", (subjectKind) => {
+    const draft = createDraft({
+      subject: {
+        kind: subjectKind,
+        evidence: [{ sourceField: "description", quote: "не работает освещение" }],
+      },
+    });
+
+    expect(parseRequestDraft(serializeDraft(draft))).toEqual(draft);
+  });
+
+  it("локально отклоняет subject вне закрытого enum", () => {
+    expectInvalidResponse({
+      ...createDraft(),
+      subject: {
+        kind: "common_area_unknown",
+        evidence: [{ sourceField: "description", quote: "не работает освещение" }],
+      },
+    });
+  });
+
   it("принимает roof subject только с дословным evidence прямого указания на кровлю", () => {
     const description = "На кровле многоквартирного дома обнаружена протечка.";
     const parsed = parseRequestDraft(
@@ -809,24 +952,15 @@ describe("provider-facing RequestDraft", () => {
     });
   });
 
-  it("формирует одинаковую полную provider-схему для любого backend-подтверждения", () => {
-    const independentInferenceSchema = createRequestDraftJsonSchema(
-      PRIMARY_REQUEST_SUBJECT_KINDS[0],
-    );
-
-    for (const confirmedProblemSubject of PRIMARY_REQUEST_SUBJECT_KINDS) {
-      expect(createRequestDraftJsonSchema(confirmedProblemSubject)).toEqual(
-        independentInferenceSchema,
-      );
-    }
-  });
-
-  it("задаёт полный строгий контракт inferred subject", () => {
-    const subjectSchema = createRequestDraftJsonSchema(PRIMARY_REQUEST_SUBJECT_KINDS[0]).properties
-      .draft.anyOf[0].properties.subject;
+  it.each(
+    PRIMARY_REQUEST_SUBJECT_KINDS,
+  )("ограничивает provider subject подтверждённым kind %s или null", (confirmedProblemSubject) => {
+    const subjectSchema =
+      createRequestDraftJsonSchema(confirmedProblemSubject).properties.draft.anyOf[0].properties
+        .subject;
 
     if (!("anyOf" in subjectSchema)) {
-      throw new Error("Ожидалась schema независимого определения subject");
+      throw new Error("Ожидалась schema подтверждения subject");
     }
 
     expect(subjectSchema).toEqual({
@@ -836,7 +970,7 @@ describe("provider-facing RequestDraft", () => {
           properties: {
             kind: {
               type: "string",
-              enum: [...PRIMARY_REQUEST_SUBJECT_KINDS],
+              enum: [confirmedProblemSubject],
             },
             evidence: {
               type: "array",
@@ -866,6 +1000,12 @@ describe("provider-facing RequestDraft", () => {
         { type: "null" },
       ],
     });
+
+    for (const competingSubjectKind of PRIMARY_REQUEST_SUBJECT_KINDS) {
+      if (competingSubjectKind !== confirmedProblemSubject) {
+        expect(subjectSchema.anyOf[0].properties.kind.enum).not.toContain(competingSubjectKind);
+      }
+    }
   });
 
   it("ограничивает общий размер procedural plan средствами provider JSON Schema", () => {
@@ -924,6 +1064,15 @@ describe("provider-facing RequestDraft", () => {
       actionPlan: { type: "null" },
       warnings: { type: "array", maxItems: 0, items: { type: "string" } },
     });
+  });
+
+  it.each([
+    undefined,
+    ...PRIMARY_REQUEST_SUBJECT_KINDS,
+  ])("не меняет multiple_issues-ветку при confirmed subject %s", (confirmedProblemSubject) => {
+    expect(createRequestDraftJsonSchema(confirmedProblemSubject).properties.draft.anyOf[1]).toEqual(
+      REQUEST_DRAFT_JSON_SCHEMA.properties.draft.anyOf[1],
+    );
   });
 
   it("оставляет корневую оболочку строгой", () => {

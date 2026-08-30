@@ -179,6 +179,9 @@ describe("GenerateRequestOutcome", () => {
       status: "multiple_issues",
     } satisfies GenerateRequestOutcome;
 
+    expectTypeOf<GenerateRequestOutcome["status"]>().toEqualTypeOf<
+      "generated" | "multiple_issues"
+    >();
     expectTypeOf(generatedOutcome.result).toEqualTypeOf<GenerateRequestResult>();
     expect(generatedOutcome).toEqual({
       status: "generated",

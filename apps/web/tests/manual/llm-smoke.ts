@@ -71,7 +71,9 @@ function writeManualReviewReport(
   writeLine(`warnings:\n${formatList(result.warnings)}`);
   writeLine(`mustPreserveFacts:\n${formatList(scenario.mustPreserveFacts)}`);
   writeLine(`mustNotInvent:\n${formatList(scenario.mustNotInvent)}`);
-  writeLine(`expectWarning: ${scenario.expectWarning ? "да" : "нет"}`);
+  const warningExpectation =
+    scenario.expectWarning === undefined ? "не проверяется" : scenario.expectWarning ? "да" : "нет";
+  writeLine(`expectWarning: ${warningExpectation}`);
 }
 
 export async function runLlmSmokeCheck(
@@ -147,7 +149,7 @@ export async function runLlmSmokeCheck(
 
     const hasWarnings = result.warnings.length > 0;
 
-    if (hasWarnings !== scenario.expectWarning) {
+    if (scenario.expectWarning !== undefined && hasWarnings !== scenario.expectWarning) {
       statistics.automaticErrors += 1;
       writeLine(`Сценарий ${scenario.id}: наличие предупреждений не соответствует ожидаемому`);
       continue;

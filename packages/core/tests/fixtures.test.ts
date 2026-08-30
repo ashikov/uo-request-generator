@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { generateRequestInputSchema } from "../src/index.js";
+import {
+  COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE,
+  COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE,
+  COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
+  COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
+  generateRequestInputSchema,
+} from "../src/index.js";
 import { type ScenarioCategory, scenarios } from "./fixtures.js";
 
 const REQUIRED_CATEGORIES: ScenarioCategory[] = [
@@ -10,6 +18,7 @@ const REQUIRED_CATEGORIES: ScenarioCategory[] = [
   "all_fields",
   "emotional_description",
   "wording_normalization",
+  "description_normalization",
   "minimum_sufficient_requests",
   "location_action_deduplication",
   "simple_defect",
@@ -61,6 +70,25 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("expected нормативные модули существуют в runtime-контракте", () => {
+    const supportedModuleIds = new Set<string>([
+      COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_ROOF_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE.id,
+      COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE.id,
+    ]);
+
+    for (const scenario of scenarios) {
+      for (const expectation of scenario.hardExpectations) {
+        if (expectation.kind === "selected_normative_module" && expectation.expected !== null) {
+          expect(supportedModuleIds.has(expectation.expected), scenario.id).toBe(true);
+        }
+      }
+    }
+  });
+
   it("multiple_issues-сценарии не содержат инварианты готового текста", () => {
     const rejectedScenarios = scenarios.filter(
       (scenario) => scenario.expectedOutcome === "multiple_issues",
@@ -85,7 +113,20 @@ describe("test scenario fixtures", () => {
     }
   });
 
-  it("сохраняет synthetic regression cases из #200, #201, #202, #203 и #218 с typed expectations", () => {
+  it("сохраняет generated для связанных сложных проблем", () => {
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+
+    for (const scenarioId of [
+      "consequences",
+      "all-fields",
+      "minimum-sufficient-requests",
+      "unknown-remedy-functional-defect",
+    ]) {
+      expect(byId.get(scenarioId)?.expectedOutcome).toBe("generated");
+    }
+  });
+
+  it("сохраняет synthetic regression cases из #200, #201, #202, #203, #218 и #231 с typed expectations", () => {
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
 
     expect(byId.get("cleaning-elevator-cabin")).toMatchObject({
@@ -96,16 +137,32 @@ describe("test scenario fixtures", () => {
         { kind: "selected_normative_module", expected: "common-area-cleaning" },
       ]),
     });
-    expect(byId.get("cleaning-entrance-door")).toMatchObject({ provenance: { issue: 200 } });
+    expect(byId.get("cleaning-entrance-door")).toMatchObject({ provenance: { issue: 231 } });
     expect(byId.get("cleaning-common-area-wall")).toMatchObject({ provenance: { issue: 200 } });
+    expect(byId.get("consequences")).toMatchObject({
+      input: {
+        confirmedProblemSubject: "common_area_entrance_door",
+      },
+      hardExpectations: expect.arrayContaining([
+        { kind: "subject_kind", expected: "common_area_entrance_door" },
+        { kind: "forbidden_subject_kind", forbidden: "common_area_premises_cleaning" },
+        {
+          kind: "selected_normative_module",
+          expected: COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.id,
+        },
+      ]),
+    });
     for (const scenarioId of [
       "cleaning-entrance-door-mistaken-door-confirmation",
       "cleaning-elevator-cabin-mistaken-elevator-confirmation",
     ]) {
       expect(byId.get(scenarioId)).toMatchObject({
-        provenance: { issue: 200 },
+        provenance:
+          scenarioId === "cleaning-entrance-door-mistaken-door-confirmation"
+            ? { issue: 231 }
+            : { issue: 200 },
         hardExpectations: expect.arrayContaining([
-          { kind: "subject_kind", expected: "common_area_premises_cleaning" },
+          { kind: "subject_kind", expected: null },
           { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
           { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
           { kind: "selected_normative_module", expected: null },
@@ -154,13 +211,11 @@ describe("test scenario fixtures", () => {
         confirmedProblemSubject: "common_area_elevator",
       },
       hardExpectations: expect.arrayContaining([
+        { kind: "subject_kind", expected: null },
         { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
         { kind: "selected_normative_module", expected: null },
       ]),
     });
-    expect(
-      byId.get("elevator-subject-false-positive-lighting")?.hardExpectations,
-    ).not.toContainEqual({ kind: "subject_kind", expected: null });
     expect(byId.get("unknown-remedy-lighting")).toMatchObject({ provenance: { issue: 202 } });
     expect(byId.get("unknown-remedy-functional-defect")).toMatchObject({
       provenance: { issue: 202 },
@@ -223,8 +278,80 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("различает неоднозначный и однозначный synthetic regression cases из #224", () => {
+    const byId = new Map(
+      scenarios
+        .filter((scenario) => scenario.provenance?.issue === 224)
+        .map((scenario) => [scenario.id, scenario]),
+    );
+    const ambiguous = byId.get("description-fact-preservation");
+    const explicit = byId.get("description-explicit-referent-preservation");
+
+    expect([...byId.keys()]).toEqual([
+      "description-fact-preservation",
+      "description-explicit-referent-preservation",
+    ]);
+    expect(ambiguous).toMatchObject({
+      category: "description_normalization",
+      provenance: { issue: 224 },
+      expectedOutcome: "generated",
+      input: {
+        description: "Протекает люк на пятом этаже, он последний.",
+        location: "первый подъезд, пятый этаж",
+        consequences: "Затопило весь подъезд.",
+        desiredActions: "Нужно устранить причину протечки.",
+      },
+      mustPreserveFacts: [
+        "протечка люка на пятом этаже",
+        "пятый этаж",
+        "первый подъезд",
+        "затопление всего подъезда",
+        "устранение причины протечки",
+      ],
+      hardExpectations: [{ kind: "procedural_plan", remedyActions: "present" }],
+    });
+    expect(ambiguous).not.toHaveProperty("expectWarning");
+    expect(ambiguous?.semanticExpectations).toEqual([
+      "Не утверждать, что слово «последний» относится именно к люку.",
+      "Не утверждать без дополнительного evidence, что слово «последний» относится именно к этажу.",
+      "Допускать безопасное опущение именно неоднозначной связи без признания этого потерей explicit fact.",
+      "Сохранить однозначные сведения о протечке, пятом этаже, первом подъезде, затоплении всего подъезда и требовании устранить причину.",
+      "Естественно нормализовать описание проблемы без обязательной эталонной формулировки.",
+      "Не размножать механически исходную бытовую конструкцию по смысловым ролям заявки.",
+      "Не добавлять техническую причину протечки, которой нет во входе.",
+      "Не добавлять неподтверждённый повреждённый элемент.",
+      "Не добавлять соединения, примыкания, коммуникации или другие связанные элементы без evidence.",
+      "Не назначать конкретный способ ремонта без пользовательского evidence.",
+      "Не расширять смысл явно переданного последствия о затоплении всего подъезда.",
+      "Не расширять смысл желаемого устранения причины протечки.",
+    ]);
+
+    expect(explicit).toMatchObject({
+      category: "description_normalization",
+      provenance: { issue: 224 },
+      expectedOutcome: "generated",
+      input: {
+        description: "Протекает люк на пятом, верхнем этаже.",
+        location: "первый подъезд, пятый этаж",
+        consequences: "Затопило весь подъезд.",
+        desiredActions: "Нужно устранить причину протечки.",
+      },
+      mustPreserveFacts: [
+        "пятый этаж является верхним",
+        "протечка люка на пятом этаже",
+        "первый подъезд",
+        "затопление всего подъезда",
+        "устранение причины протечки",
+      ],
+      hardExpectations: [{ kind: "warning_presence", expected: false }],
+    });
+    expect(explicit?.semanticExpectations).toContain(
+      "Сохранить явно переданный факт, что указанный пятый этаж является верхним.",
+    );
+  });
+
   it("покрывает безопасное смысловое и процедурное обогащение", () => {
-    expect(scenarios).toHaveLength(32);
+    expect(scenarios).toHaveLength(34);
 
     const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
     const lighting = byId.get("only-description");
@@ -410,6 +537,10 @@ const FIELD_MAP: Record<ScenarioCategory, { present: string[]; absent: string[] 
   wording_normalization: {
     present: ["description", "confirmedProblemSubject"],
     absent: ["location", "consequences", "desiredActions"],
+  },
+  description_normalization: {
+    present: ["description", "location", "consequences", "desiredActions"],
+    absent: ["confirmedProblemSubject"],
   },
   minimum_sufficient_requests: {
     present: ["description"],
