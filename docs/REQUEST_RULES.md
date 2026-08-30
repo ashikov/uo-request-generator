@@ -154,9 +154,19 @@ consequences и групп, а также отсутствие новых при
 semantic regression guarantee. Exact evidence для этих prose-полей не
 требуется.
 
-Явное `desiredActions` в proposed contract будет authoritative path: backend
-проверит полное значение и не разрешит заменить его generic remedy. Для простой
-фразы об отсутствующем элементе общий install-missing decision сможет
+Явное `desiredActions` в proposed contract будет backend-owned authoritative
+source. Provider не должен полностью повторять это значение: он выбирает
+`whole` для одного семантически атомарного действия или распределяет exact
+source fragments между `preliminaryCheck`, несколькими `remedyActions` и
+`resultCheck`. Backend материализует только исходный текст с trim, заменой
+переводов строк пробелом и удалением одного presentation-prefix `Прошу:`.
+Provider-authored replacement не допускается, а действующие cardinality и общий
+лимит procedural plan сохраняются.
+
+Полнота segmentation, правильность procedural roles и отсутствие semantic
+duplication остаются live-eval guarantees. Равенство двух exact quotes не
+доказывает дублирование, а разные quotes не доказывают его отсутствие. Для
+простой фразы об отсутствующем элементе общий install-missing decision сможет
 использовать exact target пользователя без словаря компонентов и
 symptom-to-remedy mapping.
 

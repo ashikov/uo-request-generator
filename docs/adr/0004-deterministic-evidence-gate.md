@@ -88,9 +88,9 @@ warnings устойчиво становятся вторым процедурн
 | `impact` | LLM prose или `null` | Semantic/live-eval |
 | `verification` | Bounded decision и deterministic materializer | Hard для формы и provenance, semantic для выбора решения |
 | `subject` | Существующий subject evidence gate | Текущий отдельный контракт |
-| `actionPlan.preliminaryCheck` | Bounded decision и deterministic materializer | Hard для формы и provenance, semantic для выбора решения |
-| `actionPlan.remedyActions` | Bounded decision или полное `desiredActions` | Hard для отсутствия arbitrary method slot |
-| `actionPlan.resultCheck` | Bounded decision и deterministic materializer | Hard для формы и provenance, semantic для выбора решения |
+| `actionPlan.preliminaryCheck` | Bounded decision или source-bound часть `desiredActions` | Hard для формы и provenance, semantic для allocation |
+| `actionPlan.remedyActions` | Массив bounded decisions и source-bound частей `desiredActions` | Hard для cardinality и отсутствия arbitrary method slot |
+| `actionPlan.resultCheck` | Bounded decision или source-bound часть `desiredActions` | Hard для формы и provenance, semantic для allocation |
 | `warnings` | LLM prose | Semantic/live-eval |
 
 ### Provider-facing контракт
@@ -99,45 +99,60 @@ warnings устойчиво становятся вторым процедурн
 полей и закрытых процедурных решений:
 
 ```ts
-type ExactEvidence<SourceField extends "description" | "desiredActions"> = {
-  sourceField: SourceField;
+type ExactDescriptionEvidence = {
+  sourceField: "description";
   quote: string;
+};
+
+type DesiredActionSource =
+  | {
+      sourceField: "desiredActions";
+      selection: "whole";
+    }
+  | {
+      sourceField: "desiredActions";
+      selection: "exact_fragment";
+      quote: string;
+    };
+
+type ExplicitDesiredActionDecision = {
+  intent: "use_explicit_desired_action";
+  source: DesiredActionSource;
 };
 
 type VerificationDecision =
   | {
       intent: "preserve_user_stated_uncertainty";
-      evidence: ExactEvidence<"description">;
+      evidence: ExactDescriptionEvidence;
     }
   | null;
 
 type PreliminaryCheckDecision =
   | {
       intent: "establish_unknown_cause";
-      evidence: ExactEvidence<"description">;
+      evidence: ExactDescriptionEvidence;
     }
+  | ExplicitDesiredActionDecision
   | null;
 
 type RemedyDecision =
   | {
       intent: "resolve_observed_problem";
-      evidence: ExactEvidence<"description">;
+      evidence: ExactDescriptionEvidence;
     }
   | {
       intent: "install_observed_missing_element";
-      observationEvidence: ExactEvidence<"description">;
-      targetEvidence: ExactEvidence<"description">;
+      observationEvidence: ExactDescriptionEvidence;
+      targetEvidence: ExactDescriptionEvidence;
     }
-  | {
-      intent: "perform_explicit_desired_actions";
-      evidence: ExactEvidence<"desiredActions">;
-    };
+  | ExplicitDesiredActionDecision;
 
 type ResultCheckDecision =
   | {
       intent: "confirm_problem_resolved";
-      evidence: ExactEvidence<"description">;
+      evidence: ExactDescriptionEvidence;
     }
+  | ExplicitDesiredActionDecision
   | null;
 
 type GeneratedSelectiveDraft = {
@@ -150,7 +165,7 @@ type GeneratedSelectiveDraft = {
   subject: PrimaryRequestSubject;
   actionPlanDecision: {
     preliminaryCheck: PreliminaryCheckDecision;
-    remedy: RemedyDecision;
+    remedyActions: RemedyDecision[];
     resultCheck: ResultCheckDecision;
   };
   warnings: string[];
@@ -164,7 +179,9 @@ type SelectiveProviderDraft =
 Production JSON Schema должна выражать ту же strict discriminated union.
 Generated-ветка содержит все перечисленные поля. Необязательные решения
 представляются required nullable-полями. Обе ветки запрещают дополнительные
-свойства.
+свойства. `remedyActions` содержит от одного до нескольких решений, а сумма
+`preliminaryCheck`, элементов `remedyActions` и `resultCheck` не превышает
+действующий лимит пяти procedural items.
 
 Набор решений описывает общие смысловые операции, а не предметный каталог. В
 контракте нет enum конкретных ремонтов, компонентов, инженерных систем, причин
@@ -185,14 +202,29 @@ Exact evidence обязательна только там, где deterministic 
 - `resolve_observed_problem` ссылается на точный фрагмент `description`
 - `install_observed_missing_element` ссылается на наблюдение и на вложенный в
   него точный target из `description`
-- `perform_explicit_desired_actions` требует полное обрезанное значение
-  `desiredActions`
 - `confirm_problem_resolved` ссылается на точный фрагмент `description`
+- `use_explicit_desired_action` выбирает backend-owned `desiredActions` целиком
+  или указывает его точный непрерывный фрагмент для одной procedural role
 
-Evidence должно быть дословным, непрерывным, обрезанным по краям,
-регистрозависимым и находиться в заявленном source field. Полное
-`desiredActions` является authoritative path. При его наличии модель не может
-заменить пользовательское действие generic remedy.
+Description evidence должно быть дословным, непрерывным, обрезанным по краям,
+регистрозависимым и находиться в заявленном source field. Для selection `whole`
+модель не возвращает значение `desiredActions`: backend уже владеет им. Для
+`exact_fragment` quote должен быть точным непрерывным регистрозависимым
+substring исходного поля. Backend берёт совпавший source fragment, а не
+использует provider-authored replacement.
+
+`desiredActions` остаётся authoritative source. Если поле присутствует, в плане
+должно быть хотя бы одно source-bound решение. Семантически атомарное действие
+можно выбрать целиком без эха. Составное значение можно разделить на несколько
+точных фрагментов и распределить между `preliminaryCheck`, несколькими
+`remedyActions` и `resultCheck`. Generic bounded decision разрешён рядом с таким
+распределением, например description-grounded remedy при explicit
+preliminary-only просьбе.
+
+Schema доказывает происхождение выбранных частей, но не полноту semantic
+segmentation. Она не понимает, все ли существенные explicit actions выбраны и
+правильно ли модель распределила их по ролям. Эти свойства остаются live-eval
+guarantee.
 
 Exact evidence сознательно не требуется для `title`, `problem`,
 `circumstances`, `impact` и `warnings`. Для этих полей provenance отдельной
@@ -228,8 +260,8 @@ evidence и строит существующий `PrimaryRequestDraft`.
   ремонта
 - `install_observed_missing_element` требует установить отсутствующий элемент
   и использует только exact target пользователя
-- `perform_explicit_desired_actions` переносит полное authoritative
-  `desiredActions` с детерминированной нормализацией переводов строк
+- `use_explicit_desired_action` материализует выбранное действие из исходного
+  `input.desiredActions` в назначенной роли
 - `confirm_problem_resolved` требует проверить устранение наблюдаемой проблемы
 
 В `simple-defect` фраза «На входной двери отсутствует ручка» поэтому не
@@ -238,11 +270,18 @@ evidence и строит существующий `PrimaryRequestDraft`.
 даёт естественное требование установить ручку. Backend при этом не содержит
 словаря дверей, ручек или других компонентов и не выводит ремонт по симптому.
 
-Явные `desiredActions` имеют приоритет. Их полное значение сохраняется как
-пользовательское техническое предписание, даже если оно конкретнее generic
-operations. Модель не вправе изменить или заменить его внутри remedy. Отдельные
-bounded `preliminaryCheck` и `resultCheck` могут присутствовать рядом. Их
-смысловая необходимость остаётся live-eval guarantee.
+Для backend-owned action text допустима только presentation normalization:
+обрезка внешних пробелов, замена `CRLF`, `CR` и `LF` пробелом для one-line
+контракта и удаление одного начального префикса `Прошу:`, который иначе нарушил
+бы действующий `PrimaryRequestDraft`. Общего grammar или rewrite engine нет.
+Обычный текст без этого префикса семантически не переписывается.
+
+Явные `desiredActions` имеют приоритет, но не сводятся автоматически к одному
+opaque remedy. Модель определяет только source-bound segmentation и allocation,
+а backend создаёт `preliminaryCheck`, от одного до нескольких `remedyActions` и
+`resultCheck` из исходного поля. Модель не вправе заменить выбранный фрагмент
+собственным действием. Полнота, естественные границы фрагментов и правильность
+procedural roles остаются live-eval guarantees.
 
 Явные `consequences`, группа затронутых людей, location compatibility и
 естественная нормализация impact не переводятся в новый deterministic engine.
@@ -258,12 +297,17 @@ materialization без изменений публичного результа�
 - известный bounded intent
 - соответствие `sourceField`
 - точное присутствие evidence во входном поле
-- полное равенство authoritative `desiredActions`
+- наличие `desiredActions` для любого explicit source selector
+- точное присутствие выбранного `desiredActions` fragment или выбор `whole`
+- наличие хотя бы одного source-bound решения при переданном `desiredActions`
 - вложенность install target в observation evidence
-- согласованность решения с наличием `desiredActions`
-- отсутствие точного дублирования `verification` и `preliminaryCheck`
+- cardinality procedural roles и общий лимит items
 - существующий subject evidence contract
 - итоговый `primaryRequestDraftSchema`
+
+Gate намеренно не сравнивает evidence quotes для semantic deduplication.
+Равенство цитат не доказывает дублирование ролей, а разные цитаты не доказывают
+его отсутствие. Cross-role duplication проверяется semantic/live-eval слоем.
 
 Malformed, unknown, extra или inconsistent decision отклоняется. Защищённые
 роли не получают fallback на provider prose или частичный черновик. Это решение
@@ -284,8 +328,13 @@ regex/keyword repair detection, dictionaries или domain mappings.
 - допустимый закрытый набор общих procedural decisions
 - отсутствие arbitrary technical method slot в `verification` и `actionPlan`
 - exact provenance для evidence в защищённых ролях
-- полное сохранение authoritative `desiredActions` на выбранном explicit path
-- невозможность generic remedy при наличии `desiredActions`
+- materialization explicit action только из backend-owned `desiredActions`
+- отсутствие обязательного provider echo для selection `whole`
+- точное происхождение выбранных fragments без provider-authored replacement
+- безопасную presentation normalization backend-owned action text
+- роли `preliminaryCheck: 0..1`, `remedyActions: 1..N` и
+  `resultCheck: 0..1` в пределах общего лимита
+- наличие source-bound allocation при переданном `desiredActions`
 - deterministic materialization защищённых ролей
 - сохранение существующего subject gate и normative modules
 - проверку итогового `PrimaryRequestDraft`
@@ -317,6 +366,11 @@ regex/keyword repair detection, dictionaries или domain mappings.
 - semantic relevance выбранного evidence
 - отсутствие применения bounded operation к упомянутому, но семантически
   несовместимому target
+- полнота сохранения всех существенных explicit `desiredActions`
+- корректность segmentation и allocation explicit actions между
+  `preliminaryCheck`, `remedyActions` и `resultCheck`
+- уместность выбора `whole` только для семантически атомарного действия
+- отсутствие semantic duplication или contradiction между procedural roles
 - качество result-oriented формулировок
 - стабильность смысла при разных stochastic repeats
 
@@ -370,11 +424,22 @@ Proof проверяет:
 - одинаковую deterministic materialization защищённых решений
 - все обязательные regression scenarios
 - полезное действие для `simple-defect` без component catalog
-- полное multiline `desiredActions`
-- сохранение authoritative `desiredActions` рядом с отдельными bounded checks
+- backend-owned `desiredActions` без обязательного полного provider echo
+- presentation normalization для `Прошу:`, переводов строк, внешних пробелов и
+  допустимой границы длины
+- несколько exact source fragments в разных procedural roles без склеивания в
+  один opaque remedy
+- preliminary-only explicit action, которое не становится remedy
+- последовательность explicit preliminary check, remedy и result check
+- сохранение `remedyActions: 1..N` и общего лимита procedural items
+- source-bound allocation сценариев `desired-actions` и `all-fields`
 - bounded `verification` из user-stated uncertainty
 - отклонение legacy free procedural prose, unknown intents и extra fields
-- отклонение неверного evidence и неполного authoritative path
+- отклонение неверного evidence, отсутствующего source и generic-only path при
+  наличии `desiredActions`
+- отсутствие ложного hard rejection по equality evidence quotes
+- допустимость semantic duplication на разных exact excerpts как явная граница
+  structural proof
 - сохранение существующего subject gate и renderer
 - явную границу hard guarantee через допустимый adversarial generative prose
 - явную границу install evidence через допустимый семантически неверный target
@@ -397,18 +462,20 @@ semantic/live-eval слое и не объявлен закрытым TypeScript
 | `only-description` | Заголовок, проблема, обстоятельства, impact, warnings | Unknown-cause check, generic resolution, result check | Schema, evidence, plan и renderer | Полнота и естественность нормализации |
 | `wording-normalization` | Все descriptive roles | Generic resolution и existing subject gate | Естественный вариант проходит без exact prose | Эквивалентность бытового и профессионального текста |
 | `minimum-sufficient-requests` | Компактное описание проблемы и значения | Cause, resolution и result decisions | Минимальный bounded plan без method slot | Достаточность просьб и отсутствие новых фактов |
+| `desired-actions` | Descriptive roles | Source-bound remedy и result fragments | Два explicit действия сохраняются в разных ролях | Полнота segmentation и правильность allocation |
+| `all-fields` | Title, problem, circumstances, impact, warnings | Source-bound preliminary и несколько remedies | Explicit actions не склеиваются в один remedy | Сохранение всех фактов, location, consequences и естественных границ действий |
 | `simple-defect` | Естественные title и problem | Install-missing intent с exact target | Конкретное действие содержит «ручка» | Корректность выбора install intent |
 | `location-preservation` | Descriptive prose с location | Generic resolution, result и subject | Location не мешает selective materialization | Сохранение места без смыслового искажения |
 | `conflicting-location` | Problem, impact и warning | Plan и subject без location mapping | Контракт не смешивает location с repair method | Распознавание конфликта и полезный warning |
 | `impact-subject-objective` | Meaningful impact | Generic resolution | Impact сохраняется как prose | Корректный субъект impact без расширения группы |
 | `impact-subject-explicit-group` | Impact с явной группой | Generic resolution | Группа не создаёт procedural slot | Точное сохранение явно указанной группы |
-| `unconfirmed-remedy-lighting` | Описание и impact | Полный explicit `desiredActions` | Authoritative действие сохраняется без изменения | Отсутствие invention и уместность bounded checks |
-| `unconfirmed-remedy-door` | Описание и impact | Полный explicit `desiredActions` | Authoritative path без петель и методов | Семантическая верность остального draft |
-| `confirmed-remedy-door-handle` | Естественная нормализация | Полный explicit `desiredActions` | Подтверждённое действие сохраняется | Качество result-oriented текста |
+| `unconfirmed-remedy-lighting` | Описание и impact | Backend-owned whole source selector | Действие материализуется без provider replacement | Отсутствие invention и уместность allocation |
+| `unconfirmed-remedy-door` | Описание и impact | Backend-owned whole source selector | Source-bound path без добавления петель и методов | Семантическая верность остального draft |
+| `confirmed-remedy-door-handle` | Естественная нормализация | Backend-owned whole source selector | Подтверждённое действие сохраняется | Качество result-oriented текста |
 | `unknown-remedy-lighting` | Описание и impact | Unknown cause, generic resolution, result | Нет выключателя, проводки или repair method slot | Правильность смысла и отсутствие invention в prose |
 | `unknown-remedy-functional-defect` | Описание и impact | Unknown cause, generic resolution, result | Нет symptom-to-remedy mapping | Достаточность и естественность результата |
-| `lighting-elevator-cabin` | Descriptive roles | Explicit action и existing lighting subject | Authoritative action и выбранный subject | Не расширить предмет до всего лифта |
-| `elevator-position-indicator` | Descriptive roles | Explicit action и existing elevator subject | Authoritative action и выбранный subject | Не подменить индикатор другой неисправностью |
+| `lighting-elevator-cabin` | Descriptive roles | Source-bound action и existing lighting subject | Backend-owned action и выбранный subject | Не расширить предмет до всего лифта |
+| `elevator-position-indicator` | Descriptive roles | Source-bound action и existing elevator subject | Backend-owned action и выбранный subject | Не подменить индикатор другой неисправностью |
 
 Offline proof не подменяет live acceptance. После production wiring stochastic
 repeats должны проверяться semantic review по смыслу, фактам и non-invention, а
@@ -426,14 +493,22 @@ repeats должны проверяться semantic review по смыслу, �
 - сохранять location, explicit consequences и meaningful impact
 - различать проблему, обстоятельства и влияние
 - выбирать только подтверждённый subject
+- полно сохранять смысл explicit `desiredActions` и правильно распределять их
+  по procedural roles
+- не дублировать одну semantic проверку или неизвестность между
+  `verification`, `preliminaryCheck` и другими procedural roles
+- выбирать install intent и exact target только при semantic applicability
 - возвращать единый согласованный черновик
 
 Потенциально становятся структурно избыточными после production wiring:
 
 - запреты писать arbitrary repair method в `verification` и `actionPlan`
-- инструкции не дублировать одну техническую проверку между procedural roles
 - ограничения формы действий, уже выраженные strict schema и materializer
-- правила полного переноса `desiredActions`, проверяемые authoritative path
+- требование полностью повторять `desiredActions` в provider output
+
+Правило semantic недублирования не становится структурно избыточным. Equality
+или inequality exact quotes ничего не доказывает о смысле двух ролей, поэтому
+это правило остаётся в prompt и live regression acceptance.
 
 Case-specific debt включает инструкции, добавленные под отдельные компоненты,
 ремонты или формулировки исторических regressions. Их нельзя удалять заранее.
@@ -461,7 +536,8 @@ Production implementation сначала должна пройти беспла�
 После этого live semantic acceptance выполняется отдельно и только после
 явного подтверждения платного запуска. Оно использует несколько stochastic
 repeats, сохраняет исходные semantic expectations и оценивает смысл, факты,
-non-invention и естественность. LLM-as-a-judge в это решение не входит.
+non-invention, полноту и allocation explicit actions, cross-role duplication и
+естественность. LLM-as-a-judge в это решение не входит.
 
 Issue #233 закрывается только после production wiring и требуемого acceptance,
 а не после merge этого Proposed ADR или test-only proof.
@@ -472,6 +548,8 @@ Issue #233 закрывается только после production wiring и �
 
 - перенести internal decisions и materializer в `packages/core`
 - определить provider JSON Schema и parser в `packages/llm`
+- подключить backend-owned source selection для `desiredActions`, сохранить
+  `remedyActions: 1..N` и procedural role cardinality
 - подключить selective gate в существующий one-call gateway flow
 - сохранить `GenerateRequestInput`, `GenerateRequestResult` и renderer
 - адаптировать regression suite без изменения semantic expectations
@@ -488,6 +566,12 @@ wiring.
 - LLM может добавить причину, повреждение или группу в descriptive roles
 - LLM может выбрать неправильный bounded decision при валидном evidence
 - LLM может выбрать нерелевантный exact excerpt
+- LLM может пропустить explicit action или неверно распределить source fragment
+  между preliminary, remedy и result roles
+- LLM может выбрать `whole` для составного `desiredActions` и получить
+  семантически смешанный procedural item
+- LLM может семантически продублировать неизвестность или проверку между ролями
+  при одинаковых или разных evidence quotes
 - LLM может не распознать semantic location conflict
 - warnings могут содержать неуместную техническую рекомендацию
 - естественность и полнота могут различаться между stochastic repeats
@@ -506,6 +590,12 @@ Arbitrary provider-authored #233 repair detail становится непред
 Неправильный bounded intent или нерелевантный exact target остаются возможными,
 как и invention в generative prose, и честно относятся к semantic/live-eval
 guarantees.
+
+Backend-owned `desiredActions` больше не требует полного эха модели и не
+сводится контрактом к одному remedy. Source-bound allocation сохраняет
+множественный procedural plan без свободного provider slot. Полнота
+segmentation, правильность ролей и cross-role semantic deduplication остаются
+live-eval guarantees, потому что exact quote не доказывает эти свойства.
 
 Цена решения заключается в internal/provider schema, exhaustive materializer и
 необходимости semantic acceptance для выбора решений. Full materializer больше

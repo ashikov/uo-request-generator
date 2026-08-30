@@ -124,18 +124,28 @@ GenerateRequestInput
 ```
 
 Hard boundary запрещает arbitrary technical method slot в `verification`,
-`preliminaryCheck`, `remedyActions` и `resultCheck`, требует полное authoritative
-`desiredActions` на explicit path и отклоняет malformed или inconsistent
-decisions fail closed. Набор решений описывает общие операции: сохранить
-пользовательскую неопределённость, установить неизвестную причину, устранить
-наблюдаемую проблему, установить явно отсутствующий элемент, выполнить полное
-`desiredActions` и проверить устранение проблемы.
+`preliminaryCheck`, `remedyActions` и `resultCheck`, сохраняет множественный
+procedural plan и отклоняет malformed или structurally inconsistent decisions
+fail closed. Набор решений описывает общие операции: сохранить пользовательскую
+неопределённость, установить неизвестную причину, устранить наблюдаемую
+проблему, установить явно отсутствующий элемент, выполнить backend-owned
+explicit action и проверить устранение проблемы.
+
+`desiredActions` остаётся backend-owned authoritative source и не требует
+полного эха модели. Для семантически атомарного действия provider выбирает
+`whole`, а для составного значения распределяет один или несколько exact
+source fragments между `preliminaryCheck`, `remedyActions: 1..N` и
+`resultCheck`. Materializer берёт текст только из исходного input и выполняет
+ограниченную presentation normalization: trim, замену переводов строк пробелом
+и удаление одного начального `Прошу:`. Правильность segmentation, полнота
+explicit actions и semantic allocation остаются live-eval guarantees.
 
 Schema не содержит ремонтов, компонентов, инженерных систем, причин или
 symptom-to-remedy mappings. Exact evidence подтверждает provenance, но не
 семантическую правильность intent. Естественность descriptive prose,
-non-invention, полнота фактов, impact, группы и location остаются semantic/live
-acceptance.
+non-invention, полнота фактов, impact, группы, location и cross-role semantic
+duplication остаются semantic/live acceptance. Equality evidence quotes не
+используется как hard deduplication check.
 
 Эта граница пока существует только как Proposed ADR и test-only proof
 `packages/core/tests/task-243-selective-procedural-gate*.ts`. Production gateway
