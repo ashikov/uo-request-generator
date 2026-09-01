@@ -90,19 +90,42 @@ function silentStream(): Writable {
   });
 }
 
-async function runDryRunRelease(repository: string) {
+// fetchRelease — подменяемая граница проверки GitHub Release v0.2.0 в bootstrap-guard:
+// "exists" — Release есть, "missing" — Release отсутствует, "error" — API ошибка
+type BaselineReleaseKind = "exists" | "missing" | "error";
+
+async function runDryRunRelease(
+  repository: string,
+  baselineRelease: BaselineReleaseKind = "exists",
+) {
   // Локальные плагины резолвятся относительно cwd временного репозитория,
   // поэтому пути из конфигурации переписываются в абсолютные.
   // verifyConditions у @semantic-release/github проверяет токен через сеть:
   // для проверки вычисления версии его заменяет локальный noop-плагин
-  const plugins = buildReleaseConfig(currentMajorFromRepo(repository)).plugins.map((plugin) => {
+  const fetchRelease =
+    baselineRelease === "exists"
+      ? async () => ({ exists: true })
+      : baselineRelease === "missing"
+        ? async () => ({ exists: false })
+        : async () => {
+            throw new Error("GitHub API error");
+          };
+
+  const plugins = buildReleaseConfig(currentMajorFromRepo(repository), {
+    fetchRelease,
+  }).plugins.map((plugin) => {
     if (typeof plugin === "string") {
       return path.resolve(projectRoot, plugin);
     }
     const [name, pluginConfig] = plugin;
-    return name === "@semantic-release/github"
-      ? [path.resolve(projectRoot, "./scripts/release-noop-plugin.mjs"), pluginConfig]
-      : plugin;
+    if (name === "@semantic-release/github") {
+      return [path.resolve(projectRoot, "./scripts/release-noop-plugin.mjs"), pluginConfig];
+    }
+    // Локальные плагины (bootstrap-guard) резолвятся в абсолютные пути, npm-пакеты
+    // semantic-release оставляются как есть — они находятся в node_modules проекта
+    return name.startsWith("./")
+      ? [path.resolve(projectRoot, name), pluginConfig]
+      : [name, pluginConfig];
   });
 
   // На CI runner'а semantic-release берёт ветку из переменных окружения и выходит
@@ -111,6 +134,7 @@ async function runDryRunRelease(repository: string) {
   const environment = {
     ...process.env,
     GITHUB_TOKEN: "release-scenarios-fake-token",
+    GITHUB_REPOSITORY: "example/uo-request-generator",
     GITHUB_EVENT_NAME: "push",
     GITHUB_REF: "refs/heads/main",
   };
@@ -330,5 +354,91 @@ describe("сценарии выпуска на синтетической Git-и
 
     expect(firstRun?.nextRelease).toBeUndefined();
     expect(secondRun?.nextRelease).toBeUndefined();
+  }, 120_000);
+
+  it("неканонический тег v01.0.0 не включает stable mode и релиз идёт по pre-1.0", async () => {
+    const repository = await createRepository();
+    await commitEmpty(repository, "chore: bootstrap");
+    await tagAnnotated(repository, BASELINE_TAG);
+    await tagAnnotated(repository, "v01.0.0");
+    await commitEmpty(repository, "feat: add elevator legal module");
+
+    await syncOrigin(repository);
+
+    const result = await runDryRunRelease(repository);
+
+    expect(result?.nextRelease?.version).toBe("0.2.1");
+  }, 120_000);
+
+  it("reachable v2.0.0 без v1.0.0 блокирует релиз как противоречие", async () => {
+    const repository = await createRepository();
+    await commitEmpty(repository, "chore: bootstrap");
+    await tagAnnotated(repository, BASELINE_TAG);
+    await tagAnnotated(repository, "v2.0.0");
+    await commitEmpty(repository, "fix: correct roof evidence rule");
+
+    await syncOrigin(repository);
+    const tagsBefore = await listTags(repository);
+
+    await expect(runDryRunRelease(repository)).rejects.toThrow(/v1\.0\.0|противоречив/u);
+
+    expect(await listTags(repository)).toEqual(tagsBefore);
+  }, 120_000);
+
+  it("reachable v0.2.0 tag + GitHub Release v0.2.0 разрешают выпуск", async () => {
+    const repository = await createRepository();
+    await commitEmpty(repository, "chore: bootstrap");
+    await tagAnnotated(repository, BASELINE_TAG);
+    await commitEmpty(repository, "fix: correct roof evidence rule");
+
+    await syncOrigin(repository);
+
+    const result = await runDryRunRelease(repository, "exists");
+
+    expect(result?.nextRelease?.version).toBe("0.2.1");
+  }, 120_000);
+
+  it("reachable v0.2.0 tag без GitHub Release v0.2.0 запрещает выпуск", async () => {
+    const repository = await createRepository();
+    await commitEmpty(repository, "chore: bootstrap");
+    await tagAnnotated(repository, BASELINE_TAG);
+    await commitEmpty(repository, "fix: correct roof evidence rule");
+
+    await syncOrigin(repository);
+    const tagsBefore = await listTags(repository);
+
+    await expect(runDryRunRelease(repository, "missing")).rejects.toThrow(/Release|v0\.2\.0/u);
+
+    expect(await listTags(repository)).toEqual(tagsBefore);
+  }, 120_000);
+
+  it("GitHub Release v0.2.0 без reachable tag запрещает выпуск", async () => {
+    const repository = await createRepository();
+    await commitEmpty(repository, "feat: add elevator legal module");
+
+    await syncOrigin(repository);
+    const tagsBefore = await listTags(repository);
+
+    await expect(runDryRunRelease(repository, "exists")).rejects.toThrow(
+      /недоступен|недостижим|baseline/u,
+    );
+
+    expect(await listTags(repository)).toEqual(tagsBefore);
+  }, 120_000);
+
+  it("ошибка GitHub API при проверке Release v0.2.0 запрещает выпуск", async () => {
+    const repository = await createRepository();
+    await commitEmpty(repository, "chore: bootstrap");
+    await tagAnnotated(repository, BASELINE_TAG);
+    await commitEmpty(repository, "fix: correct roof evidence rule");
+
+    await syncOrigin(repository);
+    const tagsBefore = await listTags(repository);
+
+    await expect(runDryRunRelease(repository, "error")).rejects.toThrow(
+      /не удалось проверить GitHub Release/u,
+    );
+
+    expect(await listTags(repository)).toEqual(tagsBefore);
   }, 120_000);
 });

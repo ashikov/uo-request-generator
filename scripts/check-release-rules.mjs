@@ -2,7 +2,7 @@ import { analyzeCommits } from "@semantic-release/commit-analyzer";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { buildReleaseConfig } from "./release-rules.mjs";
+import { buildReleaseConfig, parseVersionTag, releaseStateFromVersions } from "./release-rules.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -79,6 +79,126 @@ const scenarios = [
   },
 ];
 
+const tagScenarios = [
+  { tag: "v0.2.0", expected: [0, 2, 0] },
+  { tag: "v1.0.0", expected: [1, 0, 0] },
+  { tag: "v12.34.56", expected: [12, 34, 56] },
+  { tag: "v01.0.0", expected: null },
+  { tag: "v1.01.0", expected: null },
+  { tag: "v1.0.01", expected: null },
+  { tag: "v1.0", expected: null },
+  { tag: "v1", expected: null },
+  { tag: "v1.0.0-beta", expected: null },
+  { tag: "v1.0.0+build", expected: null },
+  { tag: "v0.0.0-dev", expected: null },
+  { tag: "1.0.0", expected: null },
+  { tag: "release-v1.0.0", expected: null },
+];
+
+const releaseStateScenarios = [
+  {
+    name: "один v0.2.0 даёт pre-1.0 режим без stable",
+    tags: ["v0.2.0"],
+    expected: {
+      stableReached: false,
+      baselineReached: true,
+      contradictory: false,
+      currentMajor: 0,
+    },
+  },
+  {
+    name: "неканонический v01.0.0 не включает stable mode",
+    tags: ["v0.2.0", "v01.0.0"],
+    expected: {
+      stableReached: false,
+      baselineReached: true,
+      contradictory: false,
+      currentMajor: 0,
+    },
+  },
+  {
+    name: "v2.0.0 без v1.0.0 считается противоречием",
+    tags: ["v0.2.0", "v2.0.0"],
+    expected: { stableReached: false, baselineReached: true, contradictory: true, currentMajor: 0 },
+  },
+  {
+    name: "v1.2.0 без v1.0.0 считается противоречием",
+    tags: ["v0.2.0", "v1.2.0"],
+    expected: { stableReached: false, baselineReached: true, contradictory: true, currentMajor: 0 },
+  },
+  {
+    name: "явное v1.0.0 включает stable mode",
+    tags: ["v0.2.0", "v1.0.0"],
+    expected: { stableReached: true, baselineReached: true, contradictory: false, currentMajor: 1 },
+  },
+  {
+    name: "v1.0.0 и v2.0.0 дают stable-режим с currentMajor 2",
+    tags: ["v0.2.0", "v1.0.0", "v2.0.0"],
+    expected: { stableReached: true, baselineReached: true, contradictory: false, currentMajor: 2 },
+  },
+  {
+    name: "v0.2.0 и v1.0.0 без baseline-тега всё равно дают stable",
+    tags: ["v1.0.0"],
+    expected: {
+      stableReached: true,
+      baselineReached: false,
+      contradictory: false,
+      currentMajor: 1,
+    },
+  },
+  {
+    name: "без тегов — pre-1.0 режим без baseline",
+    tags: [],
+    expected: {
+      stableReached: false,
+      baselineReached: false,
+      contradictory: false,
+      currentMajor: 0,
+    },
+  },
+];
+
+function checkTagParsing() {
+  const failures = [];
+  for (const scenario of tagScenarios) {
+    const result = parseVersionTag(scenario.tag);
+    const passed =
+      scenario.expected === null
+        ? result === null
+        : result !== null &&
+          result.major === scenario.expected[0] &&
+          result.minor === scenario.expected[1] &&
+          result.patch === scenario.expected[2];
+    if (!passed) {
+      failures.push(
+        `тег ${scenario.tag}: ожидался ${String(scenario.expected)}, получен ${String(result)}`,
+      );
+    }
+    console.log(`${passed ? "PASS" : "FAIL"}  ${scenario.tag}`);
+  }
+  return failures;
+}
+
+function checkReleaseState() {
+  const failures = [];
+  for (const scenario of releaseStateScenarios) {
+    const versions = scenario.tags.map(parseVersionTag).filter((version) => version !== null);
+    const state = releaseStateFromVersions(versions);
+    const passed =
+      state.stableReached === scenario.expected.stableReached &&
+      state.baselineReached === scenario.expected.baselineReached &&
+      state.contradictory === scenario.expected.contradictory &&
+      state.currentMajor === scenario.expected.currentMajor;
+    if (!passed) {
+      failures.push(
+        `${scenario.name}: ожидалось ${JSON.stringify(scenario.expected)}, получено ${JSON.stringify(state)}`,
+      );
+    }
+    console.log(`${passed ? "PASS" : "FAIL"}  ${scenario.name}`);
+  }
+  return failures;
+}
+
 const silentLogger = {
   error: () => {},
   log: () => {},
@@ -152,7 +272,12 @@ function checkConfigStructure() {
 }
 
 async function main() {
-  const failures = [...(await checkScenarios()), ...checkConfigStructure()];
+  const failures = [
+    ...checkTagParsing(),
+    ...checkReleaseState(),
+    ...(await checkScenarios()),
+    ...checkConfigStructure(),
+  ];
 
   if (failures.length > 0) {
     console.error("Найдены нарушения правил релиза:");
