@@ -32,27 +32,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
       - name: Validate PR commits follow Conventional Commits
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          conventional_commit_pattern='^(feat|fix|perf|docs|test|refactor|style|chore|ci|build)(\([^)]+\))?!?:[[:space:]].+'
-          invalid_subjects=()
-
-          while IFS= read -r subject; do
-            if [[ ! "$subject" =~ $conventional_commit_pattern ]]; then
-              invalid_subjects+=("$subject")
-            fi
-          done < <(git log --format=%s "${BASE_SHA}..${HEAD_SHA}")
-
-          if (( ${#invalid_subjects[@]} > 0 )); then
-            printf '%s\n' "::error::Each PR commit must follow the Conventional Commits specification"
-            printf 'Invalid commit subjects:\n'
-            printf '%s\n' "${invalid_subjects[@]}"
-            exit 1
-          fi
+        run: node scripts/check-pr-commits.mjs
 
   quality:
     if: ${{ github.event_name != 'workflow_dispatch' }}
