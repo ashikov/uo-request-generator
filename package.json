@@ -26,7 +26,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage.enabled",
     "release": "semantic-release",
-    "release:dry-run": "semantic-release --dry-run --no-ci --verify-conditions=./scripts/release-noop-plugin.mjs --publish=./scripts/release-noop-plugin.mjs",
+    "release:dry-run": "node scripts/release-dry-run.mjs",
     "check:quality": "pnpm format:check && pnpm lint && pnpm lint:md && pnpm check:file-endings && pnpm check:release-rules && pnpm typecheck",
     "check": "pnpm check:quality && pnpm test && pnpm build"
   },
