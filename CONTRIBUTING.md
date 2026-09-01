@@ -218,7 +218,10 @@ Release. Без этой проверки semantic-release начал бы ис�
 
 При принятом в проекте Rebase and merge release type определяется заголовками
 коммитов PR. Каждый из них должен быть Conventional Commit. CI проверяет это
-отдельным job.
+отдельным job `validate-pr-commits`.
+
+Настройка branch protection, чтобы этот job был required check для `main`,
+выполняется вручную владельцем репозитория и не входит в состав CI-конфигурации.
 
 ### Локальная проверка
 
