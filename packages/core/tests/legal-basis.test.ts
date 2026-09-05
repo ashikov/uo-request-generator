@@ -111,13 +111,8 @@ function createDraft(overrides: Partial<PrimaryRequestDraft> = {}): PrimaryReque
     problem: "Входная дверь подъезда не закрывается полностью.",
     circumstances: null,
     impact: null,
-    verification: null,
     subject: DOOR_SUBJECT,
-    actionPlan: {
-      preliminaryCheck: null,
-      remedyActions: ["Восстановить нормальное закрывание двери"],
-      resultCheck: "После работ проверить полное закрывание двери",
-    },
+    requestItems: ["Восстановить нормальное закрывание двери"],
     warnings: [],
     ...overrides,
   };
@@ -272,11 +267,7 @@ describe("нормативный модуль двери общего польз
         title: "Не работает освещение",
         problem: "На лестничной площадке не работает освещение.",
         subject: null,
-        actionPlan: {
-          preliminaryCheck: null,
-          remedyActions: ["Восстановить освещение"],
-          resultCheck: null,
-        },
+        requestItems: ["Восстановить освещение"],
       }),
       { description: "На лестничной площадке не работает освещение." },
     );
@@ -285,14 +276,9 @@ describe("нормативный модуль двери общего польз
     expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
   });
 
-  it("не содержит процедурного плана и не выводит developer metadata в body", () => {
+  it("не выводит developer metadata в body", () => {
     const result = renderPrimaryRequestDraft(createDraft(), CONFIRMED_DOOR_INPUT);
-    const serializedModule = JSON.stringify(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE);
 
-    expect(serializedModule).not.toContain("actionPlan");
-    expect(serializedModule).not.toContain("preliminaryCheck");
-    expect(serializedModule).not.toContain("remedyActions");
-    expect(serializedModule).not.toContain("resultCheck");
     expect(result.body).not.toContain("government.ru");
     expect(result.body).not.toContain("2026-08-15");
     expect(result.body).not.toContain("common-area-door");
@@ -314,18 +300,14 @@ describe("нормативный модуль двери общего польз
     const paragraph = COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0];
     const minimalDraft = createDraft({
       problem: "а.",
-      actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: ["б."],
-        resultCheck: null,
-      },
+      requestItems: ["б."],
     });
     const minimalBodyLength = renderPrimaryRequestDraft(minimalDraft).body.length;
-    const oldMaximumProblemLength =
+    const maximumProblemLength =
       generateRequestLimits.result.bodyMax - minimalBodyLength + minimalDraft.problem.length;
     const draftFittingWithoutModule = createDraft({
-      problem: `${"а".repeat(oldMaximumProblemLength - 1)}.`,
-      actionPlan: minimalDraft.actionPlan,
+      problem: `${"а".repeat(maximumProblemLength - 1)}.`,
+      requestItems: minimalDraft.requestItems,
     });
 
     const bodyLengthWithoutModule =
@@ -341,7 +323,7 @@ describe("нормативный модуль двери общего польз
     expect(() =>
       renderPrimaryRequestDraft(draftFittingWithoutModule, CONFIRMED_DOOR_INPUT),
     ).toThrow();
-    expect(draftFittingWithoutModule.problem).toHaveLength(oldMaximumProblemLength);
+    expect(draftFittingWithoutModule.problem).toHaveLength(maximumProblemLength);
   });
 });
 
@@ -354,11 +336,7 @@ describe("нормативный модуль освещения помещен�
       title: "Не работает освещение в общем коридоре",
       problem: LIGHTING_INPUT.description,
       subject: LIGHTING_SUBJECT,
-      actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: ["Восстановить освещение в общем коридоре"],
-        resultCheck: null,
-      },
+      requestItems: ["Восстановить освещение в общем коридоре"],
       ...overrides,
     });
   }
@@ -401,11 +379,7 @@ describe("нормативный модуль освещения помещен�
           },
         ],
       },
-      actionPlan: {
-        preliminaryCheck: "При необходимости установить причину отсутствия освещения",
-        remedyActions: [ELEVATOR_CABIN_LIGHTING_INPUT.desiredActions],
-        resultCheck: "Проверить работу освещения после восстановления",
-      },
+      requestItems: [ELEVATOR_CABIN_LIGHTING_INPUT.desiredActions],
     });
 
     const result = renderPrimaryRequestDraft(draft, CONFIRMED_ELEVATOR_CABIN_LIGHTING_INPUT);
@@ -551,18 +525,14 @@ describe("нормативный модуль освещения помещен�
   it("учитывает самый длинный предметный текст в budget без усечения", () => {
     const minimalDraft = createLightingDraft({
       problem: "а.",
-      actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: ["б."],
-        resultCheck: null,
-      },
+      requestItems: ["б."],
     });
     const minimalBodyLength = renderPrimaryRequestDraft(minimalDraft).body.length;
     const maximumProblemWithoutSpecificBasis =
       generateRequestLimits.result.bodyMax - minimalBodyLength + minimalDraft.problem.length;
     const draftFittingWithoutModule = createLightingDraft({
       problem: `${"а".repeat(maximumProblemWithoutSpecificBasis - 1)}.`,
-      actionPlan: minimalDraft.actionPlan,
+      requestItems: minimalDraft.requestItems,
     });
 
     expect(primaryRequestDraftSchema.safeParse(draftFittingWithoutModule).success).toBe(false);
@@ -582,11 +552,7 @@ describe("нормативный модуль уборки помещений о
       title: "Не выполнена уборка подъезда",
       problem: CLEANING_INPUT.description,
       subject: CLEANING_SUBJECT,
-      actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: ["Выполнить уборку лестничной площадки"],
-        resultCheck: null,
-      },
+      requestItems: ["Выполнить уборку лестничной площадки"],
       ...overrides,
     });
   }
@@ -779,15 +745,12 @@ describe("нормативный модуль уборки помещений о
     expect(result.body).toContain(COMMON_LEGAL_BASIS_BLOCK);
   });
 
-  it("не выводит URL, metadata и процедурные действия из нормативного модуля", () => {
+  it("не выводит URL и metadata из нормативного модуля", () => {
     const result = renderPrimaryRequestDraft(createCleaningDraft(), CONFIRMED_CLEANING_INPUT);
-    const serializedModule = JSON.stringify(COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE);
 
     expect(result.body).not.toContain("government.ru");
     expect(result.body).not.toContain("2026-08-24");
     expect(result.body).not.toContain("common-area-cleaning");
-    expect(serializedModule).not.toContain("actionPlan");
-    expect(serializedModule).not.toContain("remedyActions");
   });
 
   it("учитывает cleaning module в максимальном budget и применяет не более одного модуля", () => {
@@ -823,11 +786,7 @@ describe("нормативный модуль кровли многокварт�
       title: "Проблема с кровлей дома",
       problem: ROOF_INPUT.description,
       subject: ROOF_SUBJECT,
-      actionPlan: {
-        preliminaryCheck: "Проверить состояние кровли",
-        remedyActions: ["Устранить выявленное нарушение"],
-        resultCheck: null,
-      },
+      requestItems: ["Устранить выявленное нарушение"],
       ...overrides,
     });
   }
@@ -910,7 +869,7 @@ describe("нормативный модуль кровли многокварт�
     expect(result.body).not.toContain(paragraph);
   });
 
-  it("не выводит URL, metadata, причины протечки и процедурные действия из модуля", () => {
+  it("не выводит URL, metadata и неподтверждённые причины протечки из модуля", () => {
     const result = renderPrimaryRequestDraft(createRoofDraft(), ROOF_INPUT);
     const serializedModule = JSON.stringify(COMMON_AREA_ROOF_LEGAL_BASIS_MODULE);
 
@@ -920,8 +879,6 @@ describe("нормативный модуль кровли многокварт�
     expect(paragraph).not.toContain("повреждение кровельного покрытия");
     expect(paragraph).not.toContain("водосток");
     expect(paragraph).not.toContain("способ ремонта");
-    expect(serializedModule).not.toContain("actionPlan");
-    expect(serializedModule).not.toContain("remedyActions");
     expect(serializedModule).not.toContain("03.04.2013 № 290");
   });
 
@@ -958,11 +915,7 @@ describe("нормативный модуль вентиляции общего 
       title: "Проблема с общедомовой вентиляцией",
       problem: VENTILATION_INPUT.description,
       subject: VENTILATION_SUBJECT,
-      actionPlan: {
-        preliminaryCheck: "Проверить состояние общедомовой вентиляции",
-        remedyActions: ["Восстановить работоспособность общедомовой вентиляции"],
-        resultCheck: null,
-      },
+      requestItems: ["Восстановить работоспособность общедомовой вентиляции"],
       ...overrides,
     });
   }
@@ -1061,7 +1014,7 @@ describe("нормативный модуль вентиляции общего 
     }
   });
 
-  it("не выводит URL, metadata, диагностику и процедурные действия из модуля", () => {
+  it("не выводит URL, metadata и неподтверждённую диагностику из модуля", () => {
     const result = renderPrimaryRequestDraft(createVentilationDraft(), VENTILATION_INPUT);
     const serializedModule = JSON.stringify(COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE);
 
@@ -1071,8 +1024,6 @@ describe("нормативный модуль вентиляции общего 
     expect(paragraph).not.toContain("засор");
     expect(paragraph).not.toContain("дефект");
     expect(paragraph).not.toContain("воздухообмен");
-    expect(serializedModule).not.toContain("actionPlan");
-    expect(serializedModule).not.toContain("remedyActions");
     expect(serializedModule).not.toContain("03.04.2013 № 290");
   });
 
@@ -1108,11 +1059,7 @@ describe("нормативный модуль лифта общего имуще
       title: "Лифт не реагирует на вызов",
       problem: ELEVATOR_INPUT.description,
       subject: ELEVATOR_SUBJECT,
-      actionPlan: {
-        preliminaryCheck: "Проверить работу лифта",
-        remedyActions: ["Восстановить работоспособность лифта"],
-        resultCheck: null,
-      },
+      requestItems: ["Восстановить работоспособность лифта"],
       ...overrides,
     });
   }
@@ -1246,7 +1193,7 @@ describe("нормативный модуль лифта общего имуще
     expect(result.body).not.toContain(paragraph);
   });
 
-  it("не выводит URL, metadata, диагностику или процедурные действия из модуля", () => {
+  it("не выводит URL, metadata и неподтверждённую диагностику из модуля", () => {
     const result = renderPrimaryRequestDraft(createElevatorDraft(), ELEVATOR_INPUT);
     const serializedModule = JSON.stringify(COMMON_AREA_ELEVATOR_LEGAL_BASIS_MODULE);
 
@@ -1256,7 +1203,6 @@ describe("нормативный модуль лифта общего имуще
     expect(paragraph).not.toContain("неисправность");
     expect(paragraph).not.toContain("аварийность");
     expect(paragraph).not.toContain("ремонт");
-    expect(serializedModule).not.toContain("actionPlan");
     expect(serializedModule).not.toContain("29.12.2025 № 564-ФЗ");
   });
 

@@ -49,15 +49,21 @@ const VALID_DRAFT = {
   problem: "На лестничной площадке не горит свет.",
   circumstances: null,
   impact: null,
-  verification: null,
   subject: null,
-  actionPlan: {
-    preliminaryCheck: null,
-    remedyActions: ["Проверить и восстановить освещение"],
-    resultCheck: null,
-  },
   warnings: [],
 };
+
+function draftForDescription(description: string) {
+  return {
+    ...VALID_DRAFT,
+    problem: description,
+  };
+}
+
+function draftForInput(input: { description: string }) {
+  void input;
+  return VALID_DRAFT;
+}
 
 function createLlmText(draft: unknown): string {
   return JSON.stringify({ draft });
@@ -75,7 +81,7 @@ const VALID_LLM_RESPONSE = {
       COMMON_LEGAL_BASIS_BLOCK,
       "",
       "Прошу:",
-      "1. Проверить и восстановить освещение.",
+      "1. Устранить наблюдаемую проблему.",
     ].join("\n"),
     warnings: [],
   },
@@ -87,9 +93,7 @@ const MULTIPLE_ISSUES_LLM_TEXT = createLlmText({
   problem: null,
   circumstances: null,
   impact: null,
-  verification: null,
   subject: null,
-  actionPlan: null,
   warnings: [],
 });
 
@@ -199,9 +203,10 @@ describe("OpenAiCompatibleGateway", () => {
     });
     expect(callBody.messages[0]?.content).toContain("Верни только один валидный JSON-объект");
     expect(callBody.messages[0]?.content).toContain("circumstances содержит");
-    expect(callBody.messages[0]?.content).toContain("verification содержит");
+    expect(callBody.messages[0]?.content).toContain("backend сам добавит его в раздел «Прошу:»");
     expect(callBody.messages[0]?.content).toContain("warnings: []");
-    expect(callBody.messages[0]?.content).toContain("Не добавляй в actionPlan нумерацию");
+    expect(callBody.messages[0]?.content).not.toContain("install_observed_missing_element");
+    expect(JSON.stringify(callBody.response_format)).not.toContain("targetQuote");
     expect(JSON.stringify(callBody)).not.toContain(HOUSING_CODE_URL);
     expect(JSON.stringify(callBody)).not.toContain(MANAGEMENT_RULES_URL);
     expect(JSON.stringify(callBody)).not.toContain("Общие нормативные основания:");
@@ -383,16 +388,17 @@ describe("OpenAiCompatibleGateway", () => {
   });
 
   it("сохраняет свободный description внутри JSON и нормализует опциональные поля", async () => {
-    const mockFetch = createMockFetch(VALID_LLM_TEXT);
     const description =
       'Лифт не работает.\nМесто: "восьмой этаж".\nЖелаемые действия: это часть текста.';
-
-    await createGateway().generateRequest({
+    const input = {
       description,
       location: "  подъезд  ",
       consequences: "  Пользователю неудобно  ",
       desiredActions: "  Проверить лифт  ",
-    });
+    };
+    const mockFetch = createMockFetch(createLlmText(draftForInput(input)));
+
+    await createGateway().generateRequest(input);
 
     const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     const userContent = callBody.messages[1]?.content as string;
@@ -578,19 +584,14 @@ describe("OpenAiCompatibleGateway", () => {
   });
 
   it("парсит ответ с предупреждениями", async () => {
+    const input = { description: "На кухне течёт кран." };
     const text = createLlmText({
       outcome: "generated",
       title: "Течь на кухне",
-      problem: "На кухне течёт кран.",
+      problem: input.description,
       circumstances: null,
       impact: null,
-      verification: null,
       subject: null,
-      actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: ["Отремонтировать кран"],
-        resultCheck: null,
-      },
       warnings: ["Пользователь выразил эмоции", "Не указана причина протечки"],
     });
 
@@ -598,14 +599,14 @@ describe("OpenAiCompatibleGateway", () => {
 
     const gateway = createGateway();
 
-    const result = await gateway.generateRequest(VALID_INPUT);
+    const result = await gateway.generateRequest(input);
 
     expect(result.status).toBe("generated");
     if (result.status !== "generated") {
       throw new Error("Ожидался готовый результат");
     }
     expect(result.result.title).toBe("Течь на кухне");
-    expect(result.result.body).toContain("Отремонтировать");
+    expect(result.result.body).toContain("Устранить наблюдаемую проблему");
     expect(result.result.warnings).toHaveLength(2);
   });
 
@@ -617,7 +618,6 @@ describe("OpenAiCompatibleGateway", () => {
       circumstances: "Дверь оставляют открытой и фиксируют ограничителем.",
       impact:
         "Такой способ эксплуатации создаёт риск дополнительной нагрузки на доводчик и крепления.",
-      verification: null,
       subject: {
         kind: "common_area_entrance_door",
         evidence: [
@@ -626,11 +626,6 @@ describe("OpenAiCompatibleGateway", () => {
             quote: "входной двери подъезда",
           },
         ],
-      },
-      actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: ["Установить ручку на входную дверь"],
-        resultCheck: null,
       },
       warnings: [],
     };
@@ -648,7 +643,7 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.body).toContain(draft.problem);
     expect(result.result.body).toContain(draft.circumstances);
     expect(result.result.body).toContain(draft.impact);
-    expect(result.result.body).toContain("Прошу:\n1. Установить ручку на входную дверь");
+    expect(result.result.body).toContain("Прошу:\n1. Устранить наблюдаемую проблему");
     expect(result.result.body).toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
     expect(result.result.body).not.toContain("\n2. ");
     expect(result.result.body).not.toContain("доводчик повреждён");
@@ -660,7 +655,7 @@ describe("OpenAiCompatibleGateway", () => {
     const description =
       "В общем коридоре многоквартирного дома не работает освещение несколько дней.";
     const draft = {
-      ...VALID_DRAFT,
+      ...draftForDescription(description),
       subject: {
         kind: "common_area_premises_lighting",
         evidence: [{ sourceField: "description", quote: description }],
@@ -698,11 +693,6 @@ describe("OpenAiCompatibleGateway", () => {
       subject: {
         kind: "common_area_premises_lighting",
         evidence: [{ sourceField: "description", quote: input.description }],
-      },
-      actionPlan: {
-        preliminaryCheck: "При необходимости установить причину отсутствия освещения",
-        remedyActions: [input.desiredActions],
-        resultCheck: "Проверить работу освещения после восстановления",
       },
     };
     const mockFetch = createMockFetch(createLlmText(draft));
@@ -744,11 +734,6 @@ describe("OpenAiCompatibleGateway", () => {
         kind: "common_area_elevator",
         evidence: [{ sourceField: "description", quote: input.description }],
       },
-      actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: [input.desiredActions],
-        resultCheck: null,
-      },
     };
     createMockFetch(createLlmText(draft));
 
@@ -775,7 +760,9 @@ describe("OpenAiCompatibleGateway", () => {
       description: "На первом этаже не работает индикатор положения лифта.",
       confirmedProblemSubject: "common_area_elevator" as const,
     };
-    const mockFetch = createMockFetch(createLlmText({ ...VALID_DRAFT, subject: null }));
+    const mockFetch = createMockFetch(
+      createLlmText({ ...draftForDescription(input.description), subject: null }),
+    );
 
     const generation = await createGateway().generateRequestForEvaluation(input);
 
@@ -819,7 +806,7 @@ describe("OpenAiCompatibleGateway", () => {
       promptRule: "Отсутствие освещения в кабине лифта само по себе не подтверждает этот kind",
     },
   ])("остаётся fail closed при $caseName", async ({ input, excludedParagraph, promptRule }) => {
-    const mockFetch = createMockFetch(createLlmText(VALID_DRAFT));
+    const mockFetch = createMockFetch(createLlmText(draftForDescription(input.description)));
 
     const result = await createGateway().generateRequest(input);
 
@@ -835,36 +822,6 @@ describe("OpenAiCompatibleGateway", () => {
     expect(requestBody.messages[0]?.content).toContain(promptRule);
   });
 
-  it("возвращает manual-eval observation из того же validated draft и deterministic selection", async () => {
-    const description =
-      "В общем коридоре многоквартирного дома не работает освещение несколько дней.";
-    const draft = {
-      ...VALID_DRAFT,
-      subject: {
-        kind: "common_area_premises_lighting",
-        evidence: [{ sourceField: "description", quote: description }],
-      },
-    };
-    createMockFetch(createLlmText(draft));
-
-    const generation = await createGateway().generateRequestForEvaluation({
-      description,
-      confirmedProblemSubject: "common_area_premises_lighting",
-    });
-
-    expect(generation.status).toBe("success");
-    if (generation.status !== "success") {
-      throw new Error("Ожидался успешный generation result");
-    }
-    expect(generation.observation.draftOutcome).toBe("generated");
-    if (generation.observation.draftOutcome !== "generated") {
-      throw new Error("Ожидался generated evaluation observation");
-    }
-    expect(generation.observation.draft).toMatchObject({ subject: draft.subject });
-    expect(generation.observation.selectedNormativeModule).toBe("common-area-lighting");
-    expect(generation.systemPromptHash).toMatch(/^sha256:/u);
-  });
-
   it("добавляет cleaning module ровно один раз для подтверждённого синтетического subject", async () => {
     const description = "В подъезде грязно, уборка не проводится около двух недель.";
     const location = "первый подъезд";
@@ -876,18 +833,12 @@ describe("OpenAiCompatibleGateway", () => {
       problem: "В первом подъезде около двух недель не проводится уборка.",
       circumstances: null,
       impact: null,
-      verification: null,
       subject: {
         kind: "common_area_premises_cleaning",
         evidence: [
           { sourceField: "description", quote: description },
           { sourceField: "location", quote: location },
         ],
-      },
-      actionPlan: {
-        preliminaryCheck: null,
-        remedyActions: [desiredActions],
-        resultCheck: null,
       },
       warnings: [],
     };
@@ -917,7 +868,7 @@ describe("OpenAiCompatibleGateway", () => {
   it("не применяет модули при lighting subject под подтверждением лифта и сообщает mismatch", async () => {
     const description = "В кабине лифта не работает освещение.";
     const draft = {
-      ...VALID_DRAFT,
+      ...draftForDescription(description),
       subject: {
         kind: "common_area_premises_lighting",
         evidence: [{ sourceField: "description", quote: description }],
@@ -964,7 +915,7 @@ describe("OpenAiCompatibleGateway", () => {
     ],
   ] as const)("сохраняет independently inferred cleaning, но fail closed для backend-подтверждения: %s", async (_caseName, description, confirmedProblemSubject, forbiddenTechnicalParagraph) => {
     const draft = {
-      ...VALID_DRAFT,
+      ...draftForDescription(description),
       subject: {
         kind: "common_area_premises_cleaning" as const,
         evidence: [{ sourceField: "description" as const, quote: description }],
@@ -996,8 +947,12 @@ describe("OpenAiCompatibleGateway", () => {
   });
 
   it("диагностирует неподтверждаемое evidence и не применяет модуль", async () => {
+    const input = {
+      description: "У входной двери подъезда отсутствует ручка.",
+      confirmedProblemSubject: "common_area_entrance_door" as const,
+    };
     const draft = {
-      ...VALID_DRAFT,
+      ...draftForDescription(input.description),
       subject: {
         kind: "common_area_entrance_door",
         evidence: [
@@ -1010,10 +965,7 @@ describe("OpenAiCompatibleGateway", () => {
     };
     const mockFetch = createMockFetch(createLlmText(draft));
 
-    const generation = await createGateway().generateRequestForEvaluation({
-      description: "У входной двери подъезда отсутствует ручка.",
-      confirmedProblemSubject: "common_area_entrance_door",
-    });
+    const generation = await createGateway().generateRequestForEvaluation(input);
 
     expect(generation.status).toBe("success");
     if (generation.status !== "success" || generation.observation.draftOutcome !== "generated") {
@@ -1069,7 +1021,7 @@ describe("OpenAiCompatibleGateway", () => {
     ["бессмысленное evidence", "аааааааааа", "аааааааааа"],
   ])("не подключает предметный нормативный текст по ошибочному provider output: %s", async (_caseName, description, quote) => {
     const draft = {
-      ...VALID_DRAFT,
+      ...draftForDescription(description),
       subject: {
         kind: "common_area_entrance_door",
         evidence: [{ sourceField: "description", quote }],
@@ -1117,38 +1069,50 @@ describe("OpenAiCompatibleGateway", () => {
       draftOutcome: "multiple_issues",
       multipleIssuesDraft: {
         outcome: "multiple_issues",
-        title: null,
-        problem: null,
-        circumstances: null,
-        impact: null,
-        verification: null,
-        subject: null,
-        actionPlan: null,
-        warnings: [],
       },
     });
   });
 
-  it("отклоняет противоречивый multiple_issues и не раскрывает содержимое ответа", async () => {
+  it("отбрасывает schema-valid generated-looking поля multiple_issues", async () => {
     const internalDetail = "Техническая деталь синтетического ответа";
     const mockFetch = createMockFetch(
       createLlmText({
+        ...VALID_DRAFT,
         outcome: "multiple_issues",
         title: internalDetail,
+      }),
+    );
+
+    const generation = await createGateway().generateRequestForEvaluation(VALID_INPUT);
+
+    expect(generation).toMatchObject({
+      status: "success",
+      outcome: { status: "multiple_issues" },
+      observation: {
+        draftOutcome: "multiple_issues",
+        multipleIssuesDraft: { outcome: "multiple_issues" },
+      },
+    });
+    expect(JSON.stringify(generation)).not.toContain(internalDetail);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("fail closed отклоняет malformed universal поле multiple_issues", async () => {
+    const mockFetch = createMockFetch(
+      createLlmText({
+        outcome: "multiple_issues",
+        title: 42,
         problem: null,
         circumstances: null,
         impact: null,
-        verification: null,
         subject: null,
-        actionPlan: null,
         warnings: [],
       }),
     );
 
-    const generation = createGateway().generateRequest(VALID_INPUT);
-
-    await expect(generation).rejects.toThrow("LLM вернул некорректный формат заявки");
-    await expect(generation).rejects.not.toThrow(internalDetail);
+    await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
+      "LLM вернул некорректный формат заявки",
+    );
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
@@ -1158,6 +1122,49 @@ describe("OpenAiCompatibleGateway", () => {
     await expect(createGateway().generateRequest(VALID_INPUT)).rejects.toThrow(
       "LLM вернул некорректный формат заявки",
     );
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("fail closed отклоняет provider-authored request item без частичной заявки и повторного запроса", async () => {
+    const providerAuthoredRequest = "Заменить проводку и выключатель";
+    const mockFetch = createMockFetch(
+      createLlmText({
+        ...VALID_DRAFT,
+        requestItems: [providerAuthoredRequest],
+      }),
+    );
+
+    const generation = createGateway().generateRequest(VALID_INPUT);
+
+    await expect(generation).rejects.toThrow("LLM вернул некорректный формат заявки");
+    await expect(generation).rejects.not.toThrow(providerAuthoredRequest);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it("fail closed отклоняет legacy procedural prose без compatibility fallback", async () => {
+    const legacyMethod = "Заменить проводку и выключатель";
+    const mockFetch = createMockFetch(
+      createLlmText({
+        outcome: "generated",
+        title: VALID_DRAFT.title,
+        problem: VALID_DRAFT.problem,
+        circumstances: null,
+        impact: null,
+        verification: null,
+        subject: null,
+        actionPlan: {
+          preliminaryCheck: null,
+          remedyActions: [legacyMethod],
+          resultCheck: null,
+        },
+        warnings: [],
+      }),
+    );
+
+    const generation = createGateway().generateRequest(VALID_INPUT);
+
+    await expect(generation).rejects.toThrow("LLM вернул некорректный формат заявки");
+    await expect(generation).rejects.not.toThrow(legacyMethod);
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
@@ -1255,14 +1262,15 @@ describe("OpenAiCompatibleGateway", () => {
   });
 
   it("включает location в запрос, если он передан", async () => {
-    const mockFetch = createMockFetch(VALID_LLM_TEXT);
+    const input = {
+      description: "Течёт кран",
+      location: "Кухня, третий этаж",
+    };
+    const mockFetch = createMockFetch(createLlmText(draftForInput(input)));
 
     const gateway = createGateway();
 
-    await gateway.generateRequest({
-      description: "Течёт кран",
-      location: "Кухня, третий этаж",
-    });
+    await gateway.generateRequest(input);
 
     const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     expect(callBody.messages[1]?.content).toContain("Кухня");
@@ -1330,7 +1338,7 @@ describe("OpenAiCompatibleGateway", () => {
       },
     ],
   ] as const)("формирует JSON-сообщение %s с явными null", async (_caseName, input, expectedInput) => {
-    const mockFetch = createMockFetch(VALID_LLM_TEXT);
+    const mockFetch = createMockFetch(createLlmText(draftForInput(input)));
 
     await createGateway().generateRequest(input);
 
@@ -1399,22 +1407,23 @@ describe("OpenAiCompatibleGateway", () => {
     });
 
     it("использует для обоих протоколов одинаковую JSON-сериализацию входных полей", async () => {
-      const mockFetch = vi
-        .spyOn(globalThis, "fetch")
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ choices: [{ message: { content: VALID_LLM_TEXT } }] }), {
-            status: 200,
-          }),
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ output_text: VALID_LLM_TEXT }), { status: 200 }),
-        );
       const input = {
         description: "Не работает освещение",
         location: "  общий коридор  ",
         consequences: "  Вечером проход затруднён  ",
         desiredActions: "  Проверить освещение  ",
       };
+      const llmText = createLlmText(draftForInput(input));
+      const mockFetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ choices: [{ message: { content: llmText } }] }), {
+            status: 200,
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ output_text: llmText }), { status: 200 }),
+        );
 
       await createGateway().generateRequest(input);
       await createGateway(responsesConfig).generateRequest(input);
@@ -1465,6 +1474,7 @@ describe("OpenAiCompatibleGateway", () => {
       createResponsesMockFetch({
         status: "incomplete",
         output_text: VALID_LLM_TEXT,
+        incomplete_details: { reason: "max_output_tokens" },
         usage: { input_tokens: 90, output_tokens: 45, total_tokens: 135 },
       });
 
@@ -1477,12 +1487,14 @@ describe("OpenAiCompatibleGateway", () => {
         error: "request failed",
         usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
       });
+      expect(generation).not.toHaveProperty("responsesFailure");
     });
 
     it("возвращает безопасную projection failure для evaluation", async () => {
       createResponsesMockFetch({
         status: "incomplete",
         output_text: VALID_LLM_TEXT,
+        incomplete_details: { reason: "max_output_tokens" },
         usage: { input_tokens: 90, output_tokens: 45, total_tokens: 135 },
       });
 
@@ -1495,6 +1507,10 @@ describe("OpenAiCompatibleGateway", () => {
         failureKind: "request",
         error: "request failed",
         failureStatus: "invalid_response",
+        responsesFailure: {
+          status: "incomplete",
+          incompleteReason: "max_output_tokens",
+        },
         usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
         usageStatus: "available",
         systemPromptHash: createRequestDraftSystemPromptHash(
@@ -1504,6 +1520,63 @@ describe("OpenAiCompatibleGateway", () => {
       expect(generation).not.toHaveProperty("metadata");
       expect(serializedGeneration).not.toContain("test-provider");
       expect(serializedGeneration).not.toContain("test-model");
+    });
+
+    it("сохраняет безопасную причину failed без raw provider payload", async () => {
+      const rawProviderMessage =
+        "model test-model rejected at https://provider.example/v1/responses with Bearer test-key-123";
+      createResponsesMockFetch({
+        status: "failed",
+        output: [],
+        error: {
+          code: "invalid_prompt",
+          message: rawProviderMessage,
+        },
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+        provider_debug: {
+          authorization: "Bearer test-key-123",
+          raw_request: VALID_INPUT,
+        },
+      });
+
+      const generation =
+        await createGateway(responsesConfig).generateRequestForEvaluation(VALID_INPUT);
+      const serializedGeneration = JSON.stringify(generation);
+
+      expect(generation).toMatchObject({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+        failureStatus: "invalid_response",
+        responsesFailure: {
+          status: "failed",
+          providerErrorCode: "invalid_prompt",
+        },
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      });
+      expect(serializedGeneration).not.toContain(rawProviderMessage);
+      expect(serializedGeneration).not.toContain("test-model");
+      expect(serializedGeneration).not.toContain("https://provider.example/v1/responses");
+      expect(serializedGeneration).not.toContain("test-key-123");
+      expect(serializedGeneration).not.toContain("raw_request");
+      expect(serializedGeneration).not.toContain(VALID_INPUT.description);
+    });
+
+    it.each([
+      "in_progress",
+      "queued",
+      "cancelled",
+    ] as const)("различает допустимый non-completed status %s", async (status) => {
+      createResponsesMockFetch({ status, output: [] });
+
+      const generation =
+        await createGateway(responsesConfig).generateRequestForEvaluation(VALID_INPUT);
+
+      expect(generation).toMatchObject({
+        status: "failure",
+        failureStatus: "invalid_response",
+        responsesFailure: { status },
+      });
     });
 
     it("сохраняет usage при локальной валидации ответа", async () => {
@@ -1692,15 +1765,18 @@ describe("OpenAiCompatibleGateway", () => {
     });
 
     it("передаёт все заполненные поля контекста в input", async () => {
-      const mockFetch = createResponsesMockFetch({ output_text: VALID_LLM_TEXT });
-      const gateway = createGateway(responsesConfig);
-
-      await gateway.generateRequest({
+      const input = {
         description: "Не работает освещение",
         location: "Общий коридор",
         consequences: "В вечернее время проход затруднён",
         desiredActions: "Проверить и восстановить освещение",
+      };
+      const mockFetch = createResponsesMockFetch({
+        output_text: createLlmText(draftForInput(input)),
       });
+      const gateway = createGateway(responsesConfig);
+
+      await gateway.generateRequest(input);
 
       const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
       expect(callBody.input).toBe(

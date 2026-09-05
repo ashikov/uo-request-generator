@@ -47,10 +47,16 @@ export const PRIMARY_REQUEST_SUBJECT_EVIDENCE_SOURCE_FIELDS = [
 
 const evidenceQuoteSchema = z
   .string()
+  .refine(
+    (quote) => Array.from(quote).length <= primaryRequestSubjectLimits.quote.max,
+    "Цитата превышает лимит",
+  )
   .regex(/^[^\r\n]*$/u)
   .trim()
-  .min(primaryRequestSubjectLimits.quote.min)
-  .max(primaryRequestSubjectLimits.quote.max);
+  .refine(
+    (quote) => Array.from(quote).length >= primaryRequestSubjectLimits.quote.min,
+    "Цитата короче минимального лимита",
+  );
 
 const primaryRequestSubjectEvidenceSchema = z
   .object({
