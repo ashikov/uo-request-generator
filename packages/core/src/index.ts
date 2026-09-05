@@ -44,3 +44,12 @@ export {
   renderPrimaryRequestDraft,
   type PrimaryRequestDraft,
 } from "./primary-request-draft.js";
+export {
+  generatedRequestDraftSchema,
+  materializePrimaryRequestDraft,
+  multipleIssuesRequestDraftSchema,
+  PRIMARY_REQUEST_GENERIC_ITEM,
+  requestDraftSchema,
+  type GeneratedRequestDraft,
+  type RequestDraft,
+} from "./request-draft.js";

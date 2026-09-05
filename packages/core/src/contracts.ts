@@ -69,6 +69,10 @@ export const generateRequestInputSchema = z
       .string()
       .trim()
       .min(1, "Желаемые действия не должны быть пустыми")
+      .refine(
+        (value) => value.replace(/^прошу\s*:\s*/iu, "") !== "",
+        "Желаемые действия должны содержать текст после «Прошу:»",
+      )
       .max(
         generateRequestLimits.desiredActions.max,
         `Желаемые действия должны содержать не более ${generateRequestLimits.desiredActions.max} символов`,

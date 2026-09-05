@@ -1,4 +1,5 @@
 import type {
+  GeneratedRequestDraft,
   GenerateRequestInput,
   GenerateRequestOutcome,
   PrimaryRequestDraft,
@@ -52,7 +53,7 @@ const GENERATED_OUTCOME: GenerateRequestOutcome = {
       "Подпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.",
       "",
       "Прошу:",
-      "1. Проверить и восстановить освещение",
+      "1. Устранить наблюдаемую проблему",
     ].join("\n"),
     warnings: [],
   },
@@ -63,14 +64,33 @@ const EVALUATION_DRAFT: PrimaryRequestDraft = {
   problem: "На лестничной площадке не работает освещение.",
   circumstances: null,
   impact: null,
-  verification: null,
   subject: null,
-  actionPlan: {
-    preliminaryCheck: null,
-    remedyActions: ["Проверить и восстановить освещение"],
-    resultCheck: null,
-  },
+  requestItems: ["Устранить наблюдаемую проблему"],
   warnings: [],
+};
+
+const EVALUATION_REQUEST_DRAFT: GeneratedRequestDraft = {
+  outcome: "generated",
+  title: EVALUATION_DRAFT.title,
+  problem: EVALUATION_DRAFT.problem,
+  circumstances: EVALUATION_DRAFT.circumstances,
+  impact: EVALUATION_DRAFT.impact,
+  subject: EVALUATION_DRAFT.subject,
+  warnings: EVALUATION_DRAFT.warnings,
+};
+
+const EVALUATION_OBSERVATION = {
+  draftOutcome: "generated" as const,
+  requestDraft: EVALUATION_REQUEST_DRAFT,
+  draft: EVALUATION_DRAFT,
+  selectedNormativeModule: null,
+  specificLegalBasisSelectionStatus: "subject_absent" as const,
+};
+
+const SUCCESSFUL_EVALUATION_GENERATION = {
+  status: "success" as const,
+  outcome: GENERATED_OUTCOME,
+  observation: EVALUATION_OBSERVATION,
 };
 
 function dependencies(overrides: Partial<BenchmarkDependencies> = {}): BenchmarkDependencies {
@@ -93,8 +113,7 @@ function dependencies(overrides: Partial<BenchmarkDependencies> = {}): Benchmark
     sourceState: () => ({ status: "clean", commitSha: "test-commit" }),
     createGateway: vi.fn(() => ({
       generateRequestForEvaluation: vi.fn().mockResolvedValue({
-        status: "success",
-        outcome: GENERATED_OUTCOME,
+        ...SUCCESSFUL_EVALUATION_GENERATION,
         usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       }),
     })),
@@ -156,7 +175,7 @@ describe("LLM benchmark", () => {
   it("допускает paid run только для clean source state", async () => {
     const generateRequestForEvaluation = vi
       .fn()
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -349,7 +368,7 @@ describe("LLM benchmark", () => {
     const gateway = {
       generateRequestForEvaluation: vi.fn(async () => {
         events.push("request");
-        return { status: "success" as const, outcome: GENERATED_OUTCOME };
+        return SUCCESSFUL_EVALUATION_GENERATION;
       }),
     };
     const runtime = dependencies({
@@ -377,7 +396,7 @@ describe("LLM benchmark", () => {
         error: "request failed",
         providerHttpStatus: 400,
       })
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -396,15 +415,13 @@ describe("LLM benchmark", () => {
   it("локализует provider failure после части requests первой модели", async () => {
     const modelAGenerate = vi
       .fn()
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME })
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION)
       .mockResolvedValueOnce({
         status: "failure",
         failureKind: "provider",
         error: "provider unavailable",
       });
-    const modelBGenerate = vi
-      .fn()
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const modelBGenerate = vi.fn().mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const createGateway = vi.fn(({ model }: { model: string }) => ({
       generateRequestForEvaluation: model === "model-a" ? modelAGenerate : modelBGenerate,
     }));
@@ -445,9 +462,7 @@ describe("LLM benchmark", () => {
       failureKind: "provider",
       error: "provider unavailable",
     });
-    const modelBGenerate = vi
-      .fn()
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const modelBGenerate = vi.fn().mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["model-a", "model-b"]))),
       confirm: vi.fn().mockResolvedValue("RUN 6"),
@@ -470,17 +485,13 @@ describe("LLM benchmark", () => {
   });
 
   it("продолжает третью модель после provider failure средней модели", async () => {
-    const modelAGenerate = vi
-      .fn()
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const modelAGenerate = vi.fn().mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const modelBGenerate = vi.fn().mockResolvedValue({
       status: "failure",
       failureKind: "provider",
       error: "provider unavailable",
     });
-    const modelCGenerate = vi
-      .fn()
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+    const modelCGenerate = vi.fn().mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const generators = new Map([
       ["model-a", modelAGenerate],
       ["model-b", modelBGenerate],
@@ -522,10 +533,8 @@ describe("LLM benchmark", () => {
         failureKind: "request",
         error: "request failed",
       })
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
-    const modelBGenerate = vi
-      .fn()
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
+    const modelBGenerate = vi.fn().mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["model-a", "model-b"]))),
       confirm: vi.fn().mockResolvedValue("RUN 4"),
@@ -585,7 +594,7 @@ describe("LLM benchmark", () => {
         error: "first-request-failure",
         providerHttpStatus: 422,
       })
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -637,7 +646,7 @@ describe("LLM benchmark", () => {
     let interrupted = false;
     const generateRequestForEvaluation = vi.fn(async (_input: GenerateRequestInput) => {
       interrupted = true;
-      return { status: "success" as const, outcome: GENERATED_OUTCOME };
+      return SUCCESSFUL_EVALUATION_GENERATION;
     });
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
@@ -670,8 +679,8 @@ describe("LLM benchmark", () => {
   it("reports aggregate hard-check pass and exit 0 only for a fully completed successful run", async () => {
     const generateRequestForEvaluation = vi
       .fn()
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME })
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION)
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -692,7 +701,7 @@ describe("LLM benchmark", () => {
   it("aggregates all successful repeats separately by safe model label and scenario", async () => {
     const generateRequestForEvaluation = vi
       .fn()
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 6"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -715,9 +724,9 @@ describe("LLM benchmark", () => {
   it("isolates one hard-check failure among three repeats from the other model label", async () => {
     const generateRequestForEvaluation = vi
       .fn()
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME })
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION)
       .mockResolvedValueOnce({ status: "success", outcome: { status: "multiple_issues" } })
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 6"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -745,7 +754,7 @@ describe("LLM benchmark", () => {
         failureKind: "request",
         error: "request failed",
       })
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 6"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -762,6 +771,35 @@ describe("LLM benchmark", () => {
     );
   });
 
+  it("показывает безопасную причину Responses failed", async () => {
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+        failureStatus: "invalid_response",
+        responsesFailure: {
+          status: "failed",
+          providerErrorCode: "invalid_prompt",
+        },
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      })
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Internal failure status: invalid_response");
+    expect(report).toContain("Responses status: failed");
+    expect(report).toContain("Provider error code: invalid_prompt");
+    expect(report).toContain("Usage: input 0, output 0, total 0");
+  });
+
   it("records a failed generation prompt hash without provider metadata or raw errors", async () => {
     const safeSystemPromptHash = "sha256:prompt-9f4c2a";
     const rawProviderError = `provider rejected model-current at https://provider.example/v1/responses with Bearer ${API_KEY}`;
@@ -773,7 +811,7 @@ describe("LLM benchmark", () => {
         error: rawProviderError,
         systemPromptHash: safeSystemPromptHash,
       })
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -822,7 +860,7 @@ describe("LLM benchmark", () => {
         error: "request failed",
         usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       })
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -845,6 +883,10 @@ describe("LLM benchmark", () => {
           JSON.stringify({
             status: "incomplete",
             output_text: JSON.stringify({ draft: { outcome: "generated" } }),
+            incomplete_details: { reason: "max_output_tokens" },
+            error: {
+              message: `Bearer ${API_KEY} at https://provider.example/v1/responses`,
+            },
             usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
           }),
           { status: 200 },
@@ -855,21 +897,7 @@ describe("LLM benchmark", () => {
           JSON.stringify({
             status: "completed",
             output_text: JSON.stringify({
-              draft: {
-                outcome: "generated",
-                title: "Не работает освещение",
-                problem: "На лестничной площадке не работает освещение.",
-                circumstances: null,
-                impact: null,
-                verification: null,
-                subject: null,
-                actionPlan: {
-                  preliminaryCheck: null,
-                  remedyActions: ["Проверить и восстановить освещение"],
-                  resultCheck: null,
-                },
-                warnings: [],
-              },
+              draft: EVALUATION_REQUEST_DRAFT,
             }),
           }),
           { status: 200 },
@@ -885,8 +913,14 @@ describe("LLM benchmark", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Failure kind: request");
+    expect(report).toContain("Internal failure status: invalid_response");
+    expect(report).toContain("Responses status: incomplete");
+    expect(report).toContain("Incomplete reason: max_output_tokens");
     expect(report).toContain("Usage: input 100, output 50, total 150");
     expect(report).toContain("Outcome: `generated`");
+    expect(report).not.toContain(API_KEY);
+    expect(report).not.toContain("https://provider.example/v1/responses");
+    expect(report).not.toContain("Bearer");
     expect(report).toContain(
       "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request failures 1; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
     );
@@ -947,6 +981,9 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Hard checks: PASS");
     expect(report).toContain("Сохранить: на лестничной площадке не работает освещение.");
     expect(report).toContain("Не добавлять: факт травмы.");
+    expect(report).toContain("blocker product invariant:");
+    expect(report).toContain("quality expectation:");
+    expect(report).toContain("accepted beta limitation:");
     expect(report).not.toContain("model-current");
     expect(report).not.toContain("model-candidate");
   });
@@ -957,6 +994,7 @@ describe("LLM benchmark", () => {
       outcome: GENERATED_OUTCOME,
       observation: {
         draftOutcome: "generated",
+        requestDraft: EVALUATION_REQUEST_DRAFT,
         draft: EVALUATION_DRAFT,
         selectedNormativeModule: null,
         specificLegalBasisSelectionStatus: "subject_absent",
@@ -971,8 +1009,12 @@ describe("LLM benchmark", () => {
     await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
-    expect(report).toContain("Validated structured output:");
-    expect(report).toContain('"actionPlan"');
+    expect(report).toContain("Validated provider output:");
+    expect(report).toContain('"outcome": "generated"');
+    expect(report).toContain("Materialized PrimaryRequestDraft:");
+    expect(report).toContain('"requestItems"');
+    expect(report).toContain("PASS: provider response schema");
+    expect(report).toContain("PASS: core evidence validation and materialization");
     expect(report).toContain("Specific legal basis selection: subject_absent");
     expect(report).toContain("PASS: warning presence: absent");
     expect(report).toContain("Prompt hash: safe-prompt-hash");
@@ -985,12 +1027,18 @@ describe("LLM benchmark", () => {
         kind: "common_area_premises_cleaning",
         evidence: [{ sourceField: "description", quote: "исправной кабине лифта" }],
       },
+      requestItems: ["Убрать загрязнение из кабины грузового лифта."],
+    };
+    const requestDraft: GeneratedRequestDraft = {
+      ...EVALUATION_REQUEST_DRAFT,
+      subject: draft.subject,
     };
     const generateRequestForEvaluation = vi.fn().mockResolvedValue({
       status: "success",
       outcome: GENERATED_OUTCOME,
       observation: {
         draftOutcome: "generated",
+        requestDraft,
         draft,
         selectedNormativeModule: "common-area-cleaning",
         specificLegalBasisSelectionStatus: "applied",
@@ -1035,17 +1083,9 @@ describe("LLM benchmark", () => {
     expect(report).toContain("selected normative module: unavailable");
   });
 
-  it("сохраняет фактический validated multiple_issues draft со всеми пустыми полями", async () => {
+  it("сохраняет минимальный canonical multiple_issues draft", async () => {
     const multipleIssuesDraft = {
       outcome: "multiple_issues" as const,
-      title: null,
-      problem: null,
-      circumstances: null,
-      impact: null,
-      verification: null,
-      subject: null,
-      actionPlan: null,
-      warnings: [],
     };
     const generateRequestForEvaluation = vi.fn().mockResolvedValue({
       status: "success",
@@ -1064,19 +1104,18 @@ describe("LLM benchmark", () => {
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain(JSON.stringify(multipleIssuesDraft, null, 2));
-    expect(report).toContain('"title": null');
-    expect(report).toContain('"warnings": []');
+    expect(report).toContain("PASS: provider response schema");
+    expect(report).not.toContain('"title": null');
   });
 
   it("сохраняет usage для поддерживаемого ответа и допускает его отсутствие", async () => {
     const generateRequestForEvaluation = vi
       .fn()
       .mockResolvedValueOnce({
-        status: "success",
-        outcome: GENERATED_OUTCOME,
+        ...SUCCESSFUL_EVALUATION_GENERATION,
         usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       })
-      .mockResolvedValueOnce({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
       createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
@@ -1093,7 +1132,7 @@ describe("LLM benchmark", () => {
     let interrupted = false;
     const generateRequestForEvaluation = vi.fn(async (_input: GenerateRequestInput) => {
       interrupted = true;
-      return { status: "success" as const, outcome: GENERATED_OUTCOME };
+      return SUCCESSFUL_EVALUATION_GENERATION;
     });
     const runtime = dependencies({
       confirm: vi.fn().mockResolvedValue("RUN 2"),
@@ -1113,7 +1152,7 @@ describe("LLM benchmark", () => {
   it("останавливается и сообщает точное число requests при ошибке записи report", async () => {
     const generateRequestForEvaluation = vi
       .fn()
-      .mockResolvedValue({ status: "success", outcome: GENERATED_OUTCOME });
+      .mockResolvedValue(SUCCESSFUL_EVALUATION_GENERATION);
     const writeFile = vi
       .fn()
       .mockResolvedValueOnce(undefined)
@@ -1137,7 +1176,7 @@ describe("LLM benchmark", () => {
 
     expect(selected).toEqual(scenarios);
     expect(selected[0]).toBe(scenarios[0]);
-    expect(selected).toHaveLength(32);
+    expect(selected).toHaveLength(33);
   });
 
   it("исключает local config и report directory из Git", () => {

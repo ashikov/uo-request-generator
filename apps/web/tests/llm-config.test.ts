@@ -2,63 +2,77 @@ import { DisabledLlmGateway, OpenAiCompatibleGateway } from "@uo-request-generat
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLlmGateway } from "../src/llm-config.js";
 
-const VALID_LLM_TEXT = JSON.stringify({
-  draft: {
-    outcome: "generated",
-    title: "Не работает освещение",
-    problem: "На лестничной площадке не горит свет.",
-    circumstances: null,
-    impact: null,
-    verification: null,
-    subject: null,
-    actionPlan: {
-      preliminaryCheck: null,
-      remedyActions: ["Проверить и восстановить освещение"],
-      resultCheck: null,
+function llmText(description: string): string {
+  return JSON.stringify({
+    draft: {
+      outcome: "generated",
+      title: "Не работает освещение",
+      problem: description,
+      circumstances: null,
+      impact: null,
+      subject: null,
+      warnings: [],
     },
-    warnings: [],
-  },
-});
+  });
+}
+
+function requestDescription(init: RequestInit | undefined): string {
+  const requestBody = JSON.parse(String(init?.body)) as {
+    messages?: Array<{ content: string }>;
+    input?: string;
+  };
+  const userInput = requestBody.messages?.[1]?.content ?? requestBody.input;
+  if (userInput === undefined) throw new TypeError("Нет provider user input");
+
+  const parsedInput = JSON.parse(userInput) as { description?: unknown };
+  if (typeof parsedInput.description !== "string") {
+    throw new TypeError("Нет description в provider user input");
+  }
+  return parsedInput.description;
+}
 
 function mockProviderResponse() {
-  const body = { choices: [{ message: { content: VALID_LLM_TEXT } }] };
-  return vi
-    .spyOn(globalThis, "fetch")
-    .mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
+  return vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+    const content = llmText(requestDescription(init));
+    const body = { choices: [{ message: { content } }] };
+    return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+  });
 }
 
 function mockYandexResponsesProviderResponse() {
-  return vi
-    .spyOn(globalThis, "fetch")
-    .mockResolvedValue(
-      new Response(JSON.stringify({ output_text: VALID_LLM_TEXT }), { status: 200 }),
+  return vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+    const outputText = llmText(requestDescription(init));
+    return Promise.resolve(
+      new Response(JSON.stringify({ output_text: outputText }), { status: 200 }),
     );
+  });
 }
 
 function mockOpenAiResponsesProviderResponse() {
-  const body = {
-    id: "resp_test",
-    object: "response",
-    status: "completed",
-    output: [
-      {
-        id: "msg_test",
-        type: "message",
-        role: "assistant",
-        status: "completed",
-        content: [
-          {
-            type: "output_text",
-            text: VALID_LLM_TEXT,
-            annotations: [],
-          },
-        ],
-      },
-    ],
-  };
-  return vi
-    .spyOn(globalThis, "fetch")
-    .mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
+  return vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+    const outputText = llmText(requestDescription(init));
+    const body = {
+      id: "resp_test",
+      object: "response",
+      status: "completed",
+      output: [
+        {
+          id: "msg_test",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [
+            {
+              type: "output_text",
+              text: outputText,
+              annotations: [],
+            },
+          ],
+        },
+      ],
+    };
+    return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+  });
 }
 
 describe("createLlmGateway", () => {
