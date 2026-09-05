@@ -58,6 +58,7 @@ type TerminalEventShape = {
 };
 
 type LlmGenerationMetadataWithDiagnostics = LlmGenerationMetadata & {
+  diagnosticTrace?: unknown;
   providerBody?: unknown;
   providerMessage?: unknown;
   providerUrl?: unknown;
@@ -418,6 +419,17 @@ describe("структурированные события POST /api/generate",
     const privatePrompt = "private-prompt-sentinel";
     const privateUserInput = "private-user-input-sentinel";
     const privateGeneratedText = "private-generated-text-sentinel";
+    const privateDiagnosticScalar = "private-diagnostic-scalar-sentinel";
+    const privateDiagnosticKey = "private-diagnostic-key-sentinel";
+    const privateDiagnosticValue = "private-diagnostic-value-sentinel";
+    const privateDiagnosticEvidence = "private-diagnostic-evidence-sentinel";
+    const privateDiagnosticValidator = "private-diagnostic-validator-sentinel";
+    const privateDiagnosticTrace = {
+      scalar: privateDiagnosticScalar,
+      [privateDiagnosticKey]: privateDiagnosticValue,
+      evidence: privateDiagnosticEvidence,
+      validator: privateDiagnosticValidator,
+    };
     const metadataWithDiagnostics: LlmGenerationMetadataWithDiagnostics = {
       provider: "test-provider",
       model: "test-model",
@@ -425,6 +437,7 @@ describe("структурированные события POST /api/generate",
       usageStatus: "missing",
       systemPromptHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       durationMs: 1,
+      diagnosticTrace: privateDiagnosticTrace,
       providerBody: privateProviderBody,
       providerMessage: privateProviderMessage,
       providerUrl: privateProviderUrl,
@@ -466,6 +479,11 @@ describe("структурированные события POST /api/generate",
       privatePrompt,
       privateUserInput,
       privateGeneratedText,
+      privateDiagnosticScalar,
+      privateDiagnosticKey,
+      privateDiagnosticValue,
+      privateDiagnosticEvidence,
+      privateDiagnosticValidator,
     ]) {
       expect(serializedPublicResponse).not.toContain(privateValue);
       expect(serializedEvents).not.toContain(privateValue);

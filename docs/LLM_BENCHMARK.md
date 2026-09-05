@@ -160,6 +160,46 @@ qualification выполняются только в plan mode без `--run`.
 безопасные model labels, prompt hash, pricing snapshot, план, число выполненных
 запросов, repeats, usage, latency, оценочная стоимость и hard PASS/FAIL summary.
 
+Каждая выполненная попытка содержит безопасную диагностическую трассу. Она
+показывает первый этап с отказом и уже пройденные этапы в порядке фактического
+исполнения:
+
+```text
+network
+→ http
+→ provider_envelope
+→ provider_status
+→ output_extraction
+→ json_parse
+→ provider_wire_validation
+→ canonical_validation
+→ materialization
+→ subject_legal_selection
+→ renderer
+→ hard_expectations
+```
+
+Gateway заполняет трассу до `renderer`. Benchmark runner добавляет
+`hard_expectations`, потому что fixture contract не относится к production
+gateway. Для `multiple_issues` трасса штатно завершается после
+`canonical_validation`: materialization, выбор нормативного модуля и renderer к
+этому исходу неприменимы. `firstFailureStage` всегда указывает первый этап со
+статусом `FAIL`.
+
+После единственного `JSON.parse` structural probe извлекает только JSON-тип
+корня, наличие и JSON-тип `draft`, наличие известных полей, число неизвестных
+полей без их имён и известный `outcome`. Probe не принимает ответ и не ослабляет
+строгую валидацию. Диагностика ошибок валидации содержит только разрешённый код,
+санитизированный путь, ожидаемую JSON-категорию и число ошибок. Полное сообщение,
+отклонённое значение и произвольное имя поля не сохраняются.
+
+Materialization сообщает только `PASS` или `FAIL`. В диагностике нет прежних
+причин распределения, процедурных ролей, source fragments или location.
+
+Usage имеет три состояния: `available`, `missing` и `invalid`. Числа токенов
+сохраняются только для `available` и берутся из provider usage. Оценка по длине
+текста не выполняется.
+
 Для каждого scenario/repeat отчёт включает category, issue provenance,
 synthetic input, локально проверенный provider draft, материализованный
 `PrimaryRequestDraft`, deterministic observations, rendered result или
@@ -171,9 +211,15 @@ limitations. Для generated-ветки сохраняется безопасн
 Model IDs, API URL, auth headers, credentials, raw provider response, реальные
 пользовательские данные и production infrastructure в отчёт не попадают.
 Диагностика не содержит пользовательские или provider-authored значения. Для
-неуспешного Responses-result допускаются только проверенные машинные поля
-`failureStatus`, `status`, `error.code` и `incomplete_details.reason`.
+неуспешного Responses-result допускаются только внутренний `failureStatus`,
+проверенный `status`, категория наличия кода ошибки `known`, `unknown` или
+`missing`, разрешённый `error.code` для категории `known` и проверенный
+`incomplete_details.reason`. Неизвестное исходное значение `error.code`,
 `error.message` и сырой provider envelope не сохраняются.
+
+Repeat-сводка различает ошибки выполненного запроса и недоступность provider.
+Не начатые после такого отказа запросы показываются отдельно и не считаются
+новыми attempts или semantic failures. Неполный запуск остаётся fail closed.
 
 Если usage отсутствует, запрос и результат сохраняются, а usage и стоимость
 отмечаются как `unavailable`. Значения по длине ответа не выдумываются.

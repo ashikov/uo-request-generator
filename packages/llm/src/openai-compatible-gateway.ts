@@ -14,6 +14,13 @@ import {
 } from "@uo-request-generator/core";
 import { z } from "zod";
 import {
+  type EvaluationDiagnosticStageResult,
+  type EvaluationDiagnosticTrace,
+  type EvaluationDiagnosticUsage,
+  type ProviderErrorCodeDiagnostic,
+  parseRequestDraftForEvaluation,
+} from "./evaluation-diagnostics.js";
+import {
   GenerationInvalidResponseError,
   GenerationNetworkError,
   GenerationProviderUnavailableError,
@@ -23,7 +30,6 @@ import {
   createRequestDraftJsonSchema,
   createRequestDraftSystemPrompt,
   createRequestDraftSystemPromptHash,
-  parseRequestDraft,
   REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
   type RequestDraft,
 } from "./request-draft.js";
@@ -87,10 +93,9 @@ const RESPONSES_INCOMPLETE_REASONS = ["max_output_tokens", "content_filter"] as 
 type ResponsesStatus = (typeof RESPONSES_STATUSES)[number];
 
 export type ResponsesFailureDiagnostic = {
-  status: Exclude<ResponsesStatus, "completed">;
-  providerErrorCode?: (typeof RESPONSES_ERROR_CODES)[number];
-  incompleteReason?: (typeof RESPONSES_INCOMPLETE_REASONS)[number];
-};
+  readonly status: Exclude<ResponsesStatus, "completed">;
+  readonly incompleteReason?: (typeof RESPONSES_INCOMPLETE_REASONS)[number];
+} & ProviderErrorCodeDiagnostic;
 
 type OpenAiCompatibleGenerationSuccess = {
   status: "success";
@@ -133,20 +138,24 @@ export type OpenAiCompatibleEvaluationGeneration =
   | (OpenAiCompatibleGenerationSuccess & {
       observation: OpenAiCompatibleEvaluationObservation;
       systemPromptHash: string;
+      diagnosticTrace: EvaluationDiagnosticTrace;
     })
   | (Omit<OpenAiCompatibleGenerationFailure, "metadata"> & {
       systemPromptHash: string;
       usageStatus: LlmUsageStatus;
       responsesFailure?: ResponsesFailureDiagnostic;
+      diagnosticTrace: EvaluationDiagnosticTrace;
     });
 
 type UnannotatedGenerationSuccess = Omit<OpenAiCompatibleGenerationSuccess, "metadata"> & {
   observation: OpenAiCompatibleEvaluationObservation;
   usageStatus: LlmUsageStatus;
+  diagnosticStages: readonly EvaluationDiagnosticStageResult[];
 };
 
 type UnannotatedGenerationFailure = Omit<OpenAiCompatibleGenerationFailure, "metadata"> & {
   usageStatus: LlmUsageStatus;
+  diagnosticStages: readonly EvaluationDiagnosticStageResult[];
 };
 
 type InternalGenerationFailure = UnannotatedGenerationFailure & {
@@ -163,12 +172,14 @@ type InternalGeneration =
       observation: OpenAiCompatibleEvaluationObservation;
       usageStatus: LlmUsageStatus;
       providerDurationMs: number;
+      diagnosticStages: readonly EvaluationDiagnosticStageResult[];
     })
   | (OpenAiCompatibleGenerationFailure & {
       productionError: Error;
       usageStatus: LlmUsageStatus;
       providerDurationMs: number;
       responsesFailure?: ResponsesFailureDiagnostic;
+      diagnosticStages: readonly EvaluationDiagnosticStageResult[];
     });
 
 type OpenAiChatMessage = {
@@ -210,44 +221,26 @@ type OpenAiResponsesRequest = {
 };
 
 const openAiChatCompletionResponseSchema = z.object({
-  choices: z
-    .array(
-      z.object({
-        message: z.object({
-          content: z.string(),
-        }),
-      }),
-    )
-    .min(1),
-  usage: z.unknown().optional(),
+  choices: z.array(z.unknown()).min(1),
+});
+
+const openAiChatCompletionChoiceSchema = z.object({
+  message: z.unknown(),
+});
+
+const openAiChatCompletionMessageSchema = z.object({
+  content: z.string(),
 });
 
 const responsesStatusSchema = z.enum(RESPONSES_STATUSES);
 const responsesErrorCodeSchema = z.enum(RESPONSES_ERROR_CODES);
 const responsesIncompleteReasonSchema = z.enum(RESPONSES_INCOMPLETE_REASONS);
 
-const openAiResponsesErrorSchema = z
-  .object({
-    code: responsesErrorCodeSchema,
-  })
-  .passthrough();
-
-const openAiResponsesIncompleteDetailsSchema = z
-  .object({
-    reason: responsesIncompleteReasonSchema,
-  })
-  .passthrough();
-
 const openAiResponsesResponseSchema = z
   .object({
-    status: responsesStatusSchema.optional(),
     output_text: z.string().nullable().optional(),
     output: z.array(z.unknown()).optional(),
-    usage: z.unknown().optional(),
-    error: z.unknown().optional(),
-    incomplete_details: z.unknown().optional(),
   })
-  .passthrough()
   .refine((response) => response.output_text !== undefined || response.output !== undefined);
 
 const openAiResponsesOutputItemSchema = z
@@ -290,12 +283,6 @@ const responsesUsageSchema = z.object({
   output_tokens: z.number().int().nonnegative(),
   total_tokens: z.number().int().nonnegative(),
 });
-
-const usageEnvelopeSchema = z
-  .object({
-    usage: z.unknown().optional(),
-  })
-  .passthrough();
 
 export type OpenAiCompatibleRequestBodyConfig = {
   apiProtocol: LlmApiProtocol;
@@ -383,43 +370,140 @@ function createUserMessage(input: GenerateRequestInput): string {
   });
 }
 
-class ResponsesStatusError extends GenerationInvalidResponseError {
-  constructor(readonly diagnostic: ResponsesFailureDiagnostic) {
-    super();
-  }
+function readOwnDataProperty<T extends object, K extends keyof T>(
+  record: T,
+  property: K,
+): T[K] | undefined;
+function readOwnDataProperty(record: object, property: PropertyKey): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(record, property);
+  return descriptor !== undefined && Object.hasOwn(descriptor, "value")
+    ? descriptor.value
+    : undefined;
 }
 
 function createResponsesFailureDiagnostic(
-  response: z.infer<typeof openAiResponsesResponseSchema>,
+  response: Record<string, unknown>,
+  status: Exclude<ResponsesStatus, "completed">,
 ): ResponsesFailureDiagnostic | undefined {
-  if (response.status === undefined || response.status === "completed") {
-    return undefined;
+  const rawError = readOwnDataProperty(response, "error");
+  const rawErrorCode = isRecord(rawError) ? readOwnDataProperty(rawError, "code") : undefined;
+  const providerErrorCodeResult =
+    rawErrorCode === undefined ? undefined : responsesErrorCodeSchema.safeParse(rawErrorCode);
+  const rawIncompleteDetails = readOwnDataProperty(response, "incomplete_details");
+  const rawIncompleteReason = isRecord(rawIncompleteDetails)
+    ? readOwnDataProperty(rawIncompleteDetails, "reason")
+    : undefined;
+  const incompleteReasonResult = responsesIncompleteReasonSchema.safeParse(rawIncompleteReason);
+  const incompleteReason = incompleteReasonResult.success ? incompleteReasonResult.data : undefined;
+
+  if (providerErrorCodeResult === undefined) {
+    return {
+      status,
+      providerErrorCodeStatus: "missing",
+      ...(incompleteReason === undefined ? {} : { incompleteReason }),
+    };
   }
 
-  const errorResult = openAiResponsesErrorSchema.safeParse(response.error);
-  const incompleteDetailsResult = openAiResponsesIncompleteDetailsSchema.safeParse(
-    response.incomplete_details,
-  );
+  if (providerErrorCodeResult.success) {
+    return {
+      status,
+      providerErrorCodeStatus: "known",
+      providerErrorCode: providerErrorCodeResult.data,
+      ...(incompleteReason === undefined ? {} : { incompleteReason }),
+    };
+  }
 
   return {
-    status: response.status,
-    ...(errorResult.success ? { providerErrorCode: errorResult.data.code } : {}),
-    ...(incompleteDetailsResult.success
-      ? { incompleteReason: incompleteDetailsResult.data.reason }
-      : {}),
+    status,
+    providerErrorCodeStatus: "unknown",
+    ...(incompleteReason === undefined ? {} : { incompleteReason }),
   };
 }
 
-function extractResponsesText(responseBody: unknown): string {
-  const responseResult = openAiResponsesResponseSchema.safeParse(responseBody);
+type ResponsesStatusProbe =
+  | {
+      readonly status: "pass";
+      readonly nestedOutputAuthorized: false;
+      readonly responsesStatus: undefined;
+      readonly diagnostic: undefined;
+    }
+  | {
+      readonly status: "pass";
+      readonly nestedOutputAuthorized: true;
+      readonly responsesStatus: "completed";
+      readonly diagnostic: undefined;
+    }
+  | {
+      readonly status: "fail";
+      readonly nestedOutputAuthorized: false;
+      readonly responsesStatus: undefined;
+      readonly diagnostic: ResponsesFailureDiagnostic | undefined;
+    };
+
+const STATUS_FREE_RESPONSES_PROBE = {
+  status: "pass",
+  nestedOutputAuthorized: false,
+  responsesStatus: undefined,
+  diagnostic: undefined,
+} satisfies ResponsesStatusProbe;
+
+const COMPLETED_RESPONSES_PROBE = {
+  status: "pass",
+  nestedOutputAuthorized: true,
+  responsesStatus: "completed",
+  diagnostic: undefined,
+} satisfies ResponsesStatusProbe;
+
+const FAILED_RESPONSES_PROBE = {
+  status: "fail",
+  nestedOutputAuthorized: false,
+  responsesStatus: undefined,
+  diagnostic: undefined,
+} satisfies ResponsesStatusProbe;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function probeResponsesStatus(responseBody: unknown): ResponsesStatusProbe {
+  if (!isRecord(responseBody)) {
+    return FAILED_RESPONSES_PROBE;
+  }
+
+  const statusDescriptor = Object.getOwnPropertyDescriptor(responseBody, "status");
+  if (statusDescriptor === undefined) {
+    return STATUS_FREE_RESPONSES_PROBE;
+  }
+  if (!Object.hasOwn(statusDescriptor, "value")) {
+    return FAILED_RESPONSES_PROBE;
+  }
+
+  const statusResult = responsesStatusSchema.safeParse(statusDescriptor.value);
+  if (!statusResult.success) {
+    return FAILED_RESPONSES_PROBE;
+  }
+  if (statusResult.data === "completed") {
+    return COMPLETED_RESPONSES_PROBE;
+  }
+
+  return {
+    status: "fail",
+    nestedOutputAuthorized: false,
+    responsesStatus: undefined,
+    diagnostic: createResponsesFailureDiagnostic(responseBody, statusResult.data),
+  };
+}
+
+function extractResponsesText(responseBody: unknown, nestedOutputAuthorized: boolean): string {
+  const responseProjection: Record<string, unknown> = Object.create(null);
+  if (isRecord(responseBody)) {
+    responseProjection.output_text = readOwnDataProperty(responseBody, "output_text");
+    responseProjection.output = readOwnDataProperty(responseBody, "output");
+  }
+  const responseResult = openAiResponsesResponseSchema.safeParse(responseProjection);
 
   if (!responseResult.success) {
     throw new GenerationInvalidResponseError();
-  }
-
-  const failureDiagnostic = createResponsesFailureDiagnostic(responseResult.data);
-  if (failureDiagnostic !== undefined) {
-    throw new ResponsesStatusError(failureDiagnostic);
   }
 
   const aggregatedText = responseResult.data.output_text;
@@ -428,14 +512,18 @@ function extractResponsesText(responseBody: unknown): string {
     return aggregatedText;
   }
 
-  if (responseResult.data.status === undefined && responseResult.data.output !== undefined) {
+  if (!nestedOutputAuthorized && responseResult.data.output !== undefined) {
     throw new GenerationInvalidResponseError();
   }
 
   const textParts: string[] = [];
 
   for (const outputItem of responseResult.data.output ?? []) {
-    const outputItemResult = openAiResponsesOutputItemSchema.safeParse(outputItem);
+    const outputItemProjection: Record<string, unknown> = Object.create(null);
+    if (isRecord(outputItem)) {
+      outputItemProjection.type = readOwnDataProperty(outputItem, "type");
+    }
+    const outputItemResult = openAiResponsesOutputItemSchema.safeParse(outputItemProjection);
 
     if (!outputItemResult.success) {
       throw new GenerationInvalidResponseError();
@@ -445,14 +533,23 @@ function extractResponsesText(responseBody: unknown): string {
       continue;
     }
 
-    const messageResult = openAiResponsesMessageSchema.safeParse(outputItem);
+    const messageProjection: Record<string, unknown> = Object.create(null);
+    if (isRecord(outputItem)) {
+      messageProjection.type = readOwnDataProperty(outputItem, "type");
+      messageProjection.content = readOwnDataProperty(outputItem, "content");
+    }
+    const messageResult = openAiResponsesMessageSchema.safeParse(messageProjection);
 
     if (!messageResult.success) {
       throw new GenerationInvalidResponseError();
     }
 
     for (const contentItem of messageResult.data.content) {
-      const contentItemResult = openAiResponsesContentItemSchema.safeParse(contentItem);
+      const contentItemProjection: Record<string, unknown> = Object.create(null);
+      if (isRecord(contentItem)) {
+        contentItemProjection.type = readOwnDataProperty(contentItem, "type");
+      }
+      const contentItemResult = openAiResponsesContentItemSchema.safeParse(contentItemProjection);
 
       if (!contentItemResult.success) {
         throw new GenerationInvalidResponseError();
@@ -462,7 +559,12 @@ function extractResponsesText(responseBody: unknown): string {
         continue;
       }
 
-      const outputTextResult = openAiResponsesOutputTextSchema.safeParse(contentItem);
+      const outputTextProjection: Record<string, unknown> = Object.create(null);
+      if (isRecord(contentItem)) {
+        outputTextProjection.type = readOwnDataProperty(contentItem, "type");
+        outputTextProjection.text = readOwnDataProperty(contentItem, "text");
+      }
+      const outputTextResult = openAiResponsesOutputTextSchema.safeParse(outputTextProjection);
 
       if (!outputTextResult.success) {
         throw new GenerationInvalidResponseError();
@@ -481,13 +583,18 @@ type UsageExtraction = {
 };
 
 function extractUsage(apiProtocol: LlmApiProtocol, responseBody: unknown): UsageExtraction {
-  const responseResult = usageEnvelopeSchema.safeParse(responseBody);
-  if (!responseResult.success || responseResult.data.usage === undefined) {
+  const rawUsage = isRecord(responseBody) ? readOwnDataProperty(responseBody, "usage") : undefined;
+  if (rawUsage === undefined) {
     return { usageStatus: "missing" };
   }
+  if (!isRecord(rawUsage)) return { usageStatus: "invalid" };
 
   if (apiProtocol === "responses") {
-    const usageResult = responsesUsageSchema.safeParse(responseResult.data.usage);
+    const usageResult = responsesUsageSchema.safeParse({
+      input_tokens: readOwnDataProperty(rawUsage, "input_tokens"),
+      output_tokens: readOwnDataProperty(rawUsage, "output_tokens"),
+      total_tokens: readOwnDataProperty(rawUsage, "total_tokens"),
+    });
     return usageResult.success
       ? {
           usage: {
@@ -500,7 +607,11 @@ function extractUsage(apiProtocol: LlmApiProtocol, responseBody: unknown): Usage
       : { usageStatus: "invalid" };
   }
 
-  const usageResult = chatCompletionsUsageSchema.safeParse(responseResult.data.usage);
+  const usageResult = chatCompletionsUsageSchema.safeParse({
+    prompt_tokens: readOwnDataProperty(rawUsage, "prompt_tokens"),
+    completion_tokens: readOwnDataProperty(rawUsage, "completion_tokens"),
+    total_tokens: readOwnDataProperty(rawUsage, "total_tokens"),
+  });
   return usageResult.success
     ? {
         usage: {
@@ -538,23 +649,55 @@ function createGenerationFailure(
   metadata: {
     providerHttpStatus?: number;
     responsesFailure?: ResponsesFailureDiagnostic;
+    diagnosticStages?: readonly EvaluationDiagnosticStageResult[];
   } & Partial<UsageExtraction> = {},
 ): InternalGenerationFailure {
+  const providerHttpStatus = readOwnDataProperty(metadata, "providerHttpStatus");
+  const responsesFailure = readOwnDataProperty(metadata, "responsesFailure");
+  const usage = readOwnDataProperty(metadata, "usage");
+  const usageStatus = readOwnDataProperty(metadata, "usageStatus");
+  const diagnosticStages = readOwnDataProperty(metadata, "diagnosticStages");
+
   return {
     status: "failure",
     failureKind,
     error: failureKind === "request" ? "request failed" : "provider unavailable",
     failureStatus: createFailureStatus(productionError),
     productionError,
-    ...(metadata.providerHttpStatus === undefined
-      ? {}
-      : { providerHttpStatus: metadata.providerHttpStatus }),
-    ...(metadata.responsesFailure === undefined
-      ? {}
-      : { responsesFailure: metadata.responsesFailure }),
-    ...(metadata.usage === undefined ? {} : { usage: metadata.usage }),
-    usageStatus: metadata.usageStatus ?? "missing",
+    ...(providerHttpStatus === undefined ? {} : { providerHttpStatus }),
+    ...(responsesFailure === undefined ? {} : { responsesFailure }),
+    ...(usage === undefined ? {} : { usage }),
+    usageStatus: usageStatus ?? "missing",
+    diagnosticStages: diagnosticStages ?? [],
   };
+}
+
+function toDiagnosticUsage(generation: {
+  usage?: LlmProviderUsage;
+  usageStatus: LlmUsageStatus;
+}): EvaluationDiagnosticUsage {
+  if (generation.usageStatus === "missing" || generation.usageStatus === "invalid") {
+    return { status: generation.usageStatus };
+  }
+  if (generation.usage === undefined) return { status: "invalid" };
+  return { status: "available", ...generation.usage };
+}
+
+function toDiagnosticTrace(generation: {
+  diagnosticStages: readonly EvaluationDiagnosticStageResult[];
+  usage?: LlmProviderUsage;
+  usageStatus: LlmUsageStatus;
+}): EvaluationDiagnosticTrace {
+  const failedStage = generation.diagnosticStages.find(({ status }) => status === "fail");
+  const usage = toDiagnosticUsage(generation);
+  return failedStage === undefined
+    ? { status: "completed", stages: generation.diagnosticStages, usage }
+    : {
+        status: "failed",
+        firstFailureStage: failedStage.stage,
+        stages: generation.diagnosticStages,
+        usage,
+      };
 }
 
 function withProviderDuration(
@@ -564,24 +707,56 @@ function withProviderDuration(
   return { ...generation, providerDurationMs };
 }
 
-function extractResponseText(apiProtocol: LlmApiProtocol, responseBody: unknown): string {
+function extractResponseText(
+  apiProtocol: LlmApiProtocol,
+  responseBody: unknown,
+  nestedResponsesOutputAuthorized: boolean,
+): string {
   if (apiProtocol === "responses") {
-    return extractResponsesText(responseBody);
+    return extractResponsesText(responseBody, nestedResponsesOutputAuthorized);
   }
 
-  const apiResult = openAiChatCompletionResponseSchema.safeParse(responseBody);
+  const responseProjection: Record<string, unknown> = Object.create(null);
+  if (isRecord(responseBody)) {
+    responseProjection.choices = readOwnDataProperty(responseBody, "choices");
+  }
+  const apiResult = openAiChatCompletionResponseSchema.safeParse(responseProjection);
 
   if (!apiResult.success) {
     throw new GenerationInvalidResponseError();
   }
 
-  const firstChoice = apiResult.data.choices[0];
+  const rawFirstChoice = apiResult.data.choices[0];
 
-  if (firstChoice === undefined) {
+  if (rawFirstChoice === undefined) {
     throw new GenerationInvalidResponseError();
   }
 
-  return firstChoice.message.content;
+  const choiceProjection: Record<string, unknown> = Object.create(null);
+  if (isRecord(rawFirstChoice)) {
+    choiceProjection.message = readOwnDataProperty(rawFirstChoice, "message");
+  }
+  const choiceResult = openAiChatCompletionChoiceSchema.safeParse(choiceProjection);
+  if (!choiceResult.success) {
+    throw new GenerationInvalidResponseError();
+  }
+
+  const messageProjection: Record<string, unknown> = Object.create(null);
+  if (isRecord(choiceResult.data.message)) {
+    messageProjection.content = readOwnDataProperty(choiceResult.data.message, "content");
+  }
+  const messageResult = openAiChatCompletionMessageSchema.safeParse(messageProjection);
+  if (!messageResult.success) {
+    throw new GenerationInvalidResponseError();
+  }
+
+  return messageResult.data.content;
+}
+
+function isProviderEnvelopeValid(apiProtocol: LlmApiProtocol, responseBody: unknown): boolean {
+  if (!isRecord(responseBody)) return false;
+  if (apiProtocol === "responses") return true;
+  return Array.isArray(readOwnDataProperty(responseBody, "choices"));
 }
 
 export class OpenAiCompatibleGateway implements LlmGateway {
@@ -637,6 +812,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
         usageStatus: _usageStatus,
         providerDurationMs: _providerDurationMs,
         observation: _observation,
+        diagnosticStages: _diagnosticStages,
         ...success
       } = generation;
       return success;
@@ -647,6 +823,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       usageStatus: _usageStatus,
       providerDurationMs: _providerDurationMs,
       responsesFailure: _responsesFailure,
+      diagnosticStages: _diagnosticStages,
       ...failure
     } = generation;
     return failure;
@@ -660,18 +837,21 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       const {
         productionError: _productionError,
         providerDurationMs: _providerDurationMs,
+        diagnosticStages: _diagnosticStages,
         metadata,
         ...failure
       } = generation;
       return {
         ...failure,
         systemPromptHash: metadata.systemPromptHash,
+        diagnosticTrace: toDiagnosticTrace(generation),
       };
     }
 
     const {
       usageStatus: _usageStatus,
       providerDurationMs: _providerDurationMs,
+      diagnosticStages: _diagnosticStages,
       observation,
       ...success
     } = generation;
@@ -679,6 +859,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       ...success,
       systemPromptHash: success.metadata.systemPromptHash,
       observation,
+      diagnosticTrace: toDiagnosticTrace(generation),
     };
   }
 
@@ -704,7 +885,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     const metadata: LlmGenerationMetadata = {
       provider: this.provider,
       model: this.model,
-      usage: generation.usage ?? null,
+      usage: readOwnDataProperty(generation, "usage") ?? null,
       usageStatus: generation.usageStatus,
       systemPromptHash: createRequestDraftSystemPromptHash(systemPrompt),
       durationMs: generation.providerDurationMs,
@@ -736,12 +917,16 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     } catch {
       if (signal.aborted) {
         return withProviderDuration(
-          createGenerationFailure("provider", new GenerationTimeoutError()),
+          createGenerationFailure("provider", new GenerationTimeoutError(), {
+            diagnosticStages: [{ stage: "network", status: "fail", reason: "timeout" }],
+          }),
           providerDurationMs(),
         );
       }
       return withProviderDuration(
-        createGenerationFailure("provider", new GenerationNetworkError()),
+        createGenerationFailure("provider", new GenerationNetworkError(), {
+          diagnosticStages: [{ stage: "network", status: "fail", reason: "network_error" }],
+        }),
         providerDurationMs(),
       );
     }
@@ -753,7 +938,9 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     } catch {
       if (signal.aborted) {
         return withProviderDuration(
-          createGenerationFailure("provider", new GenerationTimeoutError()),
+          createGenerationFailure("provider", new GenerationTimeoutError(), {
+            diagnosticStages: [{ stage: "network", status: "fail", reason: "timeout" }],
+          }),
           providerDurationMs(),
         );
       }
@@ -765,12 +952,28 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       return withProviderDuration(
         createGenerationFailure(failureKind, productionError, {
           ...(response.ok ? {} : { providerHttpStatus: response.status }),
+          diagnosticStages: response.ok
+            ? [
+                { stage: "network", status: "pass" },
+                { stage: "http", status: "pass" },
+                {
+                  stage: "provider_envelope",
+                  status: "fail",
+                  protocol: this.apiProtocol,
+                },
+              ]
+            : [
+                { stage: "network", status: "pass" },
+                { stage: "http", status: "fail", httpStatus: response.status },
+              ],
         }),
         providerDurationMs(),
       );
     }
 
     const completedProviderDurationMs = providerDurationMs();
+    const responsesStatusProbe: ResponsesStatusProbe =
+      this.apiProtocol === "responses" ? probeResponsesStatus(data) : STATUS_FREE_RESPONSES_PROBE;
     const usage = extractUsage(this.apiProtocol, data);
 
     if (!response.ok) {
@@ -781,8 +984,71 @@ export class OpenAiCompatibleGateway implements LlmGateway {
           {
             providerHttpStatus: response.status,
             ...usage,
+            diagnosticStages: [
+              { stage: "network", status: "pass" },
+              { stage: "http", status: "fail", httpStatus: response.status },
+            ],
           },
         ),
+        completedProviderDurationMs,
+      );
+    }
+
+    const providerStages: EvaluationDiagnosticStageResult[] = [
+      { stage: "network", status: "pass" },
+      { stage: "http", status: "pass" },
+    ];
+    if (!isProviderEnvelopeValid(this.apiProtocol, data)) {
+      return withProviderDuration(
+        createGenerationFailure("request", new GenerationInvalidResponseError(), {
+          ...usage,
+          diagnosticStages: [
+            ...providerStages,
+            {
+              stage: "provider_envelope",
+              status: "fail",
+              protocol: this.apiProtocol,
+            },
+          ],
+        }),
+        completedProviderDurationMs,
+      );
+    }
+    providerStages.push({
+      stage: "provider_envelope",
+      status: "pass",
+      protocol: this.apiProtocol,
+    });
+    if (responsesStatusProbe.status === "fail") {
+      const diagnostic = responsesStatusProbe.diagnostic;
+      const incompleteReason =
+        diagnostic === undefined ? undefined : readOwnDataProperty(diagnostic, "incompleteReason");
+      return withProviderDuration(
+        createGenerationFailure("request", new GenerationInvalidResponseError(), {
+          ...usage,
+          ...(diagnostic === undefined ? {} : { responsesFailure: diagnostic }),
+          diagnosticStages: [
+            ...providerStages,
+            {
+              stage: "provider_status",
+              status: "fail",
+              ...(diagnostic === undefined
+                ? {}
+                : diagnostic.providerErrorCodeStatus === "known"
+                  ? {
+                      responsesStatus: diagnostic.status,
+                      providerErrorCodeStatus: diagnostic.providerErrorCodeStatus,
+                      providerErrorCode: diagnostic.providerErrorCode,
+                      ...(incompleteReason === undefined ? {} : { incompleteReason }),
+                    }
+                  : {
+                      responsesStatus: diagnostic.status,
+                      providerErrorCodeStatus: diagnostic.providerErrorCodeStatus,
+                      ...(incompleteReason === undefined ? {} : { incompleteReason }),
+                    }),
+            },
+          ],
+        }),
         completedProviderDurationMs,
       );
     }
@@ -790,7 +1056,11 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     let content: string;
 
     try {
-      content = extractResponseText(this.apiProtocol, data);
+      content = extractResponseText(
+        this.apiProtocol,
+        data,
+        responsesStatusProbe.nestedOutputAuthorized,
+      );
     } catch (error) {
       return withProviderDuration(
         createGenerationFailure(
@@ -800,83 +1070,151 @@ export class OpenAiCompatibleGateway implements LlmGateway {
             : new GenerationInvalidResponseError(),
           {
             ...usage,
-            ...(error instanceof ResponsesStatusError
-              ? { responsesFailure: error.diagnostic }
-              : {}),
+            diagnosticStages: [
+              ...providerStages,
+              {
+                stage: "provider_status",
+                status: "pass",
+                ...(responsesStatusProbe.responsesStatus === undefined
+                  ? {}
+                  : { responsesStatus: responsesStatusProbe.responsesStatus }),
+              },
+              { stage: "output_extraction", status: "fail", output: "missing" },
+            ],
           },
         ),
         completedProviderDurationMs,
       );
     }
+
+    providerStages.push(
+      {
+        stage: "provider_status",
+        status: "pass",
+        ...(responsesStatusProbe.responsesStatus === undefined
+          ? {}
+          : { responsesStatus: responsesStatusProbe.responsesStatus }),
+      },
+      { stage: "output_extraction", status: "pass", output: "present" },
+    );
 
     if (!content || content.trim().length === 0) {
       return withProviderDuration(
         createGenerationFailure(
           "request",
           new GenerationInvalidResponseError("LLM API вернул пустой ответ"),
-          usage,
+          {
+            ...usage,
+            diagnosticStages: [
+              ...providerStages.slice(0, -1),
+              { stage: "output_extraction", status: "fail", output: "missing" },
+            ],
+          },
         ),
         completedProviderDurationMs,
       );
     }
 
-    try {
-      const draft = parseRequestDraft(content);
-
-      if (draft.outcome === "multiple_issues") {
-        return withProviderDuration(
-          {
-            status: "success",
-            outcome: { status: "multiple_issues" },
-            observation: {
-              draftOutcome: "multiple_issues",
-              multipleIssuesDraft: draft,
-            },
-            ...usage,
-          },
-          completedProviderDurationMs,
-        );
-      }
-
-      const primaryRequestDraft = materializePrimaryRequestDraft(input, draft);
-      const specificLegalBasisSelection = evaluateSpecificLegalBasisSelection(
-        primaryRequestDraft.subject,
-        input,
+    const parsing = parseRequestDraftForEvaluation(content);
+    const parsingStages = [...providerStages, ...parsing.stages];
+    if (parsing.status === "failure") {
+      return withProviderDuration(
+        createGenerationFailure("request", new GenerationInvalidResponseError(), {
+          ...usage,
+          diagnosticStages: parsingStages,
+        }),
+        completedProviderDurationMs,
       );
-      const selectedNormativeModule =
-        specificLegalBasisSelection.status === "applied"
-          ? specificLegalBasisSelection.module
-          : undefined;
+    }
 
+    const draft = parsing.draft;
+    if (draft.outcome === "multiple_issues") {
       return withProviderDuration(
         {
           status: "success",
-          outcome: {
-            status: "generated",
-            result: renderPrimaryRequestDraft(primaryRequestDraft, input),
-          },
+          outcome: { status: "multiple_issues" },
           observation: {
-            draftOutcome: "generated",
-            requestDraft: draft,
-            draft: primaryRequestDraft,
-            selectedNormativeModule: selectedNormativeModule?.id ?? null,
-            specificLegalBasisSelectionStatus: specificLegalBasisSelection.status,
+            draftOutcome: "multiple_issues",
+            multipleIssuesDraft: draft,
           },
+          diagnosticStages: parsingStages,
           ...usage,
         },
         completedProviderDurationMs,
       );
-    } catch (error) {
+    }
+
+    let primaryRequestDraft: PrimaryRequestDraft;
+    try {
+      primaryRequestDraft = materializePrimaryRequestDraft(input, draft);
+    } catch {
       return withProviderDuration(
-        createGenerationFailure(
-          "request",
-          error instanceof GenerationInvalidResponseError
-            ? error
-            : new GenerationInvalidResponseError(),
-          usage,
-        ),
+        createGenerationFailure("request", new GenerationInvalidResponseError(), {
+          ...usage,
+          diagnosticStages: [...parsingStages, { stage: "materialization", status: "fail" }],
+        }),
         completedProviderDurationMs,
       );
     }
+
+    const materializedStages: EvaluationDiagnosticStageResult[] = [
+      ...parsingStages,
+      { stage: "materialization", status: "pass" },
+    ];
+    let specificLegalBasisSelection: ReturnType<typeof evaluateSpecificLegalBasisSelection>;
+    try {
+      specificLegalBasisSelection = evaluateSpecificLegalBasisSelection(
+        primaryRequestDraft.subject,
+        input,
+      );
+    } catch {
+      return withProviderDuration(
+        createGenerationFailure("request", new GenerationInvalidResponseError(), {
+          ...usage,
+          diagnosticStages: [
+            ...materializedStages,
+            { stage: "subject_legal_selection", status: "fail" },
+          ],
+        }),
+        completedProviderDurationMs,
+      );
+    }
+    const selectedNormativeModule =
+      specificLegalBasisSelection.status === "applied"
+        ? specificLegalBasisSelection.module
+        : undefined;
+    const selectionStages: EvaluationDiagnosticStageResult[] = [
+      ...materializedStages,
+      { stage: "subject_legal_selection", status: "pass" },
+    ];
+    let renderedRequest: ReturnType<typeof renderPrimaryRequestDraft>;
+    try {
+      renderedRequest = renderPrimaryRequestDraft(primaryRequestDraft, input);
+    } catch {
+      return withProviderDuration(
+        createGenerationFailure("request", new GenerationInvalidResponseError(), {
+          ...usage,
+          diagnosticStages: [...selectionStages, { stage: "renderer", status: "fail" }],
+        }),
+        completedProviderDurationMs,
+      );
+    }
+
+    return withProviderDuration(
+      {
+        status: "success",
+        outcome: { status: "generated", result: renderedRequest },
+        observation: {
+          draftOutcome: "generated",
+          requestDraft: draft,
+          draft: primaryRequestDraft,
+          selectedNormativeModule: selectedNormativeModule?.id ?? null,
+          specificLegalBasisSelectionStatus: specificLegalBasisSelection.status,
+        },
+        diagnosticStages: [...selectionStages, { stage: "renderer", status: "pass" }],
+        ...usage,
+      },
+      completedProviderDurationMs,
+    );
   }
 }

@@ -8,6 +8,7 @@ import {
   type RequestDraft as CoreRequestDraft,
   requestDraftSchema as coreRequestDraftSchema,
 } from "@uo-request-generator/core";
+import type { ZodError } from "zod";
 import { GenerationInvalidResponseError } from "./generation-error.js";
 import {
   generatedProviderDraftSchema,
@@ -213,24 +214,25 @@ export function parseRequestDraft(responseText: string): RequestDraft {
     throw invalidResponseError();
   }
 
-  const providerDraft = providerResult.data.draft;
-  const canonicalDraft =
-    providerDraft.outcome === "multiple_issues"
-      ? { outcome: "multiple_issues" as const }
-      : parseGeneratedProviderDraft(providerDraft);
-  const draftResult = requestDraftSchema.safeParse(canonicalDraft);
+  const draftResult = validateProviderRequestDraft(providerResult.data.draft);
   if (!draftResult.success) {
     throw invalidResponseError();
   }
 
-  return draftResult.data;
+  return draftResult.draft;
 }
 
-function parseGeneratedProviderDraft(draft: unknown): GeneratedRequestDraft {
-  const generatedResult = generatedProviderDraftSchema.safeParse(draft);
-  if (!generatedResult.success) {
-    throw invalidResponseError();
+export function validateProviderRequestDraft(draft: {
+  outcome: "generated" | "multiple_issues";
+}): { success: true; draft: RequestDraft } | { success: false; error: ZodError } {
+  if (draft.outcome === "multiple_issues") {
+    return { success: true, draft: { outcome: "multiple_issues" } };
   }
 
-  return generatedResult.data;
+  const generatedResult = generatedProviderDraftSchema.safeParse(draft);
+  if (!generatedResult.success) {
+    return { success: false, error: generatedResult.error };
+  }
+
+  return { success: true, draft: generatedResult.data };
 }

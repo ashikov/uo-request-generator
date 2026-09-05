@@ -558,9 +558,13 @@ HTTP-ответ Responses API передаёт текст в блоках `outpu
 не зависит от SDK провайдера.
 
 Для локального benchmark допустимый `status`, отличный от `completed`,
-сопровождается узкой диагностикой из проверенных enum-полей `error.code` и
-`incomplete_details.reason`. Она не входит в production metadata, публичную
-ошибку или production logs. Сырой envelope и `error.message` не сохраняются.
+сопровождается узкой диагностикой. Категория `providerErrorCodeStatus` различает
+известный allowlisted код (`known`), неизвестный код без сохранения исходного
+значения (`unknown`) и отсутствие кода (`missing`). Сам `error.code` сохраняется
+только для категории `known`, а `incomplete_details.reason` — только после
+проверки по allowlist. Эта диагностика не входит в production metadata,
+публичную ошибку или production logs. Сырой envelope и `error.message` не
+сохраняются.
 
 Локальный benchmark вызывает тот же `OpenAiCompatibleGateway` напрямую, без
 Fastify, CAPTCHA, rate limiter и generation safeguard. Дополнительный метод
@@ -576,6 +580,15 @@ response parsing не дублируются. Для Responses API output cap о
 `max_output_tokens`. Для Chat Completions benchmark добавляет `max_tokens` или
 `max_completion_tokens` только по явному локальному выбору. Production config
 этот параметр не задаёт, поэтому её request shape не меняется.
+
+Evaluation-path использует тот же строгий разбор provider response, что и
+production. Дополнительно он возвращает privacy-safe трассу первого отказавшего
+этапа, нормализованный usage, классификацию provider status/error и структурную
+диагностику валидации. Трасса не содержит пользовательский ввод, provider output,
+произвольные значения и имена полей, полные сообщения validator, URL,
+credentials или сведения о локальной инфраструктуре. Materialization отражается
+только как `PASS` или `FAIL`: удалённые распределение действий и процедурные роли
+не имеют диагностических кодов или location.
 
 Streaming, tools, conversations, background responses и хранение `response_id`
 не поддерживаются.
