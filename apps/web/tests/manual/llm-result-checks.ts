@@ -6,11 +6,9 @@ import {
   COMMON_AREA_ROOF_LEGAL_BASIS_MODULE,
   COMMON_AREA_VENTILATION_LEGAL_BASIS_MODULE,
   type GenerateRequestResult,
-  primaryRequestDraftLimits,
 } from "@uo-request-generator/core";
 import { COMMON_LEGAL_BASIS_BLOCK } from "@uo-request-generator/llm";
 
-const MAX_REQUESTS = primaryRequestDraftLimits.actionPlan.itemsMax;
 const SPECIFIC_LEGAL_BASIS_PARAGRAPHS = [
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0],
   COMMON_AREA_LIGHTING_LEGAL_BASIS_MODULE.paragraphs[0],
@@ -89,7 +87,7 @@ export function findGeneratedResultError(result: GenerateRequestResult): string 
 
   const requestLines = requestBlock.split("\n").slice(1);
 
-  if (requestLines.length < 1 || requestLines.length > MAX_REQUESTS) {
+  if (requestLines.length !== 1) {
     return "нарушен формат раздела «Прошу:»";
   }
 

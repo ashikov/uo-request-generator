@@ -28,14 +28,10 @@ export const primaryRequestDraftLimits = {
   impact: {
     max: 500,
   },
-  verification: {
-    max: 500,
+  requestItems: {
+    length: 1,
   },
-  actionPlan: {
-    remedyActionsMin: 1,
-    itemsMax: 5,
-  },
-  action: {
+  requestItem: {
     max: generateRequestLimits.desiredActions.max,
   },
   warnings: {
@@ -57,52 +53,22 @@ const draftString = (maxLength: number) =>
     .min(1)
     .max(maxLength);
 
-const actionString = draftString(primaryRequestDraftLimits.action.max).refine(
-  (action) => !/^прошу\s*:/iu.test(action),
+const requestItemString = draftString(primaryRequestDraftLimits.requestItem.max).refine(
+  (requestItem) => !/^прошу\s*:/iu.test(requestItem),
 );
-
-const actionPlanSchema = z
-  .object({
-    preliminaryCheck: z.union([actionString, z.null()]),
-    remedyActions: z.array(actionString).min(primaryRequestDraftLimits.actionPlan.remedyActionsMin),
-    resultCheck: z.union([actionString, z.null()]),
-  })
-  .strict()
-  .superRefine((actionPlan, context) => {
-    const itemCount =
-      Number(actionPlan.preliminaryCheck !== null) +
-      actionPlan.remedyActions.length +
-      Number(actionPlan.resultCheck !== null);
-
-    if (itemCount > primaryRequestDraftLimits.actionPlan.itemsMax) {
-      context.addIssue({
-        code: "custom",
-        message: "Процедурный план превышает допустимое число требований",
-      });
-    }
-  });
-
-type PrimaryRequestActionPlan = z.infer<typeof actionPlanSchema>;
 
 type PrimaryRequestBodyParts = {
   problem: string;
   circumstances: string | null;
   impact: string | null;
-  verification: string | null;
-  actionPlan: PrimaryRequestActionPlan;
+  requestItems: string[];
 };
 
 function normalizeSentenceEnding(text: string): string {
   return /[.!?…]$/u.test(text) ? text : `${text}.`;
 }
 
-function buildRequestBlock(actionPlan: PrimaryRequestActionPlan): string {
-  const requestItems = [
-    actionPlan.preliminaryCheck,
-    ...actionPlan.remedyActions,
-    actionPlan.resultCheck,
-  ].filter((action): action is string => action !== null);
-
+function buildRequestBlock(requestItems: readonly string[]): string {
   return [
     "Прошу:",
     ...requestItems.map(
@@ -119,10 +85,9 @@ function buildPrimaryRequestBody(
     normalizeSentenceEnding(draft.problem),
     draft.circumstances === null ? null : normalizeSentenceEnding(draft.circumstances),
     draft.impact === null ? null : normalizeSentenceEnding(draft.impact),
-    draft.verification === null ? null : normalizeSentenceEnding(draft.verification),
     COMMON_LEGAL_BASIS_BLOCK,
     ...specificLegalBasisParagraphs,
-    buildRequestBlock(draft.actionPlan),
+    buildRequestBlock(draft.requestItems),
   ]
     .filter((block): block is string => block !== null)
     .join(REQUEST_BODY_SECTION_SEPARATOR);
@@ -134,9 +99,8 @@ export const primaryRequestDraftSchema = z
     problem: draftString(primaryRequestDraftLimits.problem.max),
     circumstances: z.union([draftString(primaryRequestDraftLimits.circumstances.max), z.null()]),
     impact: z.union([draftString(primaryRequestDraftLimits.impact.max), z.null()]),
-    verification: z.union([draftString(primaryRequestDraftLimits.verification.max), z.null()]),
     subject: primaryRequestSubjectSchema,
-    actionPlan: actionPlanSchema,
+    requestItems: z.array(requestItemString).length(primaryRequestDraftLimits.requestItems.length),
     warnings: z
       .array(draftString(primaryRequestDraftLimits.warning.max))
       .max(primaryRequestDraftLimits.warnings.max),

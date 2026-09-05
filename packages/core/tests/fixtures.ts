@@ -12,7 +12,7 @@ export type ScenarioCategory =
   | "location_action_deduplication"
   | "simple_defect"
   | "location_preservation"
-  | "conflicting_location"
+  | "ambiguous_location"
   | "compatible_location"
   | "impact_subject_preservation"
   | "impact_normalization"
@@ -28,13 +28,13 @@ export type HardExpectation =
   | { kind: "warning_presence"; expected: boolean }
   | { kind: "subject_kind"; expected: ConfirmedProblemSubject | null }
   | { kind: "forbidden_subject_kind"; forbidden: ConfirmedProblemSubject }
-  | { kind: "selected_normative_module"; expected: string | null }
-  | {
-      kind: "procedural_plan";
-      preliminaryCheck?: "present" | "absent";
-      remedyActions?: "present" | "absent";
-      resultCheck?: "present" | "absent";
-    };
+  | { kind: "selected_normative_module"; expected: string | null };
+
+export type ExpectationClassification = {
+  blockerProductInvariants: readonly string[];
+  qualityExpectations: readonly string[];
+  acceptedBetaLimitations: readonly string[];
+};
 
 export type IssueProvenance = { issue: 200 | 201 | 202 | 203 | 218 | 219 };
 
@@ -42,6 +42,7 @@ type TestScenarioBase = {
   id: string;
   category: ScenarioCategory;
   input: GenerateRequestInput;
+  expectationClassification?: ExpectationClassification;
 };
 
 export type TestScenario =
@@ -49,7 +50,7 @@ export type TestScenario =
       expectedOutcome: "generated";
       mustPreserveFacts: string[];
       mustNotInvent: string[];
-      expectWarning: boolean;
+      expectWarning?: boolean;
       hardExpectations: readonly HardExpectation[];
       semanticExpectations: readonly string[];
       provenance?: IssueProvenance;
@@ -66,7 +67,7 @@ type LegacyTestScenario =
       expectedOutcome: "generated";
       mustPreserveFacts: string[];
       mustNotInvent: string[];
-      expectWarning: boolean;
+      expectWarning?: boolean;
       provenance?: IssueProvenance;
       hardExpectations?: readonly HardExpectation[];
     })
@@ -87,11 +88,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     input: {
       description: "На лестничной площадке не работает освещение.",
     },
-    mustPreserveFacts: [
-      "на лестничной площадке не работает освещение",
-      "отсутствие освещения затрудняет безопасное пользование лестничной площадкой",
-      "проверка и восстановление работы освещения",
-    ],
+    mustPreserveFacts: ["на лестничной площадке не работает освещение"],
     mustNotInvent: [
       "перегоревшая лампа",
       "неисправность проводки или автомата",
@@ -100,6 +97,16 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "угроза жизни",
     ],
     expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить наблюдаемый факт об отсутствии освещения.",
+        "Не придумывать причину, технический способ ремонта или наступивший вред.",
+      ],
+      qualityExpectations: ["Нормализовать описание в естественную деловую формулировку."],
+      acceptedBetaLimitations: [
+        "Единственный generic request item достаточен без отдельной диагностики и проверки результата.",
+      ],
+    },
   },
   {
     id: "description-location",
@@ -156,6 +163,14 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "название ремонтной организации",
     ],
     expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить explicit desiredActions целиком в одном backend-owned request item.",
+        "Не добавлять рядом generic request item и не придумывать ремонт сверх пользовательского текста.",
+      ],
+      qualityExpectations: ["Не дублировать desiredActions в описательных полях."],
+      acceptedBetaLimitations: ["Составное требование не сегментируется на отдельные действия."],
+    },
   },
   {
     id: "all-fields",
@@ -183,6 +198,14 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     ],
     mustNotInvent: ["адрес или номер дома", "контактные данные", "сумма нанесённого ущерба"],
     expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить все explicit desiredActions целиком в одном backend-owned request item.",
+        "Сохранить явно переданные описание, место и последствия без выдуманных фактов.",
+      ],
+      qualityExpectations: ["Не дублировать одни сведения между описательными полями."],
+      acceptedBetaLimitations: ["Составное требование не разбивается на процедурные роли."],
+    },
   },
   {
     id: "emotional",
@@ -214,13 +237,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       description: "дверь в помещение общего пользования не закрывается до конца надо исправить",
       ...commonDoorConfirm,
     },
-    mustPreserveFacts: [
-      "дверь в помещении общего пользования не закрывается полностью",
-      "риск несанкционированного доступа",
-      "установление необходимой для ремонта причины",
-      "устранение выявленной неисправности",
-      "проверка нормального открывания и закрывания после работ",
-    ],
+    mustPreserveFacts: ["дверь в помещении общего пользования не закрывается полностью"],
     mustNotInvent: [
       "неисправность доводчика",
       "неисправность замка или петель",
@@ -228,6 +245,16 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "срок выполнения работ",
     ],
     expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить пользовательский факт о двери, которая не закрывается до конца.",
+        "Не добавлять риск доступа, причину неисправности или конкретный ремонт без основания.",
+      ],
+      qualityExpectations: ["Нормализовать разговорную формулировку без изменения смысла."],
+      acceptedBetaLimitations: [
+        "Не требовать автоматически установление причины и проверку двери после работ.",
+      ],
+    },
   },
   {
     id: "minimum-sufficient-requests",
@@ -236,13 +263,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     input: {
       description: "С потолка в общем коридоре капает вода. Источник протечки неизвестен.",
     },
-    mustPreserveFacts: [
-      "с потолка в общем коридоре капает вода",
-      "источник протечки неизвестен",
-      "установление источника поступления воды",
-      "устранение причины протечки",
-      "проверка прекращения поступления воды после работ",
-    ],
+    mustPreserveFacts: ["с потолка в общем коридоре капает вода", "источник протечки неизвестен"],
     mustNotInvent: [
       "крыша как источник протечки",
       "труба как источник протечки",
@@ -251,6 +272,16 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "плесень, короткое замыкание или разрушение конструкций",
     ],
     expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить наблюдаемую воду и неизвестность её источника.",
+        "Не превращать предполагаемый источник или способ ремонта в установленный факт.",
+      ],
+      qualityExpectations: ["Сформулировать неизвестность ясно и без лишнего текста."],
+      acceptedBetaLimitations: [
+        "Не требовать автоматически цепочку установления причины, устранения и проверки результата.",
+      ],
+    },
   },
   {
     id: "location-action-deduplication",
@@ -264,9 +295,6 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "с потолка в общем коридоре капает вода",
       "источник протечки неизвестен",
       "место проблемы: подъезд 2, этаж 5",
-      "минимальный и понятный план действий по устранению протечки",
-      "место не повторяется механически в каждом пункте раздела «Прошу:»",
-      "одно необходимое упоминание места допустимо, если оно различает действие или объект",
     ],
     mustNotInvent: [
       "крыша как источник протечки",
@@ -275,6 +303,14 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "другой конкретный источник протечки",
     ],
     expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить оба места проявления и неизвестность источника.",
+        "Не придумывать конкретный источник воды.",
+      ],
+      qualityExpectations: ["Не повторять место механически в описательной части."],
+      acceptedBetaLimitations: ["Раздел требований содержит один generic request item."],
+    },
   },
   {
     id: "simple-defect",
@@ -283,9 +319,10 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     input: {
       description: "На входной двери отсутствует ручка.",
     },
-    mustPreserveFacts: ["на входной двери отсутствует ручка", "установка отсутствующей ручки"],
+    mustPreserveFacts: ["на входной двери отсутствует ручка"],
     mustNotInvent: [
       "причина отсутствия ручки",
+      "конкретная установка ручки без explicit desiredActions",
       "неисправность доводчика",
       "обязательная диагностика причины",
       "искусственная цепочка диагностика → ремонт → проверка",
@@ -293,6 +330,14 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "дополнительные формальные требования",
     ],
     expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить наблюдаемый факт отсутствия ручки.",
+        "Не выбирать установку ручки или другой конкретный ремонт без explicit desiredActions.",
+      ],
+      qualityExpectations: ["Сохранить краткую естественную формулировку проблемы."],
+      acceptedBetaLimitations: ["Generic request item является достаточным требованием."],
+    },
   },
   {
     id: "location-preservation",
@@ -313,8 +358,8 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     expectWarning: false,
   },
   {
-    id: "conflicting-location",
-    category: "conflicting_location",
+    id: "ambiguous-location",
+    category: "ambiguous_location",
     expectedOutcome: "generated",
     input: {
       description:
@@ -322,14 +367,35 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       location: "подъезд 3, этаж 4",
       ...commonDoorConfirm,
     },
-    mustPreserveFacts: [
-      "дверь не закрывается полностью",
-      "подъезд 3",
-      "этаж 4",
-      "предупреждение о необходимости проверить место",
+    mustPreserveFacts: ["дверь не закрывается полностью", "второй подъезд", "подъезд 3", "этаж 4"],
+    mustNotInvent: [
+      "утверждение, что одно из двух мест фактически верное",
+      "автоматическое разделение связанной проблемы на две заявки",
+      "warning, который объявляет одно из мест фактически верным",
     ],
-    mustNotInvent: ["объединение второго и третьего подъездов", "фактически верное место"],
-    expectWarning: true,
+  },
+  {
+    id: "multi-location",
+    category: "location_preservation",
+    expectedOutcome: "generated",
+    input: {
+      description:
+        "Двери в помещениях общего пользования во втором и третьем подъездах не закрываются полностью.",
+      location: "четвёртый этаж",
+      ...commonDoorConfirm,
+    },
+    mustPreserveFacts: [
+      "двери не закрываются полностью",
+      "второй и третий подъезды",
+      "четвёртый этаж",
+      "одна связанная проблема в нескольких местах",
+    ],
+    mustNotInvent: [
+      "утверждение, что верно только одно место",
+      "автоматическое разделение связанной проблемы на несколько заявок",
+      "конкретная причина неисправности дверей",
+    ],
+    expectWarning: false,
   },
   {
     id: "compatible-location",
@@ -410,10 +476,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       description: "В кабине лифта не работает освещение.",
       desiredActions: "Восстановить освещение.",
     },
-    mustPreserveFacts: [
-      "восстановление освещения в кабине лифта",
-      "установление причины отсутствия освещения только при необходимости",
-    ],
+    mustPreserveFacts: ["восстановление освещения в кабине лифта"],
     mustNotInvent: [
       "замена лампы",
       "замена проводки",
@@ -421,6 +484,14 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "закрытый перечень предполагаемых причин",
     ],
     expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить explicit desiredActions о восстановлении освещения целиком.",
+        "Не придумывать лампу, проводку, выключатель или иной способ ремонта.",
+      ],
+      qualityExpectations: ["Не дублировать пользовательское требование в descriptive prose."],
+      acceptedBetaLimitations: ["Не добавлять отдельное требование установить причину."],
+    },
   },
   {
     id: "unconfirmed-remedy-door",
@@ -430,10 +501,7 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       description: "Входная дверь открывается с большим усилием.",
       desiredActions: "Восстановить нормальное открывание двери.",
     },
-    mustPreserveFacts: [
-      "восстановление нормального открывания двери",
-      "установление причины затруднённого открывания только при необходимости",
-    ],
+    mustPreserveFacts: ["восстановление нормального открывания двери"],
     mustNotInvent: [
       "регулировка петель",
       "замена доводчика",
@@ -457,9 +525,6 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     ],
     mustNotInvent: ["обязательная диагностика двери", "неподтверждённая причина отсутствия ручки"],
     expectWarning: false,
-    hardExpectations: [
-      { kind: "procedural_plan", preliminaryCheck: "absent", remedyActions: "present" },
-    ],
   },
   {
     id: "multiple-issues",
@@ -486,7 +551,9 @@ function toTestScenario(scenario: LegacyTestScenario): TestScenario {
   return {
     ...scenario,
     hardExpectations: [
-      { kind: "warning_presence", expected: scenario.expectWarning },
+      ...(scenario.expectWarning === undefined
+        ? []
+        : [{ kind: "warning_presence" as const, expected: scenario.expectWarning }]),
       ...(scenario.hardExpectations ?? []),
     ],
     semanticExpectations: [
@@ -648,8 +715,16 @@ const regressionScenarios: TestScenario[] = [
     semanticExpectations: [
       "Не терять предмет освещения только из-за места проявления в кабине лифта.",
       "Не превращать отсутствие света само по себе в техническую проблему лифта.",
-      "При неизвестной причине требовать восстановить освещение без выбора конкретного способа ремонта.",
+      "Сохранить explicit desiredActions целиком в одном backend-owned request item.",
     ],
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить subject освещения и не выбрать технический subject лифта.",
+        "Сохранить explicit desiredActions целиком без неподтверждённого способа ремонта.",
+      ],
+      qualityExpectations: ["Естественно сохранить место и явно переданное последствие."],
+      acceptedBetaLimitations: ["Не формировать отдельный план диагностики и проверки результата."],
+    },
   },
   {
     id: "elevator-position-indicator",
@@ -733,15 +808,19 @@ const regressionScenarios: TestScenario[] = [
     mustPreserveFacts: [],
     mustNotInvent: [],
     expectWarning: false,
-    hardExpectations: [
-      { kind: "warning_presence", expected: false },
-      { kind: "procedural_plan", preliminaryCheck: "present", remedyActions: "present" },
-    ],
+    hardExpectations: [{ kind: "warning_presence", expected: false }],
     semanticExpectations: [
       "Не назначать конкретный способ ремонта при неизвестной причине.",
-      "Предварительная проверка может устанавливать неизвестное обстоятельство.",
-      "Действия по устранению должны описывать требуемый результат, а не неподтверждённый метод ремонта.",
+      "Сохранить неизвестность причины в descriptive prose.",
     ],
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить неизвестность причины и не придумать способ ремонта.",
+        "Использовать один backend-owned generic request item.",
+      ],
+      qualityExpectations: ["Описать наблюдаемую проблему кратко и естественно."],
+      acceptedBetaLimitations: ["Отдельные проверка причины и проверка результата не требуются."],
+    },
   },
   {
     id: "unknown-remedy-functional-defect",
@@ -754,13 +833,10 @@ const regressionScenarios: TestScenario[] = [
     mustPreserveFacts: [],
     mustNotInvent: [],
     expectWarning: false,
-    hardExpectations: [
-      { kind: "warning_presence", expected: false },
-      { kind: "procedural_plan", preliminaryCheck: "present", remedyActions: "present" },
-    ],
+    hardExpectations: [{ kind: "warning_presence", expected: false }],
     semanticExpectations: [
       "Не превращать неизвестную причину функционального дефекта в конкретный способ ремонта.",
-      "Сохранить различие между проверкой причины и требуемым результатом устранения.",
+      "Сохранить неизвестность причины в descriptive prose.",
     ],
   },
   {

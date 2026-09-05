@@ -7,6 +7,7 @@ import {
   type LlmGenerationMetadata,
   type LlmUsage,
   type LlmUsageStatus,
+  materializePrimaryRequestDraft,
   type PrimaryRequestDraft,
   renderPrimaryRequestDraft,
   type SpecificLegalBasisSelectionStatus,
@@ -51,6 +52,46 @@ export type ChatCompletionsOutputTokenParameter =
 
 export type LlmProviderUsage = LlmUsage;
 
+const RESPONSES_STATUSES = [
+  "completed",
+  "failed",
+  "in_progress",
+  "cancelled",
+  "queued",
+  "incomplete",
+] as const;
+
+const RESPONSES_ERROR_CODES = [
+  "server_error",
+  "rate_limit_exceeded",
+  "invalid_prompt",
+  "vector_store_timeout",
+  "invalid_image",
+  "invalid_image_format",
+  "invalid_base64_image",
+  "invalid_image_url",
+  "image_too_large",
+  "image_too_small",
+  "image_parse_error",
+  "image_content_policy_violation",
+  "invalid_image_mode",
+  "image_file_too_large",
+  "unsupported_image_media_type",
+  "empty_image_file",
+  "failed_to_download_image",
+  "image_file_not_found",
+] as const;
+
+const RESPONSES_INCOMPLETE_REASONS = ["max_output_tokens", "content_filter"] as const;
+
+type ResponsesStatus = (typeof RESPONSES_STATUSES)[number];
+
+export type ResponsesFailureDiagnostic = {
+  status: Exclude<ResponsesStatus, "completed">;
+  providerErrorCode?: (typeof RESPONSES_ERROR_CODES)[number];
+  incompleteReason?: (typeof RESPONSES_INCOMPLETE_REASONS)[number];
+};
+
 type OpenAiCompatibleGenerationSuccess = {
   status: "success";
   outcome: GenerateRequestOutcome;
@@ -73,10 +114,12 @@ export type OpenAiCompatibleGeneration =
   | OpenAiCompatibleGenerationFailure;
 
 type MultipleIssuesRequestDraft = Extract<RequestDraft, { outcome: "multiple_issues" }>;
+type GeneratedRequestDraft = Extract<RequestDraft, { outcome: "generated" }>;
 
 export type OpenAiCompatibleEvaluationObservation =
   | {
       draftOutcome: "generated";
+      requestDraft: GeneratedRequestDraft;
       draft: PrimaryRequestDraft;
       selectedNormativeModule: string | null;
       specificLegalBasisSelectionStatus: SpecificLegalBasisSelectionStatus;
@@ -94,6 +137,7 @@ export type OpenAiCompatibleEvaluationGeneration =
   | (Omit<OpenAiCompatibleGenerationFailure, "metadata"> & {
       systemPromptHash: string;
       usageStatus: LlmUsageStatus;
+      responsesFailure?: ResponsesFailureDiagnostic;
     });
 
 type UnannotatedGenerationSuccess = Omit<OpenAiCompatibleGenerationSuccess, "metadata"> & {
@@ -107,6 +151,7 @@ type UnannotatedGenerationFailure = Omit<OpenAiCompatibleGenerationFailure, "met
 
 type InternalGenerationFailure = UnannotatedGenerationFailure & {
   productionError: Error;
+  responsesFailure?: ResponsesFailureDiagnostic;
 };
 
 type UnannotatedGeneration = UnannotatedGenerationSuccess | InternalGenerationFailure;
@@ -123,6 +168,7 @@ type InternalGeneration =
       productionError: Error;
       usageStatus: LlmUsageStatus;
       providerDurationMs: number;
+      responsesFailure?: ResponsesFailureDiagnostic;
     });
 
 type OpenAiChatMessage = {
@@ -176,12 +222,30 @@ const openAiChatCompletionResponseSchema = z.object({
   usage: z.unknown().optional(),
 });
 
+const responsesStatusSchema = z.enum(RESPONSES_STATUSES);
+const responsesErrorCodeSchema = z.enum(RESPONSES_ERROR_CODES);
+const responsesIncompleteReasonSchema = z.enum(RESPONSES_INCOMPLETE_REASONS);
+
+const openAiResponsesErrorSchema = z
+  .object({
+    code: responsesErrorCodeSchema,
+  })
+  .passthrough();
+
+const openAiResponsesIncompleteDetailsSchema = z
+  .object({
+    reason: responsesIncompleteReasonSchema,
+  })
+  .passthrough();
+
 const openAiResponsesResponseSchema = z
   .object({
-    status: z.string().optional(),
+    status: responsesStatusSchema.optional(),
     output_text: z.string().nullable().optional(),
     output: z.array(z.unknown()).optional(),
     usage: z.unknown().optional(),
+    error: z.unknown().optional(),
+    incomplete_details: z.unknown().optional(),
   })
   .passthrough()
   .refine((response) => response.output_text !== undefined || response.output !== undefined);
@@ -245,8 +309,9 @@ export function createOpenAiCompatibleRequestBody(
   input: GenerateRequestInput,
   systemPrompt = createRequestDraftSystemPrompt(input.confirmedProblemSubject),
 ): OpenAiChatCompletionRequest | OpenAiResponsesRequest {
-  const userMessage = createUserMessage(input);
-  const jsonSchema = createRequestDraftJsonSchema(input.confirmedProblemSubject);
+  const normalizedInput = normalizeGenerationInput(input);
+  const userMessage = createUserMessage(normalizedInput);
+  const jsonSchema = createRequestDraftJsonSchema(normalizedInput.confirmedProblemSubject);
 
   if (config.apiProtocol === "responses") {
     return {
@@ -291,17 +356,58 @@ export function createOpenAiCompatibleRequestBody(
   return requestBody;
 }
 
-function createUserMessage(input: GenerateRequestInput): string {
+function normalizeGenerationInput(input: GenerateRequestInput): GenerateRequestInput {
   const location = input.location?.trim();
   const consequences = input.consequences?.trim();
   const desiredActions = input.desiredActions?.trim();
 
-  return JSON.stringify({
+  return {
     description: input.description,
-    location: location || null,
-    consequences: consequences || null,
-    desiredActions: desiredActions || null,
+    ...(location ? { location } : {}),
+    ...(consequences ? { consequences } : {}),
+    ...(desiredActions ? { desiredActions } : {}),
+    ...(input.confirmedProblemSubject === undefined
+      ? {}
+      : { confirmedProblemSubject: input.confirmedProblemSubject }),
+  };
+}
+
+function createUserMessage(input: GenerateRequestInput): string {
+  const normalizedInput = normalizeGenerationInput(input);
+
+  return JSON.stringify({
+    description: normalizedInput.description,
+    location: normalizedInput.location ?? null,
+    consequences: normalizedInput.consequences ?? null,
+    desiredActions: normalizedInput.desiredActions ?? null,
   });
+}
+
+class ResponsesStatusError extends GenerationInvalidResponseError {
+  constructor(readonly diagnostic: ResponsesFailureDiagnostic) {
+    super();
+  }
+}
+
+function createResponsesFailureDiagnostic(
+  response: z.infer<typeof openAiResponsesResponseSchema>,
+): ResponsesFailureDiagnostic | undefined {
+  if (response.status === undefined || response.status === "completed") {
+    return undefined;
+  }
+
+  const errorResult = openAiResponsesErrorSchema.safeParse(response.error);
+  const incompleteDetailsResult = openAiResponsesIncompleteDetailsSchema.safeParse(
+    response.incomplete_details,
+  );
+
+  return {
+    status: response.status,
+    ...(errorResult.success ? { providerErrorCode: errorResult.data.code } : {}),
+    ...(incompleteDetailsResult.success
+      ? { incompleteReason: incompleteDetailsResult.data.reason }
+      : {}),
+  };
 }
 
 function extractResponsesText(responseBody: unknown): string {
@@ -311,8 +417,9 @@ function extractResponsesText(responseBody: unknown): string {
     throw new GenerationInvalidResponseError();
   }
 
-  if (responseResult.data.status !== undefined && responseResult.data.status !== "completed") {
-    throw new GenerationInvalidResponseError();
+  const failureDiagnostic = createResponsesFailureDiagnostic(responseResult.data);
+  if (failureDiagnostic !== undefined) {
+    throw new ResponsesStatusError(failureDiagnostic);
   }
 
   const aggregatedText = responseResult.data.output_text;
@@ -428,7 +535,10 @@ function classifyHttpFailure(providerHttpStatus: number): "request" | "provider"
 function createGenerationFailure(
   failureKind: "request" | "provider",
   productionError: Error,
-  metadata: { providerHttpStatus?: number } & Partial<UsageExtraction> = {},
+  metadata: {
+    providerHttpStatus?: number;
+    responsesFailure?: ResponsesFailureDiagnostic;
+  } & Partial<UsageExtraction> = {},
 ): InternalGenerationFailure {
   return {
     status: "failure",
@@ -439,6 +549,9 @@ function createGenerationFailure(
     ...(metadata.providerHttpStatus === undefined
       ? {}
       : { providerHttpStatus: metadata.providerHttpStatus }),
+    ...(metadata.responsesFailure === undefined
+      ? {}
+      : { responsesFailure: metadata.responsesFailure }),
     ...(metadata.usage === undefined ? {} : { usage: metadata.usage }),
     usageStatus: metadata.usageStatus ?? "missing",
   };
@@ -533,6 +646,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
       productionError: _productionError,
       usageStatus: _usageStatus,
       providerDurationMs: _providerDurationMs,
+      responsesFailure: _responsesFailure,
       ...failure
     } = generation;
     return failure;
@@ -569,7 +683,8 @@ export class OpenAiCompatibleGateway implements LlmGateway {
   }
 
   private async executeGeneration(input: GenerateRequestInput): Promise<InternalGeneration> {
-    const systemPrompt = createRequestDraftSystemPrompt(input.confirmedProblemSubject);
+    const normalizedInput = normalizeGenerationInput(input);
+    const systemPrompt = createRequestDraftSystemPrompt(normalizedInput.confirmedProblemSubject);
     const requestBody = createOpenAiCompatibleRequestBody(
       {
         apiProtocol: this.apiProtocol,
@@ -581,11 +696,11 @@ export class OpenAiCompatibleGateway implements LlmGateway {
               chatCompletionsOutputTokenParameter: this.chatCompletionsOutputTokenParameter,
             }),
       },
-      input,
+      normalizedInput,
       systemPrompt,
     );
 
-    const generation = await this.executeProviderGeneration(input, requestBody);
+    const generation = await this.executeProviderGeneration(normalizedInput, requestBody);
     const metadata: LlmGenerationMetadata = {
       provider: this.provider,
       model: this.model,
@@ -683,7 +798,12 @@ export class OpenAiCompatibleGateway implements LlmGateway {
           error instanceof GenerationInvalidResponseError
             ? error
             : new GenerationInvalidResponseError(),
-          usage,
+          {
+            ...usage,
+            ...(error instanceof ResponsesStatusError
+              ? { responsesFailure: error.diagnostic }
+              : {}),
+          },
         ),
         completedProviderDurationMs,
       );
@@ -718,7 +838,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
         );
       }
 
-      const { outcome: _outcome, ...primaryRequestDraft } = draft;
+      const primaryRequestDraft = materializePrimaryRequestDraft(input, draft);
       const specificLegalBasisSelection = evaluateSpecificLegalBasisSelection(
         primaryRequestDraft.subject,
         input,
@@ -737,6 +857,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
           },
           observation: {
             draftOutcome: "generated",
+            requestDraft: draft,
             draft: primaryRequestDraft,
             selectedNormativeModule: selectedNormativeModule?.id ?? null,
             specificLegalBasisSelectionStatus: specificLegalBasisSelection.status,

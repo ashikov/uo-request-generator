@@ -4,16 +4,22 @@ import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import {
+  generatedRequestDraftSchema,
   generateRequestResultSchema,
+  materializePrimaryRequestDraft,
+  multipleIssuesRequestDraftSchema,
   type GenerateRequestInput,
   type GenerateRequestOutcome,
+  type LlmGenerationFailureStatus,
 } from "@uo-request-generator/core";
 import {
   CHAT_COMPLETIONS_OUTPUT_TOKEN_PARAMETERS,
   createOpenAiCompatibleRequestBody,
   LLM_API_PROTOCOLS,
   type LlmProviderUsage,
+  type ResponsesFailureDiagnostic,
   OpenAiCompatibleGateway,
   type OpenAiCompatibleEvaluationObservation,
   type OpenAiCompatibleGatewayConfig,
@@ -86,6 +92,8 @@ type BenchmarkRequestRecord = {
   systemPromptHash?: string;
   error?: string;
   failureKind?: "request" | "provider";
+  failureStatus?: LlmGenerationFailureStatus;
+  responsesFailure?: ResponsesFailureDiagnostic;
   providerHttpStatus?: number;
 };
 
@@ -117,6 +125,8 @@ type BenchmarkGeneration =
       status: "failure";
       error: "request failed" | "provider unavailable";
       failureKind: "request" | "provider";
+      failureStatus?: LlmGenerationFailureStatus;
+      responsesFailure?: ResponsesFailureDiagnostic;
       providerHttpStatus?: number;
       usage?: LlmProviderUsage;
       systemPromptHash?: string;
@@ -529,11 +539,22 @@ function automaticChecks(
   observation: BenchmarkObservation | undefined,
 ): HardCheckResult[] {
   if (scenario.expectedOutcome === "multiple_issues") {
+    const hasValidatedMultipleIssuesObservation =
+      observation?.draftOutcome === "multiple_issues" &&
+      multipleIssuesRequestDraftSchema.safeParse(observation.multipleIssuesDraft).success;
+
     return [
       hardCheck(
         "expectedOutcome: multiple_issues",
         outcome.status === "multiple_issues",
         `outcome: ${outcome.status}`,
+      ),
+      hardCheck(
+        "provider response schema",
+        hasValidatedMultipleIssuesObservation,
+        hasValidatedMultipleIssuesObservation
+          ? "canonical multiple_issues draft: valid"
+          : "canonical multiple_issues draft: unavailable or invalid",
       ),
     ];
   }
@@ -543,10 +564,42 @@ function automaticChecks(
   }
 
   const generatedObservation = observation?.draftOutcome === "generated" ? observation : undefined;
+  const providerSchemaResult = generatedRequestDraftSchema.safeParse(
+    generatedObservation?.requestDraft,
+  );
 
   const checks: HardCheckResult[] = [
     hardCheck("expectedOutcome: generated", true, "outcome: generated"),
+    hardCheck(
+      "provider response schema",
+      providerSchemaResult.success,
+      providerSchemaResult.success
+        ? "descriptive draft: valid"
+        : "request draft: unavailable or invalid",
+    ),
   ];
+
+  let materializationMatches = false;
+  if (generatedObservation !== undefined && providerSchemaResult.success) {
+    try {
+      materializationMatches = isDeepStrictEqual(
+        materializePrimaryRequestDraft(scenario.input, providerSchemaResult.data),
+        generatedObservation.draft,
+      );
+    } catch {
+      materializationMatches = false;
+    }
+  }
+  checks.push(
+    hardCheck(
+      "core evidence validation and materialization",
+      materializationMatches,
+      materializationMatches
+        ? "provider prose accepted; backend-owned request item matches PrimaryRequestDraft"
+        : "materialized request draft: unavailable or inconsistent",
+    ),
+  );
+
   const result = generateRequestResultSchema.safeParse(outcome.result);
   if (!result.success) {
     return [...checks, hardCheck("public result contract", false, "result: invalid")];
@@ -635,34 +688,6 @@ function automaticChecks(
         );
         break;
       }
-      case "procedural_plan": {
-        if (generatedObservation === undefined) {
-          checks.push(hardCheck("actionPlan observation", false, "actionPlan: unavailable"));
-          break;
-        }
-        const actionPlan = generatedObservation.draft.actionPlan;
-        const values: Array<[keyof typeof expectation, string | null]> = [
-          ["preliminaryCheck", actionPlan?.preliminaryCheck ?? null],
-          ["remedyActions", actionPlan?.remedyActions.length === 0 ? null : "present"],
-          ["resultCheck", actionPlan?.resultCheck ?? null],
-        ];
-
-        for (const [field, actual] of values) {
-          const expected = expectation[field];
-          if (expected === undefined) {
-            continue;
-          }
-          const isPresent = actual !== null;
-          checks.push(
-            hardCheck(
-              `actionPlan.${field}: ${expected}`,
-              expected === "present" ? isPresent : !isPresent,
-              `actionPlan.${field}: ${isPresent ? "present" : "absent"}`,
-            ),
-          );
-        }
-        break;
-      }
     }
   }
 
@@ -685,6 +710,27 @@ function formatHardChecks(checks: readonly HardCheckResult[] | undefined): strin
   return checks.map(
     (check) => `- ${check.status}: ${check.expectation}; observed: ${check.observed}`,
   );
+}
+
+function formatExpectationClassification(scenario: TestScenario): string[] {
+  const classification = scenario.expectationClassification;
+  if (classification === undefined) {
+    return [];
+  }
+
+  return [
+    "Expectation classification:",
+    ...classification.blockerProductInvariants.map(
+      (expectation) => `- blocker product invariant: ${expectation}`,
+    ),
+    ...classification.qualityExpectations.map(
+      (expectation) => `- quality expectation: ${expectation}`,
+    ),
+    ...classification.acceptedBetaLimitations.map(
+      (expectation) => `- accepted beta limitation: ${expectation}`,
+    ),
+    "",
+  ];
 }
 
 function formatOutcome(outcome: GenerateRequestOutcome): string[] {
@@ -718,7 +764,13 @@ function formatObservation(observation: BenchmarkObservation | undefined): strin
   switch (observation.draftOutcome) {
     case "generated":
       return [
-        "Validated structured output:",
+        "Validated provider output:",
+        "",
+        "```json",
+        JSON.stringify(observation.requestDraft, null, 2),
+        "```",
+        "",
+        "Materialized PrimaryRequestDraft:",
         "",
         "```json",
         JSON.stringify(observation.draft, null, 2),
@@ -729,7 +781,7 @@ function formatObservation(observation: BenchmarkObservation | undefined): strin
       ];
     case "multiple_issues":
       return [
-        "Validated structured output:",
+        "Validated provider output:",
         "",
         "```json",
         JSON.stringify(observation.multipleIssuesDraft, null, 2),
@@ -933,6 +985,20 @@ function formatReport(report: BenchmarkRunReport): string {
           ]),
       ...(record.error === undefined ? [] : [`- Error: ${record.error}`]),
       ...(record.failureKind === undefined ? [] : [`- Failure kind: ${record.failureKind}`]),
+      ...(record.failureStatus === undefined
+        ? []
+        : [`- Internal failure status: ${record.failureStatus}`]),
+      ...(record.responsesFailure === undefined
+        ? []
+        : [
+            `- Responses status: ${record.responsesFailure.status}`,
+            ...(record.responsesFailure.providerErrorCode === undefined
+              ? []
+              : [`- Provider error code: ${record.responsesFailure.providerErrorCode}`]),
+            ...(record.responsesFailure.incompleteReason === undefined
+              ? []
+              : [`- Incomplete reason: ${record.responsesFailure.incompleteReason}`]),
+          ]),
       ...(record.providerHttpStatus === undefined
         ? []
         : [`- HTTP status: ${String(record.providerHttpStatus)}`]),
@@ -946,6 +1012,7 @@ function formatReport(report: BenchmarkRunReport): string {
       "Hard checks:",
       ...formatHardChecks(record.hardChecks),
       "",
+      ...formatExpectationClassification(record.request.scenario),
       "Semantic expectations:",
       ...record.request.scenario.semanticExpectations.map((expectation) => `- ${expectation}`),
       "",
@@ -1064,6 +1131,12 @@ async function executeBenchmark(
           durationMs,
           error: generation.failureKind === "request" ? "request failed" : "provider unavailable",
           failureKind: generation.failureKind,
+          ...(generation.failureStatus === undefined
+            ? {}
+            : { failureStatus: generation.failureStatus }),
+          ...(generation.responsesFailure === undefined
+            ? {}
+            : { responsesFailure: generation.responsesFailure }),
           ...(generation.providerHttpStatus === undefined
             ? {}
             : { providerHttpStatus: generation.providerHttpStatus }),
