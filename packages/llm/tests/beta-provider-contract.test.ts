@@ -113,6 +113,7 @@ describe("beta provider response contract", () => {
     expect(prompt).toContain("backend сам добавит его в раздел «Прошу:»");
     expect(prompt).toContain("не дублируй desiredActions в problem, circumstances или impact");
     expect(prompt).toContain("Не придумывай технический способ устранения");
+    expect(prompt).not.toContain("необходимого действия");
 
     for (const removedRule of [
       "verificationDecision",

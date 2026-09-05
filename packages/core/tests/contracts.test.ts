@@ -76,6 +76,31 @@ describe("generateRequestInputSchema", () => {
   });
 
   it.each([
+    "Прошу:",
+    "  Прошу:  ",
+    "ПРОШУ:   ",
+  ])("отклоняет desiredActions только из удаляемого префикса: %j", (desiredActions) => {
+    const result = generateRequestInputSchema.safeParse({
+      description: "На лестничной площадке не горит свет",
+      desiredActions,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    "Прошу: восстановить освещение.",
+    "Восстановить освещение.",
+  ])("принимает содержательные desiredActions: %j", (desiredActions) => {
+    const result = generateRequestInputSchema.safeParse({
+      description: "На лестничной площадке не горит свет",
+      desiredActions,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it.each([
     ["consequences", "consequences", generateRequestLimits.consequences.max],
     ["desiredActions", "desiredActions", generateRequestLimits.desiredActions.max],
   ] as const)("принимает %s на граничной длине и отклоняет превышение", (_caseName, field, max) => {
