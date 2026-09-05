@@ -1,12 +1,12 @@
 # Локальные live LLM regression evals и semantic review
 
-Это канонический процесс ручных live regression evals для существующего
-синтетического fixture corpus. Он помогает отличить нестабильность модели от
-ограничений prompt и контракта, но не выбирает production-модель автоматически
-и не заменяет независимое semantic review.
+Это канонический процесс проверки генеративных частей заявки на общем
+синтетическом corpus. Он помогает отличить нестабильность модели от нарушения
+продуктового контракта, но не выбирает production-модель автоматически и не
+заменяет независимый semantic review.
 
-Команда никогда не запускается в CI или `pnpm check`. Обычный запуск только
-показывает план и выполняет ноль provider requests:
+Команда не входит в CI или `pnpm check`. Обычный запуск только показывает план
+и выполняет ноль provider requests:
 
 ```bash
 pnpm benchmark:llm -- --config .llm-benchmark.local.json
@@ -15,17 +15,17 @@ pnpm benchmark:llm -- --config .llm-benchmark.local.json
 ## Локальная конфигурация
 
 Скопируйте `.llm-benchmark.example.json` в `.llm-benchmark.local.json` и
-замените model IDs и синтетические значения цен. Локальный файл исключён из
-Git. В нём явно задаются:
+замените model IDs и синтетические цены. Локальный файл исключён из Git. В нём
+явно задаются:
 
 - protocol
 - `maxOutputTokens` от 1 до 4000
 - одна или несколько моделей с уникальными label и ID
-- актуальная валюта и цены input/output за миллион токенов
+- валюта и цены input/output за миллион токенов
 
 Цены не встроены в код и не загружаются автоматически. Для каждого model ID
-нужно явно указать обе цены. Значение `0` допустимо только как осознанно заданная
-бесплатная цена.
+нужно явно указать обе цены. Значение `0` допустимо только как осознанно
+заданная бесплатная цена.
 
 Для Chat Completions дополнительно укажите поддерживаемый провайдером параметр:
 
@@ -40,18 +40,20 @@ Git. В нём явно задаются:
 Chat Completions benchmark отклоняется до provider request. Responses API всегда
 получает `max_output_tokens`.
 
-API key в benchmark config не хранится. Только для подтверждённого запуска
+API key в benchmark config не хранится. Только для явно подтверждённого запуска
 нужны локальные `LLM_API_URL`, `LLM_API_KEY`, `LLM_AUTH_SCHEME` и
 `LLM_PROVIDER`. Необязательный `LLM_FOLDER_ID` передаётся как существующий
-provider header. Plan mode не читает
-ключ и работает без provider network access, CAPTCHA, Fastify и deployment.
-`LLM_MODEL` не используется: список сравниваемых моделей берётся только из
-явного benchmark config.
+provider header. Plan mode не читает ключ и работает без provider network
+access, CAPTCHA, Fastify и deployment. `LLM_MODEL` не используется.
 
 ## Scenarios и повторы
 
-Без selector используются все fixtures из `packages/core/tests/fixtures.ts` в
-их исходном порядке. Короткий план ограничивается с начала списка:
+Без selector используются все актуальные fixtures из
+`packages/core/tests/fixtures.ts` в их исходном порядке. Число scenarios не
+фиксируется в документации: перед qualification его вычисляют из текущего
+corpus и сверяют с планом runner.
+
+Короткий план ограничивается с начала списка:
 
 ```bash
 pnpm benchmark:llm -- --config .llm-benchmark.local.json --limit 5
@@ -73,180 +75,197 @@ pnpm benchmark:llm -- --config .llm-benchmark.local.json \
 pnpm benchmark:llm -- --config .llm-benchmark.local.json --repeats 3
 ```
 
-Запросы идут последовательно в порядке model → scenario → repeat. Общее число
-равно `models × scenarios × repeats`. Shuffle, concurrency и automatic retry
-отсутствуют. Provider failure не освобождает подтверждённый budget для новых
-запросов: фактическое число attempts никогда не превышает исходный план. План
-свыше 100 запросов отклоняется до paid run.
+Запросы идут последовательно в порядке model → scenario → repeat. Общее
+число равно `models × scenarios × repeats`. Shuffle, concurrency,
+автоматические повторы, fallback и LLM-as-a-judge отсутствуют. Фактическое
+число попыток никогда не превышает исходный план. План свыше 100 запросов
+отклоняется до paid run.
 
-Обычный исследовательский scenario можно запускать один раз. Для критического
-бывшего regression case перед beta ориентир — три повтора. Один успешный ответ
-не делает scenario устойчивым, если другой repeat нарушает hard или semantic
-инвариант.
+Обычный scenario достаточно выполнить один раз. Для критического бывшего
+regression case число повторов определяется актуальной политикой #206 и
+фиксируется до запуска. Один успешный ответ не доказывает устойчивость, если
+другой repeat нарушает blocker-инвариант.
 
 ## Fixture contract
 
 Corpus остаётся единым массивом `scenarios` в
-`packages/core/tests/fixtures.ts`. Новый воспроизводимый смысловой defect по
+`packages/core/tests/fixtures.ts`. Новый воспроизводимый смысловой дефект по
 возможности получает полностью synthetic scenario в этом массиве, а не второй
-benchmark или параллельный corpus.
+benchmark.
 
-Каждый scenario содержит stable ID, category, synthetic input, typed
-`expectedOutcome`, `hardExpectations`, `semanticExpectations` и, при наличии,
-issue provenance. `hardExpectations` используются только для объективных
-контрактов: outcome, warnings, `subject.kind`, выбранного deterministic
-normative module и структуры procedural plan. `semanticExpectations` описывают
-проверяемые смысловые инварианты человеческим языком, а не эталонную
-формулировку модели. Их не меняют после просмотра конкретного ответа.
+Каждое ожидание относится к одной из трёх категорий:
 
-Для генеративных `title`, `problem`, `circumstances` и `impact` не задают одну
-каноническую фразу как hard expectation. Разные stochastic repeats могут
-формулировать один смысл по-разному. После production implementation ADR-0004
-hard checks отдельно проверят bounded procedural decisions, exact evidence и
-результат deterministic materialization, а выбор решения и описательный текст
-останутся semantic expectations.
+- `blocker product invariant` — объективный публичный или safety-контракт,
+  нарушение которого блокирует qualification
+- `quality expectation` — смысловой критерий для независимого review, который
+  нельзя надёжно доказать структурной проверкой
+- `accepted beta limitation` — известное допустимое ограничение, которое само
+  по себе не является regression
 
-Hard checks используют validated structured draft и ту же deterministic
-normative selection, что и production renderer. Они не выводятся из regex по
-готовой заявке. Если смысловой критерий нельзя надёжно формализовать, его
-оставляют semantic expectation.
+Hard expectations защищают только текущие инварианты: `outcome`, предупреждения,
+`subject.kind`, выбор детерминированного нормативного модуля, ровно один
+backend-owned `requestItems` и отсутствие выдуманного provider-требования.
+Provider draft проходит тот же parser, materializer и renderer, что production.
+
+Генеративные `title`, `problem`, `circumstances` и `impact` не закрепляются одной
+эталонной фразой. Их полнота, естественность, сохранение фактов и отсутствие
+домыслов относятся к quality expectations и semantic review.
+
+Явный `desiredActions` должен целиком сохраниться в одном request item после
+минимальной нормализации представления. Backend не добавляет рядом общий пункт.
+Без `desiredActions` фиксированный пункт `Устранить наблюдаемую проблему`
+считается полноценным beta-результатом. Отсутствие автоматически созданных
+этапов установления причины или проверки результата является accepted beta
+limitation, а не regression.
+
+Историческое ожидание, старый ADR, прежний provider output или удобство fixture
+не создают продуктовый инвариант. Перед paid re-gate reviewer сверяет каждое
+blocking expectation с текущими `docs/REQUEST_RULES.md` и ADR-0004. Устаревшее
+ожидание сначала исправляют в corpus и документации. Его не подгоняют под
+последний случайный ответ модели.
+
+Несколько мест могут относиться к одной проблеме. Structured `location` не
+перекрывает место из `description`. Реальная неоднозначность остаётся quality
+expectation и может быть выражена безопасным warning.
 
 ## План и платный запуск
 
-До первого запроса план показывает модели, scenarios, повторы, общее число
+До первого запроса plan mode показывает модели, scenarios, повторы, общее число
 запросов, output cap, pricing snapshot, максимальную оценочную стоимость, путь
-отчёта и безопасное состояние исходников. Оно имеет только один из трёх видов:
-`clean` с commit SHA, `dirty` с отдельными признаками tracked и untracked
-изменений или `unavailable`. Пути изменённых файлов, raw porcelain, remotes и
-другие сведения о локальном окружении не выводятся и не сохраняются. Input
-оценивается консервативно как не более одного токена на байт полного UTF-8
-request body с production prompt и schema. Это верхняя оценка для планирования
-расходов, а не точный provider billing.
+отчёта и безопасное состояние исходников. Состояние имеет только один из трёх
+видов: `clean` с commit SHA, `dirty` с отдельными признаками tracked и untracked
+изменений или `unavailable`. Пути файлов, raw porcelain, remotes и другие
+сведения о локальном окружении не выводятся и не сохраняются.
 
-Состояние считается `clean`, только если `git rev-parse --verify HEAD`
-успешно определил commit и `git status --porcelain=v1 --untracked-files=all`
-не вернул tracked или untracked изменений. Ошибка любой из этих проверок даёт
-`unavailable`.
+Input оценивается консервативно как не более одного токена на байт полного
+UTF-8 request body с production prompt и schema. Это верхняя оценка расходов, а
+не точный provider billing.
 
-Фактический запуск требует одновременно `--run`, интерактивный stdin и точную
-фразу `RUN <число запросов>` после вывода плана:
+Paid run допускается только при `clean` source state с доступным commit SHA. Он
+требует одновременно `--run`, интерактивный stdin и точную фразу
+`RUN <число запросов>` после вывода плана:
 
 ```bash
 pnpm benchmark:llm -- --config .llm-benchmark.local.json --repeats 3 --run
 ```
 
-Paid run допускается только при `clean` source state с доступным commit SHA.
-Tracked или untracked изменения и невозможность определить состояние
-репозитория блокируют запуск до confirmation, создания gateway, записи отчёта и
-provider request. Любой другой ответ confirmation отменяет запуск с нулём
-запросов. Non-TTY запуск также отклоняется. Bypass-флагов нет.
+Любой другой ответ отменяет запуск с нулём запросов. Non-TTY запуск также
+отклоняется. Bypass-флагов нет. Текущий implementation pass и подготовка
+qualification выполняются только в plan mode без `--run`.
 
-## Отчёт
+## Отчёт и диагностика
 
 После подтверждения Markdown-отчёт последовательно обновляется в
-`.tmp/llm-benchmark/`. Его можно передать независимому reviewer без локального
-окружения и истории разработки. В нём сохраняются timestamp, clean commit SHA,
-безопасные model labels, prompt hash, pricing snapshot, plan и completed
-requests, repeats, usage, latency, estimated cost и общий hard PASS/FAIL
-summary.
-
-Отдельная repeat-сводка группируется по безопасному model label и scenario ID.
-Для каждой группы она явно показывает planned и attempted repeats, успешные
-attempts, request/provider failures, пропуски после provider failure текущей
-модели, глобально не запущенные requests и число hard-failing attempts.
-Не начатые requests не считаются attempts или hard failures. Общий hard summary
-при неполном запуске по-прежнему остаётся fail closed.
-
-Report отдельно перечисляет каждый planned request, который не был запущен.
-Пропуск остатка недоступной модели отличается от requests, не выполненных из-за
-глобального прерывания. Поэтому partial run не классифицирует непроверенную
-модель как semantic failure.
+`.tmp/llm-benchmark/`. В нём сохраняются timestamp, clean commit SHA,
+безопасные model labels, prompt hash, pricing snapshot, план, число выполненных
+запросов, repeats, usage, latency, оценочная стоимость и hard PASS/FAIL summary.
 
 Для каждого scenario/repeat отчёт включает category, issue provenance,
-synthetic input, validated structured output, deterministic observations,
-rendered result или контролируемую ошибку, каждый hard expectation с PASS/FAIL
-и observed value, semantic expectations, duration, usage и cost. Model IDs,
-API URL, auth headers, credentials, raw provider response, реальные
+synthetic input, локально проверенный provider draft, материализованный
+`PrimaryRequestDraft`, deterministic observations, rendered result или
+контролируемую ошибку, hard expectations, quality expectations и accepted beta
+limitations. Для generated-ветки сохраняется безопасный status выбора
+предметного модуля. Для `multiple_issues` сохраняется только канонический
+`outcome`.
+
+Model IDs, API URL, auth headers, credentials, raw provider response, реальные
 пользовательские данные и production infrastructure в отчёт не попадают.
-Для generated-ветки deterministic observations также содержат закрытый status
-выбора предметного модуля: `applied`, `input_unavailable`,
-`confirmation_absent`, `subject_absent`, `subject_kind_mismatch` или
-`evidence_unverifiable`. Status не содержит пользовательский текст и не
-публикуется в production logs.
-Для `multiple_issues` сохраняется фактически полученный и локально
-валидированный structured draft со всеми обязательными `null` и пустыми
-полями. Если evaluation observation отсутствует, отчёт помечает его как
-`unavailable` и не создаёт заменяющий объект.
+Диагностика не содержит пользовательские или provider-authored значения. Для
+неуспешного Responses-result допускаются только проверенные машинные поля
+`failureStatus`, `status`, `error.code` и `incomplete_details.reason`.
+`error.message` и сырой provider envelope не сохраняются.
 
 Если usage отсутствует, запрос и результат сохраняются, а usage и стоимость
 отмечаются как `unavailable`. Значения по длине ответа не выдумываются.
 
-Ошибка конкретного request фиксируется без retry, после чего следующий planned
-request той же модели выполняется. К таким ошибкам относятся HTTP 400, 404 и
-422, незавершённый Responses-result и результат, не прошедший локальную
-валидацию. Сетевая ошибка, таймаут, HTTP 401, 403, 429, 5xx и другие provider
-failures фиксируются для текущего request и делают остаток текущей model group
-skipped. Multi-model plan после этого переходит к следующей модели. Single-model
-plan остаётся partial. Автоматического retry нет.
+Ошибка конкретного request фиксируется без retry. HTTP 400, 404 и 422,
+незавершённый Responses-result и локальная ошибка валидации не повторяются.
+Сетевая ошибка, timeout, HTTP 401, 403, 429, 5xx и другие provider failures
+пропускают остаток текущей model group. Multi-model plan после этого переходит
+к следующей модели. `SIGINT`, `SIGTERM` и ошибка обязательной записи report
+останавливают весь run.
 
-Если failed result содержит provider usage, оно сохраняется в записи request и
-учитывается в aggregate usage и оценочной фактической стоимости. `SIGINT`,
-`SIGTERM`, ошибка обязательной записи report и другие глобальные safety failures
-по-прежнему останавливают весь run. Текущий request не повторяется, а partial
-report по возможности различает attempted, model-local skipped и глобально не
-запущенные requests.
+Успешный exit code означает только прохождение объективных hard checks. Он не
+доказывает смысловую корректность генеративного текста.
 
-Автоматически проверяются protocol shape, Structured Output, локальная схема,
-публичный контракт и typed hard expectations. Успешный exit code означает
-только прохождение объективных проверок.
+## Совместимость provider response schema
+
+Provider response содержит только `outcome`, `title`, `problem`,
+`circumstances`, `impact`, `subject` и `warnings`. В нём нет поля требований,
+технического ремонта, процедурных ролей или селекторов исходных фрагментов.
+
+До qualification offline-проверка должна подтвердить:
+
+```text
+одинаковый confirmedProblemSubject
++ одинаковый прочий контекст схемы
+→ одинаковый SHA-256 JSON Schema при наличии и отсутствии desiredActions
+```
+
+Измерения прежних вложенных схем, отдельные A/B-пробы и исторические hash не
+являются текущим acceptance criterion. Новый provider output field допустим
+только при конкретной пользовательской пользе и отдельном продуктовом решении.
 
 ## Semantic review
 
-Reviewer для каждого scenario/repeat отдельно оценивает:
+Reviewer отдельно оценивает каждый scenario/repeat:
 
-- сохранение explicit facts
-- отсутствие новых установленных фактов
-- отсутствие новых причин, повреждений, людей, событий и произошедшего ущерба
-- отсутствие неподтверждённого конкретного ремонта
-- сохранение субъекта и объёма явно переданного consequence
-- допустимость safe inferred impact
-- потенциальную формулировку inferred risk без драматичного каскада
-- приоритет explicit consequences и desiredActions
-- полноту source-bound segmentation `desiredActions` и корректное распределение
-  explicit actions между preliminary, remedy и result roles
-- обоснованность procedural enrichment
-- отсутствие искусственного раздувания простого дефекта
-- отказ объединять несколько несвязанных проблем в одну заявку
-- соответствие structured subject фактической проблеме и отсутствие конфликта
-  structured draft с deterministic normative/result layer
-- сохранение location и desiredActions
-- отсутствие существенного semantic duplication или contradiction между
-  `problem`, `circumstances`, `impact`, `verification` и procedural plan
-- cross-role duplication независимо от equality или inequality exact evidence
-  quotes
-- сохранение одного смысла при разных естественных формулировках stochastic
-  repeats
+- сохранены ли явные факты, место, длительность, масштаб и субъект
+- не добавлены ли новые причины, повреждения, люди, события и произошедший ущерб
+- не появился ли неподтверждённый конкретный ремонт
+- сохранены ли последствия и желаемые действия без противоречия
+- уместен ли безопасный выведенный impact
+- не превращён ли потенциальный риск в установленный факт
+- не раздут ли простой дефект необязательной конкретикой
+- не объединены ли несколько несвязанных проблем
+- соответствует ли `subject` фактической проблеме
+- согласован ли descriptive prose с deterministic legal/result layer
+- нет ли существенного смыслового повтора между описательными полями
+- сохраняется ли один смысл при разных естественных формулировках repeats
 
-Классификация review: `PASS` — semantic contract соблюдён. `REGRESSION` —
-ответ нарушает scenario contract. `UNSTABLE` — repeats дают противоречивый
-результат. `REVIEW_NEEDED` — evidence недостаточно для уверенной оценки.
-Стилистическое отличие само по себе не является regression. LLM output не
-используется для проверки юридической корректности законодательства.
+Классификация review:
 
-Если semantic defect становится надёжно формализуемым, сохраняют fixture,
-добавляют hard expectation, при возможности добавляют обычный deterministic
-regression test и не удаляют полезный live scenario только из-за такого теста.
+- `PASS` — semantic contract соблюдён
+- `REGRESSION` — нарушен актуальный scenario contract
+- `UNSTABLE` — repeats дают противоречивый результат
+- `REVIEW_NEEDED` — evidence недостаточно для уверенной оценки
 
-## Pre-beta gate
+Стилистическое отличие и меньшая специфичность безопасного общего результата
+сами по себе не являются regression. LLM output не используется для проверки
+юридической корректности законодательства.
 
-Перед закрытием #169 или выпуском `v0.2.0` нужно до запуска зафиксировать
-corpus и expectations, выполнить полный live eval на фактически выбранной
-production LLM configuration, прогнать критические cases с предусмотренными
-repeats, разобрать все hard failures и передать полный локальный report на
-semantic review. Результаты классифицируют по правилам выше. Blocker
-regressions оформляют отдельными bugs, исправляют и перепроверяют. Только после
-этого LLM quality gate для public beta считается пройденным.
+Если semantic defect становится надёжно формализуемым, fixture получает hard
+expectation только при наличии текущего продуктового основания. При возможности
+добавляется обычный deterministic regression test.
 
-Этот процесс не запускается из `pnpm check`, CI, pre-commit hooks или schedule
-jobs. Реальные вызовы могут быть платными, а выбор production-модели остаётся
-отдельным ручным решением.
+## Финальный pre-beta gate
+
+После очистки corpus вычисляют его фактический размер `N`. В начале запуска
+проверяют representative compatibility prefix:
+
+- `unknown-remedy-lighting`
+- `unconfirmed-remedy-lighting`
+- `desired-actions`
+- `lighting-elevator-cabin`
+
+Эти четыре scenario входят в общий corpus budget. Если prefix содержит blocker,
+запуск останавливают и остальные paid requests не выполняют.
+
+После успешного prefix каждый оставшийся актуальный scenario выполняют один
+раз. Дополнительные повторы получают только заранее перечисленные критические
+бывшие regressions с конкретным продуктовым обоснованием. До запуска фиксируют:
+
+- итоговый `N`
+- список критических scenarios
+- общее максимальное число запросов
+- точные команды и confirmation strings
+- pricing snapshot и максимальную стоимость
+- правила ранней остановки
+
+Нельзя сохранять историческое число scenarios или прежний потолок запросов
+искусственно. Любой новый hard fixture требует текущего продуктового инварианта.
+Реальные запросы выполняются только после нового явного разрешения.
+
+После успешного corpus gate отдельная задача #169 проверяет сквозной release
+path browser → CAPTCHA → backend → provider, production configuration,
+безопасную ошибку, защиту расходов, runtime и rollback.
