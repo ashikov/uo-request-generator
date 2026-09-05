@@ -355,6 +355,22 @@ describe("POST /api/generate", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("отклоняет prefix-only desiredActions до вызова gateway", async () => {
+    const generateRequest = vi.fn<LlmGateway["generateRequest"]>();
+    const gateway: LlmGateway = { generateRequest };
+
+    const response = await injectGenerate(
+      {
+        description: "На лестничной площадке не горит свет",
+        desiredActions: "  ПРОШУ:   ",
+      },
+      gateway,
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(generateRequest).not.toHaveBeenCalled();
+  });
+
   it("rejects a location longer than the maximum", async () => {
     const response = await injectGenerate({
       description: "На лестничной площадке не горит свет",
