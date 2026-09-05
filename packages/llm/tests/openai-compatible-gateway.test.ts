@@ -1365,6 +1365,180 @@ describe("OpenAiCompatibleGateway", () => {
     );
   });
 
+  describe("privacy-safe evaluation diagnostics", () => {
+    it("фиксирует network failure без текста исключения", async () => {
+      const sentinel = "SECRET_NETWORK_DIAGNOSTIC";
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error(sentinel));
+
+      const generation = await createGateway().generateRequestForEvaluation(VALID_INPUT);
+
+      expect(generation).toMatchObject({
+        status: "failure",
+        failureStatus: "network_error",
+        diagnosticTrace: {
+          status: "failed",
+          firstFailureStage: "network",
+          stages: [{ stage: "network", status: "fail", reason: "network_error" }],
+        },
+      });
+      expect(JSON.stringify(generation)).not.toContain(sentinel);
+    });
+
+    it("фиксирует HTTP failure только безопасным статусом", async () => {
+      const sentinel = "SECRET_HTTP_BODY";
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ error: sentinel }), { status: 503 }),
+      );
+
+      const generation = await createGateway().generateRequestForEvaluation(VALID_INPUT);
+
+      expect(generation).toMatchObject({
+        status: "failure",
+        providerHttpStatus: 503,
+        diagnosticTrace: {
+          status: "failed",
+          firstFailureStage: "http",
+          stages: [
+            { stage: "network", status: "pass" },
+            { stage: "http", status: "fail", httpStatus: 503 },
+          ],
+        },
+      });
+      expect(JSON.stringify(generation)).not.toContain(sentinel);
+    });
+
+    it("классифицирует Responses provider status и allowlisted error code", async () => {
+      createResponsesMockFetch({
+        status: "failed",
+        error: { code: "server_error", message: "SECRET_PROVIDER_MESSAGE" },
+      });
+
+      const generation = await createGateway({
+        apiProtocol: "responses",
+        apiUrl: "https://provider.example/v1/responses",
+      }).generateRequestForEvaluation(VALID_INPUT);
+
+      expect(generation).toMatchObject({
+        status: "failure",
+        responsesFailure: {
+          status: "failed",
+          providerErrorCodeStatus: "known",
+          providerErrorCode: "server_error",
+        },
+        diagnosticTrace: {
+          firstFailureStage: "provider_status",
+          stages: expect.arrayContaining([
+            {
+              stage: "provider_status",
+              status: "fail",
+              responsesStatus: "failed",
+              providerErrorCodeStatus: "known",
+              providerErrorCode: "server_error",
+            },
+          ]),
+        },
+      });
+      expect(JSON.stringify(generation)).not.toContain("SECRET_PROVIDER_MESSAGE");
+    });
+
+    it.each([
+      {
+        caseName: "missing output",
+        responseBody: { choices: [] },
+        firstFailureStage: "output_extraction",
+      },
+      {
+        caseName: "invalid output JSON",
+        responseBody: { choices: [{ message: { content: "{SECRET_INVALID_JSON" } }] },
+        firstFailureStage: "json_parse",
+      },
+    ])("разделяет $caseName по стадии", async ({ responseBody, firstFailureStage }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify(responseBody), { status: 200 }),
+      );
+
+      const generation = await createGateway().generateRequestForEvaluation(VALID_INPUT);
+
+      expect(generation).toMatchObject({
+        status: "failure",
+        diagnosticTrace: { status: "failed", firstFailureStage },
+      });
+      expect(JSON.stringify(generation)).not.toContain("SECRET_INVALID_JSON");
+    });
+
+    it.each([
+      ["generated", VALID_LLM_TEXT, "generated"],
+      ["multiple_issues", MULTIPLE_ISSUES_LLM_TEXT, "multiple_issues"],
+    ] as const)("принимает representative %s response", async (_caseName, content, outcome) => {
+      createMockFetch(content);
+
+      const generation = await createGateway().generateRequestForEvaluation(VALID_INPUT);
+
+      expect(generation).toMatchObject({
+        status: "success",
+        observation: { draftOutcome: outcome },
+        diagnosticTrace: { status: "completed" },
+      });
+    });
+
+    it("диагностирует malformed generated response структурно и без значений", async () => {
+      const sentinel = "SECRET_MALFORMED_TITLE";
+      createMockFetch(
+        createLlmText({
+          ...VALID_DRAFT,
+          title: { unexpected: sentinel },
+        }),
+      );
+
+      const generation = await createGateway().generateRequestForEvaluation(VALID_INPUT);
+
+      expect(generation).toMatchObject({
+        status: "failure",
+        failureStatus: "invalid_response",
+        diagnosticTrace: {
+          status: "failed",
+          firstFailureStage: "provider_wire_validation",
+        },
+      });
+      expect(JSON.stringify(generation)).not.toContain(sentinel);
+    });
+
+    it.each([
+      [
+        { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        { status: "available", inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      ],
+      [{ prompt_tokens: "SECRET_USAGE" }, { status: "invalid" }],
+      [undefined, { status: "missing" }],
+    ] as const)("возвращает privacy-safe usage: %o", async (usage, expectedUsage) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: MULTIPLE_ISSUES_LLM_TEXT } }],
+            ...(usage === undefined ? {} : { usage }),
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const generation = await createGateway().generateRequestForEvaluation(VALID_INPUT);
+
+      expect(generation.status).toBe("success");
+      expect(generation.diagnosticTrace.usage).toEqual(expectedUsage);
+      expect(JSON.stringify(generation)).not.toContain("SECRET_USAGE");
+    });
+
+    it("не расширяет production metadata диагностическим trace", async () => {
+      createMockFetch(MULTIPLE_ISSUES_LLM_TEXT);
+
+      const generation = await createGateway().generateRequestWithMetadata(VALID_INPUT);
+
+      expect(generation.status).toBe("success");
+      expect(generation).not.toHaveProperty("diagnosticTrace");
+      expect(generation).not.toHaveProperty("diagnosticStages");
+    });
+  });
+
   describe("Responses API", () => {
     const responsesConfig: Partial<OpenAiCompatibleGatewayConfig> = {
       apiProtocol: "responses",
@@ -1446,6 +1620,134 @@ describe("OpenAiCompatibleGateway", () => {
       const gateway = createGateway(responsesConfig);
 
       await expect(gateway.generateRequest(VALID_INPUT)).resolves.toEqual(VALID_LLM_RESPONSE);
+    });
+
+    it("не разрешает вложенный Responses output через inherited status completed", async () => {
+      const responseBody: Record<string, unknown> = {
+        output: createOpenAiResponsesBody().output,
+      };
+      const responsePrototype = {};
+      Object.defineProperty(responsePrototype, "status", {
+        enumerable: true,
+        get() {
+          Object.defineProperty(responseBody, "status", {
+            value: "completed",
+            enumerable: true,
+          });
+          return "completed";
+        },
+      });
+      Object.setPrototypeOf(responseBody, responsePrototype);
+      const response = new Response(null, { status: 200 });
+      vi.spyOn(response, "json").mockResolvedValue(responseBody);
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
+      );
+      expect(mockFetch).toHaveBeenCalledOnce();
+    });
+
+    it("не разрешает вложенный Responses output через Object.prototype.responsesStatus", async () => {
+      const previousDescriptor = Object.getOwnPropertyDescriptor(
+        Object.prototype,
+        "responsesStatus",
+      );
+      Object.defineProperty(Object.prototype, "responsesStatus", {
+        value: "completed",
+        configurable: true,
+      });
+
+      try {
+        const response = new Response(null, { status: 200 });
+        vi.spyOn(response, "json").mockResolvedValue({
+          output: createOpenAiResponsesBody().output,
+        });
+        const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+        const gateway = createGateway(responsesConfig);
+
+        await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+          GenerationInvalidResponseError,
+        );
+        expect(mockFetch).toHaveBeenCalledOnce();
+      } finally {
+        if (previousDescriptor === undefined) {
+          Reflect.deleteProperty(Object.prototype, "responsesStatus");
+        } else {
+          Object.defineProperty(Object.prototype, "responsesStatus", previousDescriptor);
+        }
+      }
+    });
+
+    it("отклоняет own Responses status accessor без его вызова", async () => {
+      const statusGetter = vi.fn(() => {
+        throw new Error("SECRET_STATUS_ACCESSOR_247");
+      });
+      const responseBody = {
+        output: createOpenAiResponsesBody().output,
+      };
+      Object.defineProperty(responseBody, "status", {
+        enumerable: true,
+        get: statusGetter,
+      });
+      const response = new Response(null, { status: 200 });
+      vi.spyOn(response, "json").mockResolvedValue(responseBody);
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+      const gateway = createGateway(responsesConfig);
+
+      await expect(gateway.generateRequest(VALID_INPUT)).rejects.toBeInstanceOf(
+        GenerationInvalidResponseError,
+      );
+      expect(statusGetter).not.toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledOnce();
+    });
+
+    it("защищает сырой Responses-ответ: отклоняет унаследованный output_text у пустого объекта", async () => {
+      const responseBody = {};
+      Object.setPrototypeOf(responseBody, { output_text: VALID_LLM_TEXT });
+      const response = new Response(null, { status: 200 });
+      vi.spyOn(response, "json").mockResolvedValue(responseBody);
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+      const gateway = createGateway(responsesConfig);
+      const generation = gateway.generateRequest(VALID_INPUT);
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      await expect(generation).rejects.toBeInstanceOf(GenerationInvalidResponseError);
+    });
+
+    it("защищает сырой Responses-ответ: отклоняет унаследованный output при own status completed", async () => {
+      const responseBody = { status: "completed" };
+      Object.setPrototypeOf(responseBody, { output: createOpenAiResponsesBody().output });
+      const response = new Response(null, { status: 200 });
+      vi.spyOn(response, "json").mockResolvedValue(responseBody);
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+      const gateway = createGateway(responsesConfig);
+      const generation = gateway.generateRequest(VALID_INPUT);
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      await expect(generation).rejects.toBeInstanceOf(GenerationInvalidResponseError);
+    });
+
+    it("защищает сырой Responses-ответ: отклоняет own accessor output_text без вызова и утечки маркера", async () => {
+      const outputTextGetter = vi.fn(() => {
+        throw new Error("SECRET_OUTPUT_TEXT_ACCESSOR_631");
+      });
+      const responseBody = {};
+      Object.defineProperty(responseBody, "output_text", {
+        enumerable: true,
+        get: outputTextGetter,
+      });
+      const response = new Response(null, { status: 200 });
+      vi.spyOn(response, "json").mockResolvedValue(responseBody);
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+      const gateway = createGateway(responsesConfig);
+      const generation = gateway.generateRequest(VALID_INPUT);
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      await expect(generation).rejects.toBeInstanceOf(GenerationInvalidResponseError);
+      await expect(generation).rejects.not.toThrow("SECRET_OUTPUT_TEXT_ACCESSOR_631");
+      expect(outputTextGetter).not.toHaveBeenCalled();
     });
 
     it("возвращает multiple_issues из Responses API тем же общим путём", async () => {

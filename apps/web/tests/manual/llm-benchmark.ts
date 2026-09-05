@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -17,12 +17,14 @@ import {
 import {
   CHAT_COMPLETIONS_OUTPUT_TOKEN_PARAMETERS,
   createOpenAiCompatibleRequestBody,
+  type EvaluationDiagnosticStageResult,
+  type EvaluationDiagnosticTrace,
   LLM_API_PROTOCOLS,
   type LlmProviderUsage,
-  type ResponsesFailureDiagnostic,
-  OpenAiCompatibleGateway,
   type OpenAiCompatibleEvaluationObservation,
+  OpenAiCompatibleGateway,
   type OpenAiCompatibleGatewayConfig,
+  type ResponsesFailureDiagnostic,
 } from "@uo-request-generator/llm";
 import { z } from "zod";
 import { scenarios, type TestScenario } from "../../../../packages/core/tests/fixtures.js";
@@ -95,6 +97,7 @@ type BenchmarkRequestRecord = {
   failureStatus?: LlmGenerationFailureStatus;
   responsesFailure?: ResponsesFailureDiagnostic;
   providerHttpStatus?: number;
+  diagnosticTrace?: EvaluationDiagnosticTrace;
 };
 
 type BenchmarkNotAttemptedRequest = {
@@ -120,6 +123,7 @@ type BenchmarkGeneration =
       usage?: LlmProviderUsage;
       observation?: BenchmarkObservation;
       systemPromptHash?: string;
+      diagnosticTrace?: EvaluationDiagnosticTrace;
     }
   | {
       status: "failure";
@@ -130,6 +134,7 @@ type BenchmarkGeneration =
       providerHttpStatus?: number;
       usage?: LlmProviderUsage;
       systemPromptHash?: string;
+      diagnosticTrace?: EvaluationDiagnosticTrace;
     };
 
 type BenchmarkGateway = {
@@ -714,9 +719,7 @@ function formatHardChecks(checks: readonly HardCheckResult[] | undefined): strin
 
 function formatExpectationClassification(scenario: TestScenario): string[] {
   const classification = scenario.expectationClassification;
-  if (classification === undefined) {
-    return [];
-  }
+  if (classification === undefined) return [];
 
   return [
     "Expectation classification:",
@@ -796,6 +799,129 @@ function formatObservation(observation: BenchmarkObservation | undefined): strin
   }
 }
 
+function withHardExpectationDiagnostic(
+  diagnosticTrace: EvaluationDiagnosticTrace | undefined,
+  hardChecks: readonly HardCheckResult[],
+): EvaluationDiagnosticTrace | undefined {
+  if (diagnosticTrace === undefined) return undefined;
+
+  const hardExpectationStage: EvaluationDiagnosticStageResult = {
+    stage: "hard_expectations",
+    status: hardChecksPassed(hardChecks) ? "pass" : "fail",
+  };
+  const stages = [...diagnosticTrace.stages, hardExpectationStage];
+
+  if (diagnosticTrace.status === "failed") {
+    return { ...diagnosticTrace, stages };
+  }
+
+  return hardExpectationStage.status === "pass"
+    ? { ...diagnosticTrace, stages }
+    : {
+        status: "failed",
+        firstFailureStage: "hard_expectations",
+        stages,
+        usage: diagnosticTrace.usage,
+      };
+}
+
+function formatDiagnosticIssue(issue: { code: string; path: string; expected?: string }): string {
+  return `${issue.path || "<root>"} | ${issue.code}${
+    issue.expected === undefined ? "" : ` | expected ${issue.expected}`
+  }`;
+}
+
+function formatDiagnosticStage(stage: EvaluationDiagnosticStageResult): string[] {
+  const lines = [`- ${stage.stage}: ${stage.status.toUpperCase()}`];
+
+  switch (stage.stage) {
+    case "network":
+      return stage.reason === undefined ? lines : [...lines, `  - Reason: ${stage.reason}`];
+    case "http":
+      return stage.httpStatus === undefined
+        ? lines
+        : [...lines, `  - HTTP status: ${String(stage.httpStatus)}`];
+    case "provider_envelope":
+      return stage.protocol === undefined ? lines : [...lines, `  - Protocol: ${stage.protocol}`];
+    case "provider_status":
+      return [
+        ...lines,
+        ...(stage.responsesStatus === undefined
+          ? []
+          : [`  - Responses status: ${stage.responsesStatus}`]),
+        ...(stage.providerErrorCodeStatus === undefined
+          ? []
+          : [`  - Provider error code status: ${stage.providerErrorCodeStatus}`]),
+        ...(stage.providerErrorCode === undefined
+          ? []
+          : [`  - Provider error code: ${stage.providerErrorCode}`]),
+        ...(stage.incompleteReason === undefined
+          ? []
+          : [`  - Incomplete reason: ${stage.incompleteReason}`]),
+      ];
+    case "output_extraction":
+      return [...lines, `  - Output: ${stage.output}`];
+    case "provider_wire_validation":
+      return [
+        ...lines,
+        `  - Root JSON type: ${stage.structuralProbe.rootType}`,
+        `  - Draft: ${stage.structuralProbe.draftPresence}`,
+        ...(stage.structuralProbe.draftType === undefined
+          ? []
+          : [`  - Draft JSON type: ${stage.structuralProbe.draftType}`]),
+        `  - Known keys present: ${
+          stage.structuralProbe.knownKeysPresent.length === 0
+            ? "none"
+            : stage.structuralProbe.knownKeysPresent.join(", ")
+        }`,
+        `  - Unknown key count: ${String(stage.structuralProbe.unknownKeyCount)}`,
+        ...(stage.structuralProbe.outcome === undefined
+          ? []
+          : [`  - Known outcome: ${stage.structuralProbe.outcome}`]),
+        ...(stage.issueCount === undefined ? [] : [`  - Issue count: ${String(stage.issueCount)}`]),
+        ...(stage.issues ?? []).map((issue) => `  - Issue: ${formatDiagnosticIssue(issue)}`),
+      ];
+    case "canonical_validation":
+      return [
+        ...lines,
+        ...(stage.issueCount === undefined ? [] : [`  - Issue count: ${String(stage.issueCount)}`]),
+        ...(stage.issues ?? []).map((issue) => `  - Issue: ${formatDiagnosticIssue(issue)}`),
+      ];
+    case "materialization":
+      return lines;
+    case "json_parse":
+    case "subject_legal_selection":
+    case "renderer":
+    case "hard_expectations":
+      return lines;
+    default: {
+      const unsupportedStage: never = stage;
+      return unsupportedStage;
+    }
+  }
+}
+
+function formatDiagnosticTrace(diagnosticTrace: EvaluationDiagnosticTrace | undefined): string[] {
+  if (diagnosticTrace === undefined) return ["Diagnostic trace: unavailable"];
+
+  const usage =
+    diagnosticTrace.usage.status === "available"
+      ? `available (input ${String(diagnosticTrace.usage.inputTokens)}, output ${String(
+          diagnosticTrace.usage.outputTokens,
+        )}, total ${String(diagnosticTrace.usage.totalTokens)})`
+      : diagnosticTrace.usage.status;
+
+  return [
+    "Diagnostic trace:",
+    "",
+    `- First failing stage: ${
+      diagnosticTrace.status === "failed" ? diagnosticTrace.firstFailureStage : "none"
+    }`,
+    `- Usage status: ${usage}`,
+    ...diagnosticTrace.stages.flatMap(formatDiagnosticStage),
+  ];
+}
+
 function formatRepeatSummary(report: BenchmarkRunReport): string[] {
   const lines = ["## Repeat summary", ""];
 
@@ -836,7 +962,7 @@ function formatRepeatSummary(report: BenchmarkRunReport): string[] {
           !hardChecksPassed(record.hardChecks),
       ).length;
       lines.push(
-        `- ${model.label} / ${scenario.id}: planned repeats ${String(plannedRepeats)}; attempted repeats ${String(completedRecords.length)} / ${String(plannedRepeats)}; successful attempts ${String(successfulAttempts)}; request failures ${String(requestFailures)}; provider failures ${String(providerFailures)}; skipped after model provider failure ${String(skippedAfterProviderFailure)}; globally not run ${String(globallyNotRun)}; hard-failing attempted repeats ${String(hardFailingRepeats)} / ${String(completedRecords.length)}`,
+        `- ${model.label} / ${scenario.id}: planned repeats ${String(plannedRepeats)}; attempted repeats ${String(completedRecords.length)} / ${String(plannedRepeats)}; successful attempts ${String(successfulAttempts)}; request-scoped failures ${String(requestFailures)}; provider-unavailable failures ${String(providerFailures)}; skipped after model provider failure ${String(skippedAfterProviderFailure)}; globally not run ${String(globallyNotRun)}; hard-failing attempted repeats ${String(hardFailingRepeats)} / ${String(completedRecords.length)}`,
       );
     }
   }
@@ -928,8 +1054,8 @@ function formatReport(report: BenchmarkRunReport): string {
     `- Planned requests: ${String(report.plan.totalRequests)}`,
     `- Attempted requests: ${String(report.records.length)} / ${String(report.plan.totalRequests)}`,
     `- Successful attempts: ${String(successfulAttempts)}`,
-    `- Request failures: ${String(requestFailures)}`,
-    `- Provider failures: ${String(providerFailures)}`,
+    `- Request-scoped failures: ${String(requestFailures)}`,
+    `- Provider-unavailable failures: ${String(providerFailures)}`,
     `- Skipped after model provider failure: ${String(skippedAfterProviderFailure)}`,
     `- Globally not run: ${String(globallyNotRun)}`,
     `- Max output tokens: ${String(report.plan.config.maxOutputTokens)}`,
@@ -992,6 +1118,7 @@ function formatReport(report: BenchmarkRunReport): string {
         ? []
         : [
             `- Responses status: ${record.responsesFailure.status}`,
+            `- Provider error code status: ${record.responsesFailure.providerErrorCodeStatus}`,
             ...(record.responsesFailure.providerErrorCode === undefined
               ? []
               : [`- Provider error code: ${record.responsesFailure.providerErrorCode}`]),
@@ -1002,6 +1129,8 @@ function formatReport(report: BenchmarkRunReport): string {
       ...(record.providerHttpStatus === undefined
         ? []
         : [`- HTTP status: ${String(record.providerHttpStatus)}`]),
+      "",
+      ...formatDiagnosticTrace(record.diagnosticTrace),
       "",
       "Input:",
       "",
@@ -1143,6 +1272,9 @@ async function executeBenchmark(
           ...(generation.systemPromptHash === undefined
             ? {}
             : { systemPromptHash: generation.systemPromptHash }),
+          ...(generation.diagnosticTrace === undefined
+            ? {}
+            : { diagnosticTrace: generation.diagnosticTrace }),
           ...usageMetadata,
         };
         hasErrors = true;
@@ -1153,6 +1285,10 @@ async function executeBenchmark(
           generation.outcome,
           generation.observation,
         );
+        const diagnosticTrace = withHardExpectationDiagnostic(
+          generation.diagnosticTrace,
+          hardChecks,
+        );
         record = {
           request,
           durationMs,
@@ -1162,6 +1298,7 @@ async function executeBenchmark(
           ...(generation.systemPromptHash === undefined
             ? {}
             : { systemPromptHash: generation.systemPromptHash }),
+          ...(diagnosticTrace === undefined ? {} : { diagnosticTrace }),
           hardChecks,
         };
         if (!hardChecksPassed(hardChecks)) {
