@@ -1,22 +1,26 @@
+import { readFileSync } from "node:fs";
 import type {
   GeneratedRequestDraft,
   GenerateRequestInput,
   GenerateRequestOutcome,
   PrimaryRequestDraft,
 } from "@uo-request-generator/core";
-import { readFileSync } from "node:fs";
-import { OpenAiCompatibleGateway } from "@uo-request-generator/llm";
+import {
+  type EvaluationDiagnosticTrace,
+  OpenAiCompatibleGateway,
+  sanitizeValidationIssues,
+} from "@uo-request-generator/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { scenarios } from "../../../packages/core/tests/fixtures.js";
 import {
+  type BenchmarkDependencies,
   createBenchmarkPlan,
   DEFAULT_BENCHMARK_REPEATS,
-  MAX_BENCHMARK_REQUESTS,
   MAX_BENCHMARK_REPEATS,
+  MAX_BENCHMARK_REQUESTS,
   parseBenchmarkConfig,
   runLlmBenchmark,
   selectBenchmarkScenarios,
-  type BenchmarkDependencies,
 } from "./manual/llm-benchmark.js";
 
 const CONFIG_PATH = ".llm-benchmark.local.json";
@@ -91,6 +95,35 @@ const SUCCESSFUL_EVALUATION_GENERATION = {
   status: "success" as const,
   outcome: GENERATED_OUTCOME,
   observation: EVALUATION_OBSERVATION,
+};
+
+const SUCCESSFUL_GATEWAY_DIAGNOSTIC: EvaluationDiagnosticTrace = {
+  status: "completed",
+  usage: { status: "missing" },
+  stages: [
+    { stage: "network", status: "pass" },
+    { stage: "http", status: "pass" },
+    { stage: "provider_envelope", status: "pass" },
+    { stage: "provider_status", status: "pass", responsesStatus: "completed" },
+    { stage: "output_extraction", status: "pass", output: "present" },
+    { stage: "json_parse", status: "pass" },
+    {
+      stage: "provider_wire_validation",
+      status: "pass",
+      structuralProbe: {
+        rootType: "object",
+        draftPresence: "present",
+        draftType: "object",
+        knownKeysPresent: ["outcome"],
+        unknownKeyCount: 0,
+        outcome: "generated",
+      },
+    },
+    { stage: "canonical_validation", status: "pass" },
+    { stage: "materialization", status: "pass" },
+    { stage: "subject_legal_selection", status: "pass" },
+    { stage: "renderer", status: "pass" },
+  ],
 };
 
 function dependencies(overrides: Partial<BenchmarkDependencies> = {}): BenchmarkDependencies {
@@ -446,7 +479,10 @@ describe("LLM benchmark", () => {
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Status: partial");
     expect(report).toContain("Attempted requests: 6 / 8");
-    expect(report).toContain("Provider failures: 1");
+    expect(report).toContain("Request-scoped failures: 0");
+    expect(report).toContain("Provider-unavailable failures: 1");
+    expect(report).not.toContain("Request failures:");
+    expect(report).not.toContain("Provider failures:");
     expect(report).toContain("Skipped after model provider failure: 2");
     expect(report).toContain(
       "model-a / description-location / repeat 1: skipped after provider failure for this model",
@@ -554,7 +590,10 @@ describe("LLM benchmark", () => {
     expect(modelBGenerate).toHaveBeenCalledTimes(2);
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Status: completed");
-    expect(report).toContain("Request failures: 1");
+    expect(report).toContain("Request-scoped failures: 1");
+    expect(report).toContain("Provider-unavailable failures: 0");
+    expect(report).not.toContain("Request failures:");
+    expect(report).not.toContain("Provider failures:");
     expect(report).toContain("Skipped after model provider failure: 0");
   });
 
@@ -632,13 +671,13 @@ describe("LLM benchmark", () => {
     expect(exitCode).toBe(1);
     expect(report).toContain("Status: partial");
     expect(report).toContain("Attempted requests: 2 / 2");
-    expect(report).toContain("Provider failures: 2");
+    expect(report).toContain("Provider-unavailable failures: 2");
     expect(report).toContain("Hard checks: FAIL");
     expect(report).toContain(
-      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request failures 0; provider failures 1; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
+      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request-scoped failures 0; provider-unavailable failures 1; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request failures 0; provider failures 1; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
+      "candidate / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request-scoped failures 0; provider-unavailable failures 1; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
     );
   });
 
@@ -666,10 +705,10 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Globally not run: 1");
     expect(report).toContain("Hard checks: FAIL");
     expect(report).toContain(
-      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 1; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 1",
+      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 1; request-scoped failures 0; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 1",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 1; attempted repeats 0 / 1; successful attempts 0; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 1; hard-failing attempted repeats 0 / 0",
+      "candidate / only-description: planned repeats 1; attempted repeats 0 / 1; successful attempts 0; request-scoped failures 0; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 1; hard-failing attempted repeats 0 / 0",
     );
     expect(report).toContain(
       "candidate / only-description / repeat 1: not attempted because the whole run was interrupted",
@@ -714,11 +753,17 @@ describe("LLM benchmark", () => {
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain(
-      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
+      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request-scoped failures 0; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
+      "candidate / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request-scoped failures 0; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
     );
+    expect(report).toContain("Request-scoped failures: 0");
+    expect(report).toContain("Provider-unavailable failures: 0");
+    expect(report).not.toContain("Request failures:");
+    expect(report).not.toContain("Provider failures:");
+    expect(report).not.toContain("; request failures ");
+    expect(report).not.toContain("; provider failures ");
   });
 
   it("isolates one hard-check failure among three repeats from the other model label", async () => {
@@ -739,10 +784,10 @@ describe("LLM benchmark", () => {
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain(
-      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 3",
+      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request-scoped failures 0; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 3",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
+      "candidate / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 3; request-scoped failures 0; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 3",
     );
   });
 
@@ -767,7 +812,7 @@ describe("LLM benchmark", () => {
 
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain(
-      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 2; request failures 1; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 3",
+      "current / only-description: planned repeats 3; attempted repeats 3 / 3; successful attempts 2; request-scoped failures 1; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 3",
     );
   });
 
@@ -781,6 +826,7 @@ describe("LLM benchmark", () => {
         failureStatus: "invalid_response",
         responsesFailure: {
           status: "failed",
+          providerErrorCodeStatus: "known",
           providerErrorCode: "invalid_prompt",
         },
         usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
@@ -796,8 +842,334 @@ describe("LLM benchmark", () => {
     const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
     expect(report).toContain("Internal failure status: invalid_response");
     expect(report).toContain("Responses status: failed");
+    expect(report).toContain("Provider error code status: known");
     expect(report).toContain("Provider error code: invalid_prompt");
     expect(report).toContain("Usage: input 0, output 0, total 0");
+  });
+
+  it("показывает unknown Responses error code status без raw значения", async () => {
+    const errorCodeSentinel = "SECRET_BENCHMARK_UNKNOWN_ERROR_CODE_249";
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ status: "failed", error: { code: errorCodeSentinel }, output: [] }),
+          { status: 200 },
+        ),
+    );
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn((config) => new OpenAiCompatibleGateway(config)),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Provider error code status: unknown");
+    expect(report).not.toContain(errorCodeSentinel);
+  });
+
+  it("показывает first failing stage и известный outcome при wire failure", async () => {
+    const pathSentinel = "SECRET_REPORT_VALIDATION_PATH_247";
+    const messageSentinel = "SECRET_REPORT_VALIDATION_MESSAGE_247";
+    const valueSentinel = "SECRET_REPORT_VALIDATION_VALUE_247";
+    const diagnosticTrace: EvaluationDiagnosticTrace = {
+      status: "failed",
+      firstFailureStage: "provider_wire_validation",
+      usage: { status: "invalid" },
+      stages: [
+        { stage: "network", status: "pass" },
+        { stage: "http", status: "pass" },
+        { stage: "provider_envelope", status: "pass" },
+        { stage: "provider_status", status: "pass", responsesStatus: "completed" },
+        { stage: "output_extraction", status: "pass", output: "present" },
+        { stage: "json_parse", status: "pass" },
+        {
+          stage: "provider_wire_validation",
+          status: "fail",
+          structuralProbe: {
+            rootType: "object",
+            draftPresence: "present",
+            draftType: "object",
+            knownKeysPresent: ["outcome", "title"],
+            unknownKeyCount: 2,
+            outcome: "multiple_issues",
+          },
+          issueCount: 2,
+          issues: [
+            { code: "invalid_type", path: "draft.title", expected: "null" },
+            ...sanitizeValidationIssues([
+              {
+                code: "custom",
+                path: ["draft", pathSentinel],
+                message: messageSentinel,
+                input: valueSentinel,
+              },
+            ]),
+          ],
+        },
+      ],
+    };
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+        failureStatus: "invalid_response",
+        diagnosticTrace,
+      })
+      .mockResolvedValueOnce({
+        ...SUCCESSFUL_EVALUATION_GENERATION,
+        diagnosticTrace: SUCCESSFUL_GATEWAY_DIAGNOSTIC,
+      });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Diagnostic trace:");
+    expect(report).toContain("First failing stage: provider_wire_validation");
+    expect(report).toContain("Usage status: invalid");
+    expect(report).toContain("provider_wire_validation: FAIL");
+    expect(report).toContain("Known outcome: multiple_issues");
+    expect(report).toContain("Known keys present: outcome, title");
+    expect(report).toContain("Unknown key count: 2");
+    expect(report).toContain("Issue count: 2");
+    expect(report).toContain("draft.title | invalid_type | expected null");
+    expect(report).toContain("draft.<unknown> | custom");
+    for (const sentinel of [pathSentinel, messageSentinel, valueSentinel]) {
+      expect(report).not.toContain(sentinel);
+    }
+  });
+
+  it("показывает canonical validation failure после universal wire", async () => {
+    const messageSentinel = "SECRET_CANONICAL_MESSAGE_247";
+    const valueSentinel = "SECRET_CANONICAL_VALUE_247";
+    const diagnosticTrace: EvaluationDiagnosticTrace = {
+      status: "failed",
+      firstFailureStage: "canonical_validation",
+      usage: { status: "missing" },
+      stages: [
+        { stage: "network", status: "pass" },
+        { stage: "http", status: "pass" },
+        { stage: "provider_envelope", status: "pass" },
+        { stage: "provider_status", status: "pass", responsesStatus: "completed" },
+        { stage: "output_extraction", status: "pass", output: "present" },
+        { stage: "json_parse", status: "pass" },
+        {
+          stage: "provider_wire_validation",
+          status: "pass",
+          structuralProbe: {
+            rootType: "object",
+            draftPresence: "present",
+            draftType: "object",
+            knownKeysPresent: ["outcome", "title"],
+            unknownKeyCount: 0,
+            outcome: "generated",
+          },
+        },
+        {
+          stage: "canonical_validation",
+          status: "fail",
+          issueCount: 1,
+          issues: sanitizeValidationIssues([
+            {
+              code: "invalid_type",
+              path: ["draft", "title"],
+              expected: "string",
+              message: messageSentinel,
+              input: valueSentinel,
+            },
+          ]),
+        },
+      ],
+    };
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "request",
+        error: "request failed",
+        failureStatus: "invalid_response",
+        diagnosticTrace,
+      })
+      .mockResolvedValueOnce({
+        ...SUCCESSFUL_EVALUATION_GENERATION,
+        diagnosticTrace: SUCCESSFUL_GATEWAY_DIAGNOSTIC,
+      });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("First failing stage: canonical_validation");
+    expect(report).toContain("provider_wire_validation: PASS");
+    expect(report).toContain("canonical_validation: FAIL");
+    expect(report).toContain("Known outcome: generated");
+    expect(report).toContain("Issue count: 1");
+    expect(report).toContain("draft.title | invalid_type | expected string");
+    expect(report).not.toContain(messageSentinel);
+    expect(report).not.toContain(valueSentinel);
+  });
+
+  it("показывает materialization failure без внутренних причин и adversarial данных", async () => {
+    const rawErrorSentinel = "SECRET_MATERIALIZATION_ERROR_247";
+    const modelIdSentinel = "SECRET_MATERIALIZATION_MODEL_247";
+    const diagnosticTrace: EvaluationDiagnosticTrace = {
+      status: "failed",
+      firstFailureStage: "materialization",
+      usage: { status: "missing" },
+      stages: [{ stage: "materialization", status: "fail" }],
+    };
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failure",
+        failureKind: "request",
+        error: rawErrorSentinel,
+        failureStatus: "invalid_response",
+        diagnosticTrace,
+      })
+      .mockResolvedValueOnce(SUCCESSFUL_EVALUATION_GENERATION);
+    const runtime = dependencies({
+      readFile: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          ...VALID_CONFIG,
+          models: [{ ...VALID_CONFIG.models[0], model: modelIdSentinel }, VALID_CONFIG.models[1]],
+        }),
+      ),
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("First failing stage: materialization");
+    expect(report).toContain("materialization: FAIL");
+    expect(report).not.toContain(rawErrorSentinel);
+    expect(report).not.toContain(modelIdSentinel);
+    expect(report).not.toContain("Reason code:");
+    expect(report).not.toContain("Location:");
+  });
+
+  it("добавляет hard expectations в trace и делает их первой failing stage", async () => {
+    const generateRequestForEvaluation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "success",
+        outcome: { status: "multiple_issues" },
+        diagnosticTrace: SUCCESSFUL_GATEWAY_DIAGNOSTIC,
+      })
+      .mockResolvedValueOnce({
+        ...SUCCESSFUL_EVALUATION_GENERATION,
+        diagnosticTrace: SUCCESSFUL_GATEWAY_DIAGNOSTIC,
+      });
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("First failing stage: hard_expectations");
+    expect(report).toContain("hard_expectations: FAIL");
+  });
+
+  it("не переносит adversarial provider sentinels из diagnostic result в report", async () => {
+    const scalarSentinel = "SECRET_REPORT_SCALAR_247";
+    const unknownKeySentinel = "SECRET_REPORT_KEY_247";
+    const unknownValueSentinel = "SECRET_REPORT_UNKNOWN_VALUE_247";
+    const evidenceSentinel = "SECRET_REPORT_EVIDENCE_247";
+    const providerUrlSentinel = "secret-report-provider-247";
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            status: "completed",
+            output_text: JSON.stringify({
+              draft: {
+                outcome: "multiple_issues",
+                title: scalarSentinel,
+                [unknownKeySentinel]: unknownValueSentinel,
+                subject: {
+                  kind: "common_area_premises_lighting",
+                  evidence: [{ sourceField: "description", quote: evidenceSentinel }],
+                },
+              },
+            }),
+          }),
+          { status: 200 },
+        ),
+    );
+    const runtime = dependencies({
+      environment: {
+        LLM_API_URL: `https://${providerUrlSentinel}.example/v1/responses`,
+        LLM_API_KEY: API_KEY,
+        LLM_AUTH_SCHEME: "Bearer",
+        LLM_PROVIDER: "benchmark-provider",
+      },
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn((config) => new OpenAiCompatibleGateway(config)),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("First failing stage: provider_wire_validation");
+    expect(report).toContain("Known outcome: multiple_issues");
+    for (const sentinel of [
+      scalarSentinel,
+      unknownKeySentinel,
+      unknownValueSentinel,
+      evidenceSentinel,
+      providerUrlSentinel,
+    ]) {
+      expect(report).not.toContain(sentinel);
+    }
+  });
+
+  it("не сохраняет schema-valid auxiliary поля multiple в отчёте", async () => {
+    const auxiliarySentinel = "SECRET_VALID_MULTIPLE_AUXILIARY_247";
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            status: "completed",
+            output_text: JSON.stringify({
+              draft: {
+                outcome: "multiple_issues",
+                title: auxiliarySentinel,
+                problem: auxiliarySentinel,
+                circumstances: null,
+                impact: null,
+                subject: null,
+                warnings: [auxiliarySentinel],
+              },
+            }),
+          }),
+          { status: 200 },
+        ),
+    );
+    const runtime = dependencies({
+      confirm: vi.fn().mockResolvedValue("RUN 2"),
+      createGateway: vi.fn((config) => new OpenAiCompatibleGateway(config)),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("provider_wire_validation: PASS");
+    expect(report).toContain("Known outcome: multiple_issues");
+    expect(report).not.toContain("canonical_validation: FAIL");
+    expect(report).not.toContain(auxiliarySentinel);
   });
 
   it("records a failed generation prompt hash without provider metadata or raw errors", async () => {
@@ -915,6 +1287,7 @@ describe("LLM benchmark", () => {
     expect(report).toContain("Failure kind: request");
     expect(report).toContain("Internal failure status: invalid_response");
     expect(report).toContain("Responses status: incomplete");
+    expect(report).toContain("Provider error code status: missing");
     expect(report).toContain("Incomplete reason: max_output_tokens");
     expect(report).toContain("Usage: input 100, output 50, total 150");
     expect(report).toContain("Outcome: `generated`");
@@ -922,10 +1295,10 @@ describe("LLM benchmark", () => {
     expect(report).not.toContain("https://provider.example/v1/responses");
     expect(report).not.toContain("Bearer");
     expect(report).toContain(
-      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request failures 1; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
+      "current / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 0; request-scoped failures 1; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 1 / 1",
     );
     expect(report).toContain(
-      "candidate / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 1; request failures 0; provider failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 1",
+      "candidate / only-description: planned repeats 1; attempted repeats 1 / 1; successful attempts 1; request-scoped failures 0; provider-unavailable failures 0; skipped after model provider failure 0; globally not run 0; hard-failing attempted repeats 0 / 1",
     );
   });
 
