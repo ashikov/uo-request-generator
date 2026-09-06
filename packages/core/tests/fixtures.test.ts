@@ -33,6 +33,7 @@ const RECLASSIFIED_BETA_SCENARIOS = [
   "simple-defect",
   "desired-actions",
   "all-fields",
+  "emotional",
   "unknown-remedy-lighting",
   "unconfirmed-remedy-lighting",
   "lighting-elevator-cabin",
@@ -166,6 +167,96 @@ describe("test scenario fixtures", () => {
         { kind: "subject_kind", expected: "common_area_premises_cleaning" },
         { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       ]),
+    });
+  });
+
+  it.each([
+    [
+      "cleaning-entrance-door-mistaken-door-confirmation",
+      "common_area_entrance_door",
+      "Очистить входную дверь от загрязнения.",
+    ],
+    [
+      "cleaning-elevator-cabin-mistaken-elevator-confirmation",
+      "common_area_elevator",
+      "Убрать загрязнение из кабины.",
+    ],
+  ] as const)("%s проверяет безопасный результат без обязательной альтернативной классификации", (id, forbiddenSubject, desiredActions) => {
+    const scenario = scenarioById(id);
+
+    expect(scenario.hardExpectations).toEqual(
+      expect.arrayContaining([
+        { kind: "forbidden_subject_kind", forbidden: forbiddenSubject },
+        { kind: "selected_normative_module", expected: null },
+      ]),
+    );
+    expect(scenario.hardExpectations.some(({ kind }) => kind === "subject_kind")).toBe(false);
+    expect(scenario.hardExpectations.some(({ kind }) => kind === "warning_presence")).toBe(false);
+    expect(scenario.semanticExpectations.join(" ")).toContain(desiredActions);
+    expect(scenario.semanticExpectations.join(" ")).toMatch(
+      /не (?:придумывать|добавлять).*техническ.*ремонт/iu,
+    );
+  });
+
+  it("emotional допускает только обобщение участников сложного description", () => {
+    const scenario = scenarioById("emotional");
+    if (scenario.expectedOutcome !== "generated") throw new Error("Ожидался generated");
+
+    expect(scenario.mustPreserveFacts).toEqual([
+      "лифт не работает третью неделю",
+      "неудобства из-за неработающего лифта",
+    ]);
+    expect(scenario.mustNotInvent).toEqual(
+      expect.arrayContaining([
+        "фамилии жильцов",
+        "причина неисправности лифта",
+        "три полные недели простоя лифта",
+        "повреждение лифта или другого имущества",
+        "уже выполненные работы",
+        "конкретный способ ремонта",
+        "новое событие или факт, не связанный с обобщением явно названных участников",
+      ]),
+    );
+    expect(scenario.expectationClassification?.acceptedBetaLimitations.join(" ")).toMatch(
+      /обобщение.*участник/iu,
+    );
+    expect(scenario.hardExpectations.some(({ kind }) => kind === "warning_presence")).toBe(false);
+  });
+
+  it("не переносит послабление emotional на явно указанных участников consequences", () => {
+    const scenario = scenarioById("impact-subject-explicit-group");
+    if (scenario.expectedOutcome !== "generated") throw new Error("Ожидался generated");
+
+    expect(scenario.input.consequences).toBe("Пожилым жильцам трудно открыть дверь.");
+    expect(scenario.mustPreserveFacts).toEqual(
+      expect.arrayContaining([
+        "пожилым жильцам трудно открыть дверь",
+        "явно указанная группа людей сохранена без расширения",
+      ]),
+    );
+    expect(scenario.mustNotInvent).toEqual(expect.arrayContaining(["другой группе людей"]));
+  });
+
+  it("location-action-deduplication не делает отсутствие безопасного повтора acceptance criterion", () => {
+    const scenario = scenarioById("location-action-deduplication");
+    const classification = scenario.expectationClassification;
+
+    expect(classification?.qualityExpectations.join(" ")).not.toMatch(/не повтор/iu);
+    expect(classification?.acceptedBetaLimitations.join(" ")).toMatch(
+      /без semantic deduplication|без семантической дедупликации/iu,
+    );
+    expect(scenario.hardExpectations.some(({ kind }) => kind === "warning_presence")).toBe(false);
+  });
+
+  it.each([
+    "location-preservation",
+    "multi-location",
+    "compatible-location",
+    "ambiguous-location",
+  ])("%s не блокирует безопасное дополнительное предупреждение", (id) => {
+    expect(scenarioById(id).hardExpectations).not.toContainEqual({
+      kind: "warning_presence",
+      expected: false,
     });
   });
 

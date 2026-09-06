@@ -1,22 +1,27 @@
+import { readFileSync } from "node:fs";
 import type {
   GeneratedRequestDraft,
   GenerateRequestInput,
   GenerateRequestOutcome,
   PrimaryRequestDraft,
 } from "@uo-request-generator/core";
-import { readFileSync } from "node:fs";
+import {
+  evaluateSpecificLegalBasisSelection,
+  materializePrimaryRequestDraft,
+  renderPrimaryRequestDraft,
+} from "@uo-request-generator/core";
 import { OpenAiCompatibleGateway } from "@uo-request-generator/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { scenarios } from "../../../packages/core/tests/fixtures.js";
 import {
+  type BenchmarkDependencies,
   createBenchmarkPlan,
   DEFAULT_BENCHMARK_REPEATS,
-  MAX_BENCHMARK_REQUESTS,
   MAX_BENCHMARK_REPEATS,
+  MAX_BENCHMARK_REQUESTS,
   parseBenchmarkConfig,
   runLlmBenchmark,
   selectBenchmarkScenarios,
-  type BenchmarkDependencies,
 } from "./manual/llm-benchmark.js";
 
 const CONFIG_PATH = ".llm-benchmark.local.json";
@@ -92,6 +97,83 @@ const SUCCESSFUL_EVALUATION_GENERATION = {
   outcome: GENERATED_OUTCOME,
   observation: EVALUATION_OBSERVATION,
 };
+
+const MISTAKEN_CONFIRMATION_SCENARIOS = [
+  {
+    id: "cleaning-entrance-door-mistaken-door-confirmation",
+    desiredActions: "Очистить входную дверь от загрязнения.",
+    forbiddenSubject: "common_area_entrance_door" as const,
+    evidenceQuote: "Технически исправная входная дверь загрязнена",
+  },
+  {
+    id: "cleaning-elevator-cabin-mistaken-elevator-confirmation",
+    desiredActions: "Убрать загрязнение из кабины.",
+    forbiddenSubject: "common_area_elevator" as const,
+    evidenceQuote: "исправной кабине лифта",
+  },
+] as const;
+
+function createMistakenConfirmationGeneration(
+  scenarioId: string,
+  subject: GeneratedRequestDraft["subject"],
+  warnings: string[] = [],
+) {
+  const scenario = scenarios.find(({ id }) => id === scenarioId);
+  if (scenario === undefined || scenario.expectedOutcome !== "generated") {
+    throw new Error(`Не найден generated-сценарий ${scenarioId}`);
+  }
+
+  const requestDraft: GeneratedRequestDraft = {
+    outcome: "generated",
+    title: "Уборка загрязнения",
+    problem: scenario.input.description,
+    circumstances: null,
+    impact: null,
+    subject,
+    warnings,
+  };
+  const draft = materializePrimaryRequestDraft(scenario.input, requestDraft);
+  const selection = evaluateSpecificLegalBasisSelection(draft.subject, scenario.input);
+
+  return {
+    status: "success" as const,
+    outcome: {
+      status: "generated" as const,
+      result: renderPrimaryRequestDraft(draft, scenario.input),
+    },
+    observation: {
+      draftOutcome: "generated" as const,
+      requestDraft,
+      draft,
+      selectedNormativeModule: selection.status === "applied" ? selection.module.id : null,
+      specificLegalBasisSelectionStatus: selection.status,
+    },
+  };
+}
+
+async function evaluateMistakenConfirmation(
+  scenarioId: string,
+  subject: GeneratedRequestDraft["subject"],
+  warnings: string[] = [],
+) {
+  const generateRequestForEvaluation = vi
+    .fn()
+    .mockResolvedValue(createMistakenConfirmationGeneration(scenarioId, subject, warnings));
+  const runtime = dependencies({
+    readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["current"]))),
+    confirm: vi.fn().mockResolvedValue("RUN 1"),
+    createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+  });
+  const exitCode = await runLlmBenchmark(
+    ["--config", CONFIG_PATH, "--run", "--scenario", scenarioId],
+    runtime,
+  );
+
+  return {
+    exitCode,
+    report: vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1] ?? "",
+  };
+}
 
 function dependencies(overrides: Partial<BenchmarkDependencies> = {}): BenchmarkDependencies {
   return {
@@ -1061,6 +1143,39 @@ describe("LLM benchmark", () => {
     expect(report).toContain(
       "Issue provenance: [#200](https://github.com/ashikov/uo-request-generator/issues/200)",
     );
+  });
+
+  it.each(
+    MISTAKEN_CONFIRMATION_SCENARIOS,
+  )("$id принимает safe null и отклоняет запрещённый технический subject", async ({
+    id,
+    desiredActions,
+    forbiddenSubject,
+    evidenceQuote,
+  }) => {
+    const warnings = ["Проверьте указанное место перед отправкой заявки"];
+    const safeResult = await evaluateMistakenConfirmation(id, null, warnings);
+
+    expect(safeResult.exitCode).toBe(0);
+    expect(safeResult.report).toContain("Hard checks: PASS");
+    expect(safeResult.report).toContain(`PASS: subject.kind is not ${forbiddenSubject}`);
+    expect(safeResult.report).toContain("PASS: selected normative module: none");
+    expect(safeResult.report).toContain("Specific legal basis selection: subject_absent");
+    expect(safeResult.report).toContain(`1. ${desiredActions}`);
+    expect(safeResult.report).toContain(`"requestItems": [\n    "${desiredActions}"`);
+    expect(safeResult.report).toContain(`- ${warnings[0]}`);
+    expect(safeResult.report).not.toContain("warning presence: absent");
+
+    const forbiddenResult = await evaluateMistakenConfirmation(id, {
+      kind: forbiddenSubject,
+      evidence: [{ sourceField: "description", quote: evidenceQuote }],
+    });
+
+    expect(forbiddenResult.exitCode).toBe(1);
+    expect(forbiddenResult.report).toContain(`FAIL: subject.kind is not ${forbiddenSubject}`);
+    expect(forbiddenResult.report).toContain("FAIL: selected normative module: none");
+    expect(forbiddenResult.report).toContain("Specific legal basis selection: applied");
+    expect(forbiddenResult.report).toContain(`1. ${desiredActions}`);
   });
 
   it("считает missing structured observation hard failure", async () => {

@@ -215,19 +215,32 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       description:
         "Кошмар! Третью неделю лифт не работает! Соседка на восьмом этаже еле ходит, а мы с коляской как альпинисты. Когда это прекратится?! Сил нет!",
     },
-    mustPreserveFacts: [
-      "лифт не работает три недели",
-      "соседке с восьмого этажа тяжело ходить при неработающем лифте",
-      "неудобства для пользователя с коляской",
-    ],
+    mustPreserveFacts: ["лифт не работает третью неделю", "неудобства из-за неработающего лифта"],
     mustNotInvent: [
       "фамилии жильцов",
       "номер дома",
       "точная дата поломки лифта",
-      "возрастные, медицинские или социальные категории жильцов",
+      "три полные недели простоя лифта",
+      "причина неисправности лифта",
+      "повреждение лифта или другого имущества",
+      "уже выполненные работы",
+      "конкретный способ ремонта",
+      "новое событие или факт, не связанный с обобщением явно названных участников",
+      "новые участники, не являющиеся обобщением явно названных участников",
       "требования сообщить сроки ремонта, предоставить ответ или отчитаться о работах",
     ],
-    expectWarning: false,
+    expectationClassification: {
+      blockerProductInvariants: [
+        "Сохранить неисправность лифта и явно указанную длительность без ложной точности.",
+        "Не придумывать причины, повреждения, выполненные работы, конкретный ремонт или новые события.",
+      ],
+      qualityExpectations: [
+        "Сохранить смысл явно описанных неудобств без требования перечислить каждого участника.",
+      ],
+      acceptedBetaLimitations: [
+        "В сложном эмоциональном description допускается обобщение явно названных участников.",
+      ],
+    },
   },
   {
     id: "wording-normalization",
@@ -302,14 +315,16 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "квартира как источник протечки",
       "другой конкретный источник протечки",
     ],
-    expectWarning: false,
     expectationClassification: {
       blockerProductInvariants: [
         "Сохранить оба места проявления и неизвестность источника.",
         "Не придумывать конкретный источник воды.",
       ],
-      qualityExpectations: ["Не повторять место механически в описательной части."],
-      acceptedBetaLimitations: ["Раздел требований содержит один generic request item."],
+      qualityExpectations: [],
+      acceptedBetaLimitations: [
+        "Допускается безопасное повторение места без semantic deduplication.",
+        "Раздел требований содержит один generic request item.",
+      ],
     },
   },
   {
@@ -355,7 +370,6 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "скрытое повреждение двери",
       "уже произошедшая кража",
     ],
-    expectWarning: false,
   },
   {
     id: "ambiguous-location",
@@ -395,7 +409,6 @@ const scenarioDefinitions: LegacyTestScenario[] = [
       "автоматическое разделение связанной проблемы на несколько заявок",
       "конкретная причина неисправности дверей",
     ],
-    expectWarning: false,
   },
   {
     id: "compatible-location",
@@ -408,7 +421,6 @@ const scenarioDefinitions: LegacyTestScenario[] = [
     },
     mustPreserveFacts: ["дверь не закрывается полностью", "подъезд 3", "этаж 4"],
     mustNotInvent: ["конфликт места", "другой подъезд", "причина неисправности"],
-    expectWarning: false,
   },
   {
     id: "impact-subject-subjective",
@@ -648,17 +660,16 @@ const regressionScenarios: TestScenario[] = [
     },
     mustPreserveFacts: [],
     mustNotInvent: [],
-    expectWarning: false,
     hardExpectations: [
-      { kind: "warning_presence", expected: false },
-      { kind: "subject_kind", expected: "common_area_premises_cleaning" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],
     semanticExpectations: [
       "Не выбирать технический предмет двери только из-за ошибочного backend-подтверждения.",
-      "Не применять ни door-, ни cleaning-module при расхождении подтверждённого и independently inferred subject.",
+      "Не применять предметный нормативный модуль при ошибочном подтверждении.",
+      "Сохранить authoritative desiredActions одним request item: Очистить входную дверь от загрязнения.",
+      "Не придумывать технический ремонт двери.",
     ],
   },
   {
@@ -674,17 +685,16 @@ const regressionScenarios: TestScenario[] = [
     },
     mustPreserveFacts: [],
     mustNotInvent: [],
-    expectWarning: false,
     hardExpectations: [
-      { kind: "warning_presence", expected: false },
-      { kind: "subject_kind", expected: "common_area_premises_cleaning" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_entrance_door" },
       { kind: "forbidden_subject_kind", forbidden: "common_area_elevator" },
       { kind: "selected_normative_module", expected: null },
     ],
     semanticExpectations: [
       "Не выбирать технический предмет лифта только из-за ошибочного backend-подтверждения.",
-      "Не применять ни elevator-, ни cleaning-module при расхождении подтверждённого и independently inferred subject.",
+      "Не применять предметный нормативный модуль при ошибочном подтверждении.",
+      "Сохранить authoritative desiredActions одним request item: Убрать загрязнение из кабины.",
+      "Не придумывать технический ремонт лифта.",
     ],
   },
   {

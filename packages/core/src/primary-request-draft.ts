@@ -80,11 +80,13 @@ function buildRequestBlock(requestItems: readonly string[]): string {
 function buildPrimaryRequestBody(
   draft: PrimaryRequestBodyParts,
   specificLegalBasisParagraphs: readonly string[] = [],
+  location?: string,
 ): string {
   return [
     normalizeSentenceEnding(draft.problem),
     draft.circumstances === null ? null : normalizeSentenceEnding(draft.circumstances),
     draft.impact === null ? null : normalizeSentenceEnding(draft.impact),
+    location ? normalizeSentenceEnding(`Дополнительно указанное место: ${location}`) : null,
     COMMON_LEGAL_BASIS_BLOCK,
     ...specificLegalBasisParagraphs,
     buildRequestBlock(draft.requestItems),
@@ -133,7 +135,11 @@ export function renderPrimaryRequestDraft(
 
   return generateRequestResultSchema.parse({
     title: validDraft.title,
-    body: buildPrimaryRequestBody(validDraft, specificLegalBasisParagraphs),
+    body: buildPrimaryRequestBody(
+      validDraft,
+      specificLegalBasisParagraphs,
+      input?.location?.trim().replaceAll("\r\n", " ").replaceAll("\r", " ").replaceAll("\n", " "),
+    ),
     warnings: validDraft.warnings,
   });
 }
