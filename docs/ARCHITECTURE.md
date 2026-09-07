@@ -478,16 +478,20 @@ Completions сохраняется существующая форма запр�
 не требует `LLM_PROVIDER`. Для custom `LLM_API_URL` обязательно задать
 `LLM_PROVIDER` как стабильный lower-case ASCII identifier длиной до 64 символов
 из букв, цифр, `_` и `-`. Неполная или невалидная custom-конфигурация fail
-closed выбирает `DisabledLlmGateway`.
+closed останавливает запуск с ошибкой конфигурации.
 
 Yandex AI настраивается в этом слое как один из OpenAI-compatible провайдеров.
-Для Chat Completions слой выбирает `/v1/chat/completions` и YandexGPT, для
-Responses API — `/v1/responses` и Alice AI LLM Flash. Идентификатор каталога
+Без явного `LLM_MODEL` для совместимости Chat Completions использует YandexGPT,
+а Responses API — Alice AI LLM Flash. Эти значения не выбирают production-модель:
+для production выбрана YandexGPT 5.1 Pro через Responses и явный
+`LLM_MODEL`. Условия допуска и конфигурация находятся в
+[production runbook](PRODUCTION_RUNTIME.md#модель-production). Идентификатор каталога
 передаётся gateway через общий механизм дополнительных заголовков, поэтому
 пакет `llm` не зависит от Yandex AI.
 
-При отсутствующей или неполной конфигурации используется `DisabledLlmGateway`,
-возвращающий контролируемую ошибку `generation_provider_unavailable`.
+Только полное отсутствие поддерживаемых LLM-переменных включает
+`DisabledLlmGateway`, возвращающий контролируемую ошибку
+`generation_provider_unavailable`. Частичная конфигурация останавливает запуск.
 
 ## Fixture-based LLM benchmark
 

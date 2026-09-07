@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { DisabledLlmGateway, OpenAiCompatibleGateway } from "@uo-request-generator/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLlmGateway } from "../src/llm-config.js";
@@ -181,6 +183,38 @@ describe("createLlmGateway", () => {
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
     expect(requestBody.model).toBe("gpt://test-folder-id/custom-model/latest");
+  });
+
+  it("production-шаблон выбирает явную модель через Responses с production-лимитом", async () => {
+    const environment = parseEnv(
+      readFileSync(new URL("../../../.env.production.example", import.meta.url), "utf8"),
+    );
+    expect(environment.LLM_API_PROTOCOL).toBe("responses");
+    expect(environment.LLM_MODEL).toBeTruthy();
+
+    const fetchMock = mockYandexResponsesProviderResponse();
+    const gateway = createLlmGateway({
+      ...environment,
+      LLM_API_KEY: "test-api-key",
+      LLM_MODEL: "test-qualified-production-model",
+    });
+
+    await gateway.generateRequest({ description: "Не работает освещение" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Api-Key test-api-key",
+    });
+    const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    expect(requestBody).toMatchObject({
+      model: "test-qualified-production-model",
+      temperature: 0.3,
+      max_output_tokens: 4000,
+      store: false,
+      text: { format: { type: "json_schema", strict: true } },
+    });
+    expect(requestBody.input).toEqual(expect.any(String));
+    expect(requestBody.messages).toBeUndefined();
   });
 
   it.each([

@@ -67,15 +67,25 @@ Yandex-compatible и стандартный сырой HTTP-ответ без SD
 
 Создайте файл `.env` в корне проекта на основе `.env.example`.
 
+Для production выбрана **YandexGPT 5.1 Pro** через Responses с обязательным
+явным `LLM_MODEL` в закрытой конфигурации. Полный идентификатор модели не
+публикуется. [Production runbook](docs/PRODUCTION_RUNTIME.md#модель-production)
+задаёт настройки, условия допуска и rollout/rollback. Выбор модели в репозитории
+не подтверждает фактическое переключение: #229 остаётся открытой до выполнения
+операторских критериев и проверки переноса квалификации #206.
+
 Протокол выбирается через `LLM_API_PROTOCOL`. Поддерживаются значения
 `chat-completions` и `responses`. Для обратной совместимости отсутствие
 переменной означает `chat-completions`, но в новых конфигурациях её следует
 указывать явно. URL и имя модели не используются для определения протокола.
 
-Встроенная конфигурация Yandex AI использует endpoint
+Совместимая локальная конфигурация Yandex AI без явного `LLM_MODEL` использует endpoint
 `https://ai.api.cloud.yandex.net/v1/chat/completions` и модель YandexGPT для
 Chat Completions. Для Responses API используются endpoint
 `https://ai.api.cloud.yandex.net/v1/responses` и Alice AI LLM Flash.
+Эти значения по умолчанию сохранены для совместимости и не выбирают
+production-модель. Production использует явные параметры из
+[`.env.production.example`](.env.production.example), а не эти значения.
 Произвольный OpenAI-compatible провайдер настраивается переменными
 `LLM_API_URL`, `LLM_API_KEY`, `LLM_AUTH_SCHEME`, `LLM_MODEL`, `LLM_PROVIDER` и
 выбранным `LLM_API_PROTOCOL`.
