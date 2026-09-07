@@ -104,6 +104,7 @@ describe("createLlmGateway", () => {
       "Content-Type": "application/json",
       Authorization: "Api-Key test-api-key",
       "x-folder-id": "test-folder-id",
+      "x-data-logging-enabled": "false",
     });
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
@@ -162,6 +163,7 @@ describe("createLlmGateway", () => {
       "Content-Type": "application/json",
       Authorization: "Api-Key test-api-key",
       "x-folder-id": "test-folder-id",
+      "x-data-logging-enabled": "false",
     });
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
@@ -202,7 +204,9 @@ describe("createLlmGateway", () => {
     await gateway.generateRequest({ description: "Не работает освещение" });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+      "Content-Type": "application/json",
+      "x-data-logging-enabled": "false",
       Authorization: "Api-Key test-api-key",
     });
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
@@ -213,7 +217,14 @@ describe("createLlmGateway", () => {
       store: false,
       text: { format: { type: "json_schema", strict: true } },
     });
-    expect(requestBody.input).toEqual(expect.any(String));
+    expect(requestBody.input).toBe(
+      JSON.stringify({
+        description: "Не работает освещение",
+        location: null,
+        consequences: null,
+        desiredActions: null,
+      }),
+    );
     expect(requestBody.messages).toBeUndefined();
   });
 

@@ -68,6 +68,13 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
     throw new Error("Invalid LLM configuration");
   }
 
+  const extraHeaders = {
+    ...(LLM_FOLDER_ID === undefined ? {} : { "x-folder-id": LLM_FOLDER_ID }),
+    ...(LLM_API_URL === undefined || LLM_PROVIDER === "yandex"
+      ? { "x-data-logging-enabled": "false" }
+      : {}),
+  };
+
   if (LLM_API_URL !== undefined) {
     if (LLM_MODEL === undefined || LLM_AUTH_SCHEME === undefined || LLM_PROVIDER === undefined) {
       throw new Error("Invalid LLM configuration");
@@ -80,7 +87,7 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
       authScheme: LLM_AUTH_SCHEME,
       apiProtocol: LLM_API_PROTOCOL,
       provider: LLM_PROVIDER,
-      ...(LLM_FOLDER_ID === undefined ? {} : { extraHeaders: { "x-folder-id": LLM_FOLDER_ID } }),
+      extraHeaders,
     });
   }
 
@@ -104,6 +111,6 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
     authScheme: LLM_AUTH_SCHEME ?? YANDEX_AUTH_SCHEME,
     apiProtocol: LLM_API_PROTOCOL,
     provider: "yandex",
-    ...(LLM_FOLDER_ID === undefined ? {} : { extraHeaders: { "x-folder-id": LLM_FOLDER_ID } }),
+    extraHeaders,
   });
 }

@@ -89,6 +89,9 @@ production-модель. Production использует явные параме
 Произвольный OpenAI-compatible провайдер настраивается переменными
 `LLM_API_URL`, `LLM_API_KEY`, `LLM_AUTH_SCHEME`, `LLM_MODEL`, `LLM_PROVIDER` и
 выбранным `LLM_API_PROTOCOL`.
+Для встроенной Yandex-конфигурации и явного `LLM_PROVIDER=yandex` приложение
+передаёт запрет логирования запросов. Его область действия и rollout-условие
+описаны в [production runbook](docs/PRODUCTION_RUNTIME.md#отключение-логирования-yandex-ai-studio).
 Выбранные endpoint и модель должны поддерживать Structured Outputs: для
 `chat-completions` — через `response_format` с типом `json_schema`, для
 `responses` — через `text.format` с типом `json_schema`. Оба протокола используют
