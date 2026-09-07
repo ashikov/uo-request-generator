@@ -10,6 +10,12 @@
 - После переписывания опубликованной рабочей ветки использовать только `git push --force-with-lease` и повторно запускать обязательные проверки
 - Не переписывать историю `main` и других общих веток
 - Подробный порядок подготовки истории и доставки результата описан в [CONTRIBUTING.md](CONTRIBUTING.md#коммиты)
+- Для owner-authored PR не останавливаться только из-за `REVIEW_REQUIRED`, если
+  причина — невозможный self-approval и выполнены условия
+  [политики review](CONTRIBUTING.md#review-для-owner-authored-pr). Admin bypass
+  допустим только для отсутствующего approval и не позволяет обходить CI,
+  findings, conflicts, security/privacy blocker или отдельный provider/eval
+  approval
 - Перед завершением работы запускать `make lint-md` и `pnpm check`
 - Не добавлять секреты
 - Не менять продуктовые или архитектурные решения молча

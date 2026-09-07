@@ -153,6 +153,34 @@ merge` не используется как основной способ очи
 осмысленных атомарных коммитов можно оставить. Исключения должны быть явно
 согласованы, а не становиться случайным выбором кнопки GitHub.
 
+### Review для owner-authored PR
+
+GitHub approval остаётся предпочтительным способом завершить review, но автор не
+может одобрить собственный PR. Если фактически доступен только один maintainer и
+GitHub показывает `REVIEW_REQUIRED` исключительно из-за отсутствия невозможного
+self-approval, владелец репозитория может применить admin bypass только к этому
+требованию при одновременном выполнении всех условий:
+
+- Проверяется точный актуальный HEAD PR
+- Все обязательные CI jobs завершились успешно
+- Нет unresolved review threads
+- Нет blocking review findings
+- Фактический diff прошёл независимое агентное review с положительным заключением
+- HEAD не менялся после финального review либо новый HEAD отдельно перепроверен
+- PR имеет статус mergeable и не содержит conflicts
+- Для слияния используется стандартный `Rebase and merge`
+
+Admin bypass нельзя использовать для обхода failing или pending required CI,
+unresolved review findings, новых или неизвестных изменений после review, merge
+conflicts, security/privacy blocker либо provider/eval gate, требующего отдельного
+подтверждения, а также для обхода review PR внешнего contributor. Для PR внешнего
+contributor сохраняется обычное maintainer review и GitHub approval.
+
+Если доступен второй maintainer или reviewer, обычный approval предпочтительнее
+bypass. `REVIEW_REQUIRED` сам по себе не является blocker для owner-authored PR,
+когда единственная отсутствующая гарантия — невозможный self-approval и все
+перечисленные условия выполнены.
+
 ### Доставка результата
 
 После реализации, обязательных проверок, подготовки истории и финальной
