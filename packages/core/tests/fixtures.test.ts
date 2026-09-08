@@ -76,6 +76,37 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("сохраняет ровно два исходных контроля #224 без жёстких смысловых или warning expectations", () => {
+    const controls = scenarios.filter(({ provenance }) => provenance?.issue === 224);
+
+    expect(controls.map(({ id, input }) => ({ id, input }))).toEqual([
+      {
+        id: "description-fact-preservation",
+        input: {
+          description: "Протекает люк на пятом этаже, он последний.",
+          location: "первый подъезд, пятый этаж",
+          consequences: "Затопило весь подъезд.",
+          desiredActions: "Нужно устранить причину протечки.",
+        },
+      },
+      {
+        id: "description-explicit-referent-preservation",
+        input: {
+          description: "Протекает люк на пятом, верхнем этаже.",
+          location: "первый подъезд, пятый этаж",
+          consequences: "Затопило весь подъезд.",
+          desiredActions: "Нужно устранить причину протечки.",
+        },
+      },
+    ]);
+    for (const scenario of controls) {
+      expect(scenario.expectedOutcome).toBe("generated");
+      expect(scenario.hardExpectations).toEqual([]);
+      expect(scenario).not.toHaveProperty("expectWarning");
+      expect(scenario.semanticExpectations.length).toBeGreaterThan(0);
+    }
+  });
+
   it("явно классифицирует изменённые ожидания beta corpus", () => {
     for (const id of RECLASSIFIED_BETA_SCENARIOS) {
       const classification = scenarioById(id).expectationClassification;

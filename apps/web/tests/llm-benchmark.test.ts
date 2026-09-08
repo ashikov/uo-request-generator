@@ -419,15 +419,15 @@ describe("LLM benchmark", () => {
     ]);
   });
 
-  it("выбирает scenarios в fixture-порядке и запрещает смешивать IDs с limit", () => {
+  it.each([
+    ["minimum-sufficient-requests", "only-description"],
+    ["description-explicit-referent-preservation", "description-fact-preservation"],
+  ])("выбирает %s и %s в fixture-порядке и запрещает смешивать IDs с limit", (laterId, earlierId) => {
     const selected = selectBenchmarkScenarios({
-      scenarioIds: ["minimum-sufficient-requests", "only-description"],
+      scenarioIds: [laterId, earlierId],
     });
 
-    expect(selected.map((scenario) => scenario.id)).toEqual([
-      "only-description",
-      "minimum-sufficient-requests",
-    ]);
+    expect(selected.map((scenario) => scenario.id)).toEqual([earlierId, laterId]);
     expect(() => selectBenchmarkScenarios({ scenarioIds: ["only-description"], limit: 1 })).toThrow(
       "Нельзя одновременно использовать --scenario и --limit",
     );
@@ -1664,7 +1664,7 @@ describe("LLM benchmark", () => {
 
     expect(selected).toEqual(scenarios);
     expect(selected[0]).toBe(scenarios[0]);
-    expect(selected).toHaveLength(33);
+    expect(selected).toHaveLength(35);
   });
 
   it("исключает local config и report directory из Git", () => {
