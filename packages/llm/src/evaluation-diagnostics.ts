@@ -68,6 +68,7 @@ const KNOWN_DRAFT_FIELDS = [
   "problem",
   "circumstances",
   "impact",
+  "requestItem",
   "subject",
   "warnings",
 ] as const;
@@ -168,6 +169,7 @@ const KNOWN_PROVIDER_FIELDS = new Set([
   "problem",
   "circumstances",
   "impact",
+  "requestItem",
   "subject",
   "warnings",
   "quote",

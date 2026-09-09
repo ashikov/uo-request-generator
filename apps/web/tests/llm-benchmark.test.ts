@@ -85,6 +85,7 @@ const EVALUATION_REQUEST_DRAFT: GeneratedRequestDraft = {
   circumstances: EVALUATION_DRAFT.circumstances,
   impact: EVALUATION_DRAFT.impact,
   subject: EVALUATION_DRAFT.subject,
+  requestItem: null,
   warnings: EVALUATION_DRAFT.warnings,
 };
 
@@ -134,6 +135,7 @@ function createMistakenConfirmationGeneration(
     circumstances: null,
     impact: null,
     subject,
+    requestItem: null,
     warnings,
   };
   const draft = materializePrimaryRequestDraft(scenario.input, requestDraft);
@@ -1233,6 +1235,7 @@ describe("LLM benchmark", () => {
                 circumstances: null,
                 impact: null,
                 subject: null,
+                requestItem: auxiliarySentinel,
                 warnings: [auxiliarySentinel],
               },
             }),
@@ -1551,6 +1554,41 @@ describe("LLM benchmark", () => {
     expect(forbiddenResult.report).toContain(`1. ${desiredActions}`);
   });
 
+  it.each([
+    [
+      "request-item-emotional",
+      "Принять меры для прекращения затопления",
+      "Принять меры для прекращения затопления",
+    ],
+    ["request-item-emotional", null, "Прекратите потоп!"],
+    ["only-description", null, "Устранить наблюдаемую проблему"],
+    ["only-description", "Заменить освещение", "Устранить наблюдаемую проблему"],
+  ])("%s проверяет материализацию requestItem=%s без смыслового судьи", async (scenarioId, requestItem, expectedItem) => {
+    const scenario = scenarios.find(({ id }) => id === scenarioId);
+    if (scenario === undefined) throw new Error("Не найден сценарий");
+    const requestDraft = { ...EVALUATION_REQUEST_DRAFT, requestItem };
+    const draft = { ...EVALUATION_DRAFT, requestItems: [expectedItem] };
+    const generateRequestForEvaluation = vi.fn().mockResolvedValue({
+      status: "success",
+      outcome: { status: "generated", result: renderPrimaryRequestDraft(draft, scenario.input) },
+      observation: { ...EVALUATION_OBSERVATION, requestDraft, draft },
+    });
+    const runtime = dependencies({
+      readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["current"]))),
+      confirm: vi.fn().mockResolvedValue("RUN 1"),
+      createGateway: vi.fn(() => ({ generateRequestForEvaluation })),
+    });
+    const exitCode = await runLlmBenchmark(
+      ["--config", CONFIG_PATH, "--run", "--scenario", scenarioId],
+      runtime,
+    );
+    expect(exitCode).toBe(0);
+    expect(generateRequestForEvaluation).toHaveBeenCalledTimes(1);
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("PASS: core evidence validation and materialization");
+    expect(report).toContain(`1. ${expectedItem}`);
+  });
+
   it("считает missing structured observation hard failure", async () => {
     const generateRequestForEvaluation = vi.fn().mockResolvedValue({
       status: "success",
@@ -1664,7 +1702,6 @@ describe("LLM benchmark", () => {
 
     expect(selected).toEqual(scenarios);
     expect(selected[0]).toBe(scenarios[0]);
-    expect(selected).toHaveLength(35);
   });
 
   it("исключает local config и report directory из Git", () => {

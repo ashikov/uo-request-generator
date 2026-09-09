@@ -25,6 +25,7 @@ function mockSuccessfulProviderResponse(): void {
                   problem: DESCRIPTION,
                   circumstances: null,
                   impact: null,
+                  requestItem: null,
                   subject: null,
                   warnings: [],
                 },

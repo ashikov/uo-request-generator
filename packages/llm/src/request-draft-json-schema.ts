@@ -73,6 +73,7 @@ function universalDraftSchema(subject: typeof disabledSubject | typeof inferredS
         ...nullableDraftString(primaryRequestDraftLimits.impact.max),
         description: impactDescription,
       },
+      requestItem: nullableDraftString(primaryRequestDraftLimits.requestItem.max),
       subject,
       warnings: {
         type: "array",
@@ -80,7 +81,16 @@ function universalDraftSchema(subject: typeof disabledSubject | typeof inferredS
         items: draftString(primaryRequestDraftLimits.warning.max),
       },
     },
-    required: ["outcome", "title", "problem", "circumstances", "impact", "subject", "warnings"],
+    required: [
+      "outcome",
+      "title",
+      "problem",
+      "circumstances",
+      "impact",
+      "requestItem",
+      "subject",
+      "warnings",
+    ],
     additionalProperties: false,
   } as const;
 }

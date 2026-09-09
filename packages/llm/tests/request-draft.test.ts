@@ -45,7 +45,7 @@ describe("REQUEST_DRAFT_SYSTEM_PROMPT", () => {
     }
   });
 
-  it("не поручает provider формировать требования или техническое решение", () => {
+  it("не возвращает процедурную онтологию и запрещает технические домыслы", () => {
     expect(REQUEST_DRAFT_SYSTEM_PROMPT).toContain("Не придумывай технический способ устранения");
     for (const removedConcept of [
       "requestItems",
