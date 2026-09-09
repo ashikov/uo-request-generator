@@ -67,7 +67,7 @@ export async function validatePrMessages({ messages, title, currentMajor }) {
 
 export async function checkPrCommits({ baseRef, headRef, title, cwd = process.cwd() }) {
   const messages = readCommitMessages({ baseRef, headRef, cwd });
-  return validatePrMessages({ messages, title, currentMajor: currentMajorFromRepo(cwd) });
+  return validatePrMessages({ messages, title, currentMajor: currentMajorFromRepo(cwd, baseRef) });
 }
 
 const invokedAsMainModule =

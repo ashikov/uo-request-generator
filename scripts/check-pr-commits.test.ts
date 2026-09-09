@@ -171,4 +171,19 @@ describe("соответствие заголовка PR уровню релиз
     expect(await checkPrCommits({ ...options, title: "fix: update contract" })).not.toEqual([]);
     expect(await checkPrCommits({ ...options, title: "fix!: update contract" })).toEqual([]);
   });
+
+  it("выбирает stable release rules по target base для отставшей feature branch", async () => {
+    const repository = await createRepository();
+    await commit(repository, "chore: bootstrap");
+    await execFileAsync("git", ["-C", repository, "checkout", "-b", "feature"]);
+    const headRef = await commit(repository, "feat: add option");
+    await execFileAsync("git", ["-C", repository, "checkout", "main"]);
+    const baseRef = await commit(repository, "chore: stable transition");
+    await execFileAsync("git", ["-C", repository, "tag", "v1.0.0"]);
+    await execFileAsync("git", ["-C", repository, "checkout", "feature"]);
+
+    const options = { baseRef, headRef, cwd: repository };
+    expect(await checkPrCommits({ ...options, title: "fix: add option" })).not.toEqual([]);
+    expect(await checkPrCommits({ ...options, title: "feat: add option" })).toEqual([]);
+  });
 });

@@ -43,18 +43,19 @@ export function releaseRulesFor(currentMajor) {
   ];
 }
 
-function listGitVersionTags(cwd) {
+function listGitVersionTags(cwd, ref) {
   // Ошибки чтения Git-состояния не глушатся: для безопасности релиза нужен fail closed
   return execFileSync(
     "git",
-    ["-C", cwd, "tag", "--list", "v*", "--merged", "HEAD", "--sort=-v:refname"],
+    ["-C", cwd, "tag", "--list", "v*", `--merged=${ref}`, "--sort=-v:refname"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
   );
 }
 
-// Только теги, достижимые из HEAD, — та же история релизов, которую видит semantic-release
-export function reachableVersionTags(cwd = process.cwd()) {
-  const stdout = listGitVersionTags(cwd);
+// По умолчанию учитывается история HEAD, которую видит runtime semantic-release.
+// PR gate передаёт target base, чтобы оценить squash commit в целевой release state.
+export function reachableVersionTags(cwd = process.cwd(), ref = "HEAD") {
+  const stdout = listGitVersionTags(cwd, ref);
 
   const versions = [];
   for (const line of stdout.split("\n")) {
@@ -84,12 +85,12 @@ export function releaseStateFromVersions(versions) {
   return { versions, stableReached, baselineReached, contradictory, currentMajor };
 }
 
-export function releaseState(cwd = process.cwd()) {
-  return releaseStateFromVersions(reachableVersionTags(cwd));
+export function releaseState(cwd = process.cwd(), ref = "HEAD") {
+  return releaseStateFromVersions(reachableVersionTags(cwd, ref));
 }
 
-export function currentMajorFromRepo(cwd = process.cwd()) {
-  const state = releaseState(cwd);
+export function currentMajorFromRepo(cwd = process.cwd(), ref = "HEAD") {
+  const state = releaseState(cwd, ref);
   if (state.contradictory) {
     throw new Error(
       `Противоречивая история релизов: достижим тег с major >= 1 без reachable ${STABLE_TAG}. ` +
