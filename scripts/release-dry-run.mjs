@@ -1,7 +1,10 @@
+import { execFileSync } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { Writable } from "node:stream";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import semanticRelease from "semantic-release";
 import { buildReleaseConfig, currentMajorFromRepo } from "./release-rules.mjs";
 
@@ -21,8 +24,7 @@ function silentStream() {
 // reachability baseline-тега остаётся настоящей.
 export const dryRunFetchRelease = async () => ({ exists: true });
 
-async function main() {
-  const cwd = process.cwd();
+async function runDryRun(cwd, repositoryUrl) {
   // Бросает ошибку при противоречивой истории релизов (e.g. v2.0.0 без v1.0.0)
   const currentMajor = currentMajorFromRepo(cwd);
 
@@ -47,6 +49,7 @@ async function main() {
     ...process.env,
     GITHUB_TOKEN: "release-dry-run-local",
     GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? "local/uo-request-generator",
+    GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "push",
     GITHUB_REF: "refs/heads/main",
   };
@@ -57,6 +60,7 @@ async function main() {
     {
       cwd,
       noCi: true,
+      repositoryUrl,
       dryRun: true,
       branches: ["main"],
       tagFormat: "v${version}",
@@ -77,6 +81,26 @@ async function main() {
     console.log(
       "Релиз не создаётся: текущий набор последних коммитов не содержит значимых изменений или уже выпущен.",
     );
+  }
+}
+
+async function main() {
+  const source = process.cwd();
+  const git = (args) =>
+    execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const head = git(["-C", source, "rev-parse", "HEAD"]).trim();
+  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "release-dry-run-"));
+  try {
+    // semantic-release делает fetch даже в dry-run. Обе копии локальные:
+    // расчёт идёт с исходного HEAD как main, не затрагивая remote и исходные refs.
+    const origin = path.join(temporaryDirectory, "origin.git");
+    const checkout = path.join(temporaryDirectory, "checkout");
+    git(["clone", "--bare", "--no-hardlinks", source, origin]);
+    git(["-C", origin, "update-ref", "refs/heads/main", head]);
+    git(["clone", "--no-hardlinks", "--branch", "main", origin, checkout]);
+    await runDryRun(checkout, pathToFileURL(origin).href);
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
   }
 }
 

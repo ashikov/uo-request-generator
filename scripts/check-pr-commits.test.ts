@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkPrCommits, findInvalidSubjects, readCommitSubjects } from "./check-pr-commits.mjs";
+import { checkPrCommits, findInvalidSubjects, validatePrMessages } from "./check-pr-commits.mjs";
 
 const execFileAsync = promisify(execFile);
 const temporaryRepositories: string[] = [];
@@ -33,12 +33,16 @@ async function commit(repository: string, message: string): Promise<string> {
 }
 
 describe("check-pr-commits", () => {
-  it("readCommitSubjects не может прочитать невалидный диапазон и бросает ошибку", async () => {
+  it.each([
+    { baseRef: "not-a-ref", headRef: "also-not-a-ref" },
+    { baseRef: "", headRef: "HEAD" },
+    { baseRef: undefined, headRef: "HEAD" },
+  ])("gate отклоняет невалидные границы $baseRef..$headRef", async ({ baseRef, headRef }) => {
     const repository = await createRepository();
 
-    expect(() =>
-      readCommitSubjects({ baseRef: "not-a-ref", headRef: "also-not-a-ref", cwd: repository }),
-    ).toThrow(/Не удалось прочитать коммиты/u);
+    await expect(
+      checkPrCommits({ baseRef, headRef, title: "ci: update tooling", cwd: repository }),
+    ).rejects.toThrow();
   });
 
   it("checkPrCommits пропускает валидные Conventional Commit subjects", async () => {
@@ -48,7 +52,12 @@ describe("check-pr-commits", () => {
     await commit(repository, "feat: add elevator legal module");
     const head = await commit(repository, "docs: update readme");
 
-    const invalid = checkPrCommits({ baseRef: base, headRef: head, cwd: repository });
+    const invalid = await checkPrCommits({
+      baseRef: base,
+      headRef: head,
+      title: "fix: preserve changes",
+      cwd: repository,
+    });
 
     expect(invalid).toEqual([]);
   });
@@ -60,7 +69,12 @@ describe("check-pr-commits", () => {
     await commit(repository, "this is not conventional");
     const head = await commit(repository, "another bad one");
 
-    const invalid = checkPrCommits({ baseRef: base, headRef: head, cwd: repository });
+    const invalid = await checkPrCommits({
+      baseRef: base,
+      headRef: head,
+      title: "fix: preserve changes",
+      cwd: repository,
+    });
 
     expect(invalid).toEqual(["another bad one", "this is not conventional"]);
   });
@@ -72,12 +86,89 @@ describe("check-pr-commits", () => {
     ]);
   });
 
-  it("checkPrCommits на пустом диапазоне не требует коммитов", async () => {
+  it("checkPrCommits отклоняет пустой диапазон", async () => {
     const repository = await createRepository();
     const base = await commit(repository, "chore: bootstrap");
 
-    const invalid = checkPrCommits({ baseRef: base, headRef: base, cwd: repository });
+    await expect(
+      checkPrCommits({
+        baseRef: base,
+        headRef: base,
+        title: "ci: update tooling",
+        cwd: repository,
+      }),
+    ).rejects.toThrow(/пуст/u);
+  });
+});
 
-    expect(invalid).toEqual([]);
+describe("соответствие заголовка PR уровню релиза", () => {
+  it.each([
+    { messages: ["feat: add option"], title: "docs: describe option" },
+    { messages: ["ci: update tooling", "docs: update guide"], title: "feat: add tooling" },
+    { messages: ["feat!: replace contract"], title: "feat: replace contract" },
+    {
+      messages: ["fix: update contract\n\nBREAKING CHANGE: remove old field"],
+      title: "fix: update contract",
+    },
+    { messages: ["fix: correct option"], title: "fix!: correct option" },
+  ])("отклоняет несовпадающий уровень: $title / $messages", async ({ messages, title }) => {
+    expect(await validatePrMessages({ messages, title, currentMajor: 0 })).not.toEqual([]);
+  });
+
+  it.each([
+    { messages: ["ci: update tooling", "docs: update guide"], title: "ci: update tooling" },
+    {
+      messages: [
+        "feat: add option",
+        "fix: correct option",
+        "perf: speed up option",
+        "docs: update guide",
+      ],
+      title: "fix: improve option",
+    },
+    {
+      messages: ["feat: add option", "refactor!: replace contract"],
+      title: "feat!: replace contract",
+    },
+    {
+      messages: ["fix: update contract\n\nBREAKING CHANGE: remove old field"],
+      title: "fix!: update contract",
+    },
+  ])("принимает совпадающий уровень до 1.0.0: $title", async ({ messages, title }) => {
+    expect(await validatePrMessages({ messages, title, currentMajor: 0 })).toEqual([]);
+  });
+
+  it.each([
+    "invalid title",
+    "",
+    "ci: ",
+    "ci: valid\nfeat: injected",
+    undefined,
+  ])("отклоняет недопустимый заголовок %s", async (title) => {
+    expect(
+      await validatePrMessages({ messages: ["ci: update tooling"], title, currentMajor: 0 }),
+    ).not.toEqual([]);
+  });
+
+  it("после 1.0.0 различает feat и fix по общим правилам", async () => {
+    const messages = ["feat: add option", "fix: correct option"];
+    expect(
+      await validatePrMessages({ messages, title: "fix: improve option", currentMajor: 1 }),
+    ).not.toEqual([]);
+    expect(
+      await validatePrMessages({ messages, title: "feat: improve option", currentMajor: 1 }),
+    ).toEqual([]);
+  });
+
+  it("читает breaking footer из Git и проверяет его через gate", async () => {
+    const repository = await createRepository();
+    const baseRef = await commit(repository, "chore: bootstrap");
+    const headRef = await commit(
+      repository,
+      "fix: update contract\n\nBREAKING CHANGE: remove old field",
+    );
+    const options = { baseRef, headRef, cwd: repository };
+    expect(await checkPrCommits({ ...options, title: "fix: update contract" })).not.toEqual([]);
+    expect(await checkPrCommits({ ...options, title: "fix!: update contract" })).toEqual([]);
   });
 });

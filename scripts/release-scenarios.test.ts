@@ -166,6 +166,31 @@ async function listTags(repository: string): Promise<string[]> {
   return stdout.split("\n").filter((tag) => tag.length > 0);
 }
 
+describe("локальная команда dry-run", () => {
+  it("вычисляет версию с HEAD feature branch без изменения исходных refs", async () => {
+    const repository = await createRepository();
+    await commitEmpty(repository, "chore: bootstrap");
+    await tagAnnotated(repository, BASELINE_TAG);
+    await syncOrigin(repository);
+    await execFileAsync("git", ["-C", repository, "checkout", "-b", "ci/test-dry-run"]);
+    await commitEmpty(repository, "feat: add option");
+    const { stdout: refsBefore } = await execFileAsync("git", ["-C", repository, "show-ref"]);
+    const environment = { ...process.env };
+    delete environment.GITHUB_ACTIONS;
+    delete environment.CI;
+
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [path.join(projectRoot, "scripts/release-dry-run.mjs")],
+      { cwd: repository, env: environment },
+    );
+
+    expect(stdout).toContain("Расчёт версии: 0.2.1");
+    const { stdout: refsAfter } = await execFileAsync("git", ["-C", repository, "show-ref"]);
+    expect(refsAfter).toBe(refsBefore);
+  }, 120_000);
+});
+
 describe("сценарии выпуска на синтетической Git-истории", () => {
   it("reachable v0.2.0 + fix -> v0.2.1", async () => {
     const repository = await createRepository();
