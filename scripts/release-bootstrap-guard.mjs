@@ -61,9 +61,10 @@ export async function checkBaselineBootstrap({ environment, cwd, fetchRelease })
 // generateNotes выполняется только когда релиз точно будет опубликован, и раньше
 // publish-шага: исключение здесь не даёт создать ни тег, ни GitHub Release
 export async function generateNotes(pluginConfig, context) {
+  const cwd = context.cwd ?? process.cwd();
   const { allowed, reason } = await checkBaselineBootstrap({
     environment: context.env,
-    cwd: context.cwd ?? process.cwd(),
+    cwd,
     fetchRelease: pluginConfig.fetchRelease ?? defaultFetchRelease,
   });
   if (!allowed) {
@@ -72,5 +73,11 @@ export async function generateNotes(pluginConfig, context) {
         `Bootstrap выпуска (#52) требует одновременно reachable Git tag и GitHub Release ` +
         `${BASELINE_TAG} до stable-перехода, после чего автоматизация продолжит с него.`,
     );
+  }
+
+  // semantic-release может принять тег с build metadata, который не входит в
+  // канонические теги проекта. Проверяем и фактически вычисленную версию.
+  if (Number(context.nextRelease.version.split(".")[0]) >= 1 && !releaseState(cwd).stableReached) {
+    throw new Error("Автоматический stable-релиз запрещён: требуется явное v1.0.0 в истории");
   }
 }

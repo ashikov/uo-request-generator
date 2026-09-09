@@ -410,6 +410,20 @@ describe("сценарии выпуска на синтетической Git-и
     expect(await listTags(repository)).toEqual(tagsBefore);
   }, 120_000);
 
+  it("тег с build metadata не разрешает stable-релиз без явного v1.0.0", async () => {
+    const repository = await createRepository();
+    await commitEmpty(repository, "chore: bootstrap");
+    await tagAnnotated(repository, BASELINE_TAG);
+    await tagAnnotated(repository, "v1.0.0+build");
+    await commitEmpty(repository, "fix: correct behavior");
+    await syncOrigin(repository);
+    const tagsBefore = await listTags(repository);
+
+    await expect(runDryRunRelease(repository)).rejects.toThrow(/явное v1\.0\.0/u);
+
+    expect(await listTags(repository)).toEqual(tagsBefore);
+  }, 120_000);
+
   it("reachable v0.2.0 tag + GitHub Release v0.2.0 разрешают выпуск", async () => {
     const repository = await createRepository();
     await commitEmpty(repository, "chore: bootstrap");
