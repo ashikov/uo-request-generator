@@ -17,6 +17,7 @@ const providerDraftFields = {
   problem: oneLineString(primaryRequestDraftLimits.problem.max),
   circumstances: oneLineString(primaryRequestDraftLimits.circumstances.max).nullable(),
   impact: oneLineString(primaryRequestDraftLimits.impact.max).nullable(),
+  requestItem: oneLineString(primaryRequestDraftLimits.requestItem.max).nullable(),
   subject: primaryRequestSubjectSchema,
   warnings: z
     .array(oneLineString(primaryRequestDraftLimits.warning.max))
@@ -37,6 +38,7 @@ const universalProviderDraftSchema = z
     problem: providerDraftFields.problem.nullable(),
     circumstances: providerDraftFields.circumstances,
     impact: providerDraftFields.impact,
+    requestItem: providerDraftFields.requestItem,
     subject: providerDraftFields.subject,
     warnings: providerDraftFields.warnings,
   })
