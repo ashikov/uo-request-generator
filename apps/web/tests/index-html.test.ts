@@ -93,16 +93,19 @@ describe("публичная страница", () => {
     expect(html).toContain("Заполните только то, что уже известно");
   });
 
-  it("содержит ненавязчивую рекомендацию о минимизации данных перед полями формы", async () => {
+  it("обозначает запрещённые данные и отсутствие автоматической проверки перед полями формы", async () => {
     const html = await readFile(join(publicDirectory, "index.html"), "utf8");
     const pageText = html.replace(/\s+/g, " ");
     const formStart = html.indexOf('<form id="request-form"');
     const descriptionField = html.indexOf('id="description"');
-    const notice =
-      "Если без них можно описать проблему, лучше не указывать ФИО, телефон, точный адрес и сведения о других людях.";
 
     expect(html).toMatch(/<p id="data-minimization-notice" class="form-text mb-0">[\s\S]*<\/p>/);
-    expect(pageText).toContain(notice);
+    expect(pageText).toContain("Не указывайте данные, позволяющие узнать других людей");
+    expect(pageText).toContain("сведения о здоровье, расовой или национальной принадлежности");
+    expect(pageText).toContain("политических взглядах, религиозных или философских убеждениях");
+    expect(pageText).toContain("интимной жизни и биометрические данные для установления личности");
+    expect(pageText).toContain("Автоматической проверки таких данных нет");
+    expect(pageText).toContain("При генерации текст передаётся сервису и LLM-провайдеру");
     expect(formStart).toBeGreaterThanOrEqual(0);
     expect(descriptionField).toBeGreaterThan(formStart);
     expect(html.indexOf("data-minimization-notice")).toBeLessThan(descriptionField);
