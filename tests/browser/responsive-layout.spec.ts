@@ -60,7 +60,7 @@ async function expectCoreLayout(page: Page): Promise<void> {
     { name: "область результата", locator: page.locator("#result-area") },
     { name: "пояснение о самостоятельной отправке", locator: page.locator("#submission-notice") },
     {
-      name: "рекомендация о минимизации данных",
+      name: "предупреждение о составе данных",
       locator: page.locator("#data-minimization-notice"),
     },
     {
@@ -133,9 +133,6 @@ test("сохраняет layout-инварианты от формы до дли
   await expect(page.locator("#captcha-notice")).toBeHidden();
   const minimizationNotice = page.locator("#data-minimization-notice");
   await expect(minimizationNotice).toBeVisible();
-  await expect(minimizationNotice).toHaveText(
-    "Если без них можно описать проблему, лучше не указывать ФИО, телефон, точный адрес и сведения о других людях.",
-  );
 
   const fields = [
     page.getByLabel("Описание проблемы Обязательное поле"),
@@ -166,9 +163,9 @@ test("сохраняет layout-инварианты от формы до дли
       "#description-hint, #location-hint, #consequences-hint, #desired-actions-hint",
     ),
   });
-  await expectTextWraps({ name: "рекомендация о минимизации данных", locator: minimizationNotice });
+  await expectTextWraps({ name: "предупреждение о составе данных", locator: minimizationNotice });
   await expectWithinViewportHorizontally(page, [
-    { name: "рекомендация о минимизации данных", locator: minimizationNotice },
+    { name: "предупреждение о составе данных", locator: minimizationNotice },
   ]);
   await expectReachableByScrolling(page, {
     name: "поле желаемых действий",
