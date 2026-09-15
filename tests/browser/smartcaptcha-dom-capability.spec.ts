@@ -13,12 +13,21 @@ const successfulGeneration = {
   body: "Тестовый текст без пользовательских и персональных данных.",
   warnings: ["Проверить синтетические сведения перед использованием"],
 };
+const consentVersion = "c1-2026-09-15-r1";
+const firstReceiptId = "00000000-0000-4000-8000-000000000264";
+const secondReceiptId = "00000000-0000-4000-8000-000000000265";
 const controlledRequestId = "anonymous-browser-request-id";
 
-async function fulfillJson(route: Route, status: number, payload: unknown): Promise<void> {
+async function fulfillJson(
+  route: Route,
+  status: number,
+  payload: unknown,
+  receiptId?: string,
+): Promise<void> {
   await route.fulfill({
     status,
     contentType: "application/json",
+    headers: receiptId === undefined ? {} : { "x-consent-receipt-id": receiptId },
     body: JSON.stringify(payload),
   });
 }
@@ -43,6 +52,12 @@ const fakeClassicScript = `
     let resetCount = 0;
 
     const publishCapability = () => {
+      snapshot.consent = {
+        accepted: document.querySelector("#consent-accepted").checked,
+        text: document.querySelector("#consent-text").textContent.replace(/\\s+/g, " ").trim(),
+        version: document.querySelector("#consent-version").textContent,
+        receiptId: document.querySelector("#consent-receipt-id").textContent,
+      };
       const title = document.querySelector("#result-area h3")?.textContent ?? "";
       if (title !== "") {
         snapshot.output = {
@@ -59,6 +74,7 @@ const fakeClassicScript = `
       capabilityScript.dataset.resetCount = String(resetCount);
     };
 
+    document.addEventListener("change", publishCapability);
     new MutationObserver(publishCapability).observe(document.body, {
       childList: true,
       subtree: true,
@@ -125,16 +141,21 @@ test("доказывает техническую возможность same-do
     generationRequestCount += 1;
     submittedPayloads.push(route.request().postDataJSON());
     if (generationRequestCount === 1) {
-      await fulfillJson(route, 200, successfulGeneration);
+      await fulfillJson(route, 200, successfulGeneration, firstReceiptId);
       return;
     }
-    await fulfillJson(route, 400, {
-      error: {
-        code: "validation_error",
-        message: "Проверьте синтетический запрос",
-        requestId: controlledRequestId,
+    await fulfillJson(
+      route,
+      500,
+      {
+        error: {
+          code: "internal_error",
+          message: "Синтетическая ошибка после записи согласия",
+          requestId: controlledRequestId,
+        },
       },
-    });
+      secondReceiptId,
+    );
   });
 
   await page.goto("/");
@@ -144,9 +165,13 @@ test("доказывает техническую возможность same-do
   await page.locator("#desired-actions").fill(fullFormValues.desiredActions);
   await page.locator("#confirmed-problem-subject").selectOption(confirmedProblemSubject);
 
+  const consentText = (await page.locator("#consent-text").textContent())
+    ?.replace(/\s+/g, " ")
+    .trim();
   const classicScript = page.locator(smartCaptchaScriptSelector);
   await expect(classicScript).toHaveCount(0);
 
+  await page.locator("#consent-accepted").check();
   await page.locator("#submit-button").click();
 
   await expect(page.locator("#result-area h3")).toHaveText(successfulGeneration.title);
@@ -155,6 +180,12 @@ test("доказывает техническую возможность same-do
     "data-capability-snapshot",
     JSON.stringify({
       input: { ...fullFormValues, confirmedProblemSubject },
+      consent: {
+        accepted: true,
+        text: consentText,
+        version: consentVersion,
+        receiptId: firstReceiptId,
+      },
       output: successfulGeneration,
     }),
   );
@@ -162,14 +193,37 @@ test("доказывает техническую возможность same-do
   expect(await classicScript.evaluate((script) => script.isConnected)).toBe(true);
   expect(interceptedClassicScriptUrl).toMatch(smartCaptchaScriptUrlPattern);
 
+  await page.locator("#consent-accepted").uncheck();
+  await expect(classicScript).toHaveAttribute(
+    "data-capability-snapshot",
+    JSON.stringify({
+      input: { ...fullFormValues, confirmedProblemSubject },
+      consent: {
+        accepted: false,
+        text: consentText,
+        version: consentVersion,
+        receiptId: firstReceiptId,
+      },
+      output: successfulGeneration,
+    }),
+  );
+  await page.locator("#consent-accepted").check();
   await page.locator("#submit-button").click();
 
-  await expect(page.locator("#error-area")).toContainText("Проверьте синтетический запрос");
+  await expect(page.locator("#error-area")).toContainText(
+    "Синтетическая ошибка после записи согласия",
+  );
   await expect(page.locator("#error-area")).toContainText(`Код запроса: ${controlledRequestId}`);
   await expect(classicScript).toHaveAttribute(
     "data-capability-snapshot",
     JSON.stringify({
       input: { ...fullFormValues, confirmedProblemSubject },
+      consent: {
+        accepted: true,
+        text: consentText,
+        version: consentVersion,
+        receiptId: secondReceiptId,
+      },
       output: successfulGeneration,
       requestId: `Код запроса: ${controlledRequestId}`,
     }),
@@ -177,8 +231,20 @@ test("доказывает техническую возможность same-do
   await expect(classicScript).toHaveAttribute("data-reset-count", "2");
   expect(await classicScript.evaluate((script) => script.isConnected)).toBe(true);
   expect(submittedPayloads).toEqual([
-    { ...fullFormValues, confirmedProblemSubject, captchaToken: "synthetic-captcha-token-1" },
-    { ...fullFormValues, confirmedProblemSubject, captchaToken: "synthetic-captcha-token-2" },
+    {
+      ...fullFormValues,
+      confirmedProblemSubject,
+      consentAccepted: true,
+      consentVersion,
+      captchaToken: "synthetic-captcha-token-1",
+    },
+    {
+      ...fullFormValues,
+      confirmedProblemSubject,
+      consentAccepted: true,
+      consentVersion,
+      captchaToken: "synthetic-captcha-token-2",
+    },
   ]);
   expect(unexpectedExternalRequests).toEqual([]);
 });

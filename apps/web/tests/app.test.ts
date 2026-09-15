@@ -59,6 +59,9 @@ async function initializeApp(
   const publicConfig = captchaOptions.config ?? { generationAvailable: true, required: false };
   document.body.innerHTML = `
     <form id="request-form">
+      <input id="consent-accepted" type="checkbox" checked />
+      <span id="consent-version" data-consent-version="c1-2026-09-15-r1">c1-2026-09-15-r1</span>
+      <div id="consent-receipt-area" hidden><span id="consent-receipt-id"></span></div>
       <textarea
         id="description"
         minlength="10"
@@ -155,6 +158,7 @@ async function initializeApp(
     "fetch",
     captchaOptions.fetch ??
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: true,
         json: () => Promise.resolve(publicConfig),
       }),
@@ -463,6 +467,7 @@ describe("обработка ответа генерации в приложен
 
   it("не отправляет пустые дополнительные поля", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -475,6 +480,8 @@ describe("обработка ответа генерации в приложен
       expect(fetchMock).toHaveBeenCalledOnce();
     });
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
       description: initialDescription,
       location: initialLocation,
     });
@@ -482,6 +489,7 @@ describe("обработка ответа генерации в приложен
 
   it("не отправляет подтверждение предмета при отсутствии выбора", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -495,6 +503,8 @@ describe("обработка ответа генерации в приложен
       expect(fetchMock).toHaveBeenCalledOnce();
     });
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
       description: initialDescription,
       location: initialLocation,
     });
@@ -502,6 +512,7 @@ describe("обработка ответа генерации в приложен
 
   it("отправляет каждое дополнительное поле отдельно и вместе", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -535,6 +546,7 @@ describe("обработка ответа генерации в приложен
 
   it("отправляет явное подтверждение двери общего пользования только при выборе", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -546,6 +558,8 @@ describe("обработка ответа генерации в приложен
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
       description: "Входная дверь подъезда не закрывается",
       confirmedProblemSubject: "common_area_entrance_door",
     });
@@ -553,6 +567,7 @@ describe("обработка ответа генерации в приложен
 
   it("отправляет явное подтверждение освещения помещения общего пользования", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -564,6 +579,8 @@ describe("обработка ответа генерации в приложен
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
       description: "В общем коридоре многоквартирного дома не работает освещение",
       confirmedProblemSubject: "common_area_premises_lighting",
     });
@@ -571,6 +588,7 @@ describe("обработка ответа генерации в приложен
 
   it("отправляет явное подтверждение уборки помещения общего пользования", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -582,6 +600,8 @@ describe("обработка ответа генерации в приложен
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
       description: "В подъезде многоквартирного дома не выполнена уборка",
       confirmedProblemSubject: "common_area_premises_cleaning",
     });
@@ -589,6 +609,7 @@ describe("обработка ответа генерации в приложен
 
   it("отправляет явное подтверждение кровли многоквартирного дома", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -600,6 +621,8 @@ describe("обработка ответа генерации в приложен
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
       description: "На кровле многоквартирного дома обнаружена протечка",
       confirmedProblemSubject: "common_area_roof",
     });
@@ -607,6 +630,7 @@ describe("обработка ответа генерации в приложен
 
   it("отправляет явное подтверждение лифта общего имущества", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -618,6 +642,8 @@ describe("обработка ответа генерации в приложен
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
       description: "Лифт в многоквартирном доме не реагирует на вызов",
       confirmedProblemSubject: "common_area_elevator",
     });
@@ -681,6 +707,7 @@ describe("обработка ответа генерации в приложен
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: true,
         json: () =>
           Promise.resolve({
@@ -727,6 +754,7 @@ describe("обработка ответа генерации в приложен
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: false,
         json: () =>
           Promise.resolve({
@@ -761,6 +789,7 @@ describe("обработка ответа генерации в приложен
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
+        headers: new Headers(),
         ok: true,
         json: () =>
           Promise.resolve({
@@ -770,6 +799,7 @@ describe("обработка ответа генерации в приложен
           }),
       })
       .mockResolvedValueOnce({
+        headers: new Headers(),
         ok: false,
         json: () =>
           Promise.resolve({
@@ -781,6 +811,7 @@ describe("обработка ответа генерации в приложен
           }),
       })
       .mockResolvedValueOnce({
+        headers: new Headers(),
         ok: true,
         json: () =>
           Promise.resolve({
@@ -839,6 +870,7 @@ describe("обработка ответа генерации в приложен
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: false,
         status: 429,
         json: () =>
@@ -870,6 +902,7 @@ describe("обработка ответа генерации в приложен
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: false,
         status: 413,
         json: () =>
@@ -901,6 +934,7 @@ describe("обработка ответа генерации в приложен
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: false,
         json: () =>
           Promise.resolve({
@@ -937,6 +971,7 @@ describe("обработка ответа генерации в приложен
       vi
         .fn()
         .mockResolvedValueOnce({
+          headers: new Headers(),
           ok: false,
           json: () =>
             Promise.resolve({
@@ -948,6 +983,7 @@ describe("обработка ответа генерации в приложен
             }),
         })
         .mockResolvedValueOnce({
+          headers: new Headers(),
           ok: false,
           json: () =>
             Promise.resolve({
@@ -983,6 +1019,7 @@ describe("обработка ответа генерации в приложен
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: false,
         json: () => Promise.reject(new SyntaxError("Unexpected token")),
       }),
@@ -1006,6 +1043,7 @@ describe("обработка ответа генерации в приложен
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: true,
         json: () => Promise.resolve({ title: "", body: "Текст заявки", warnings: [] }),
       }),
@@ -1031,6 +1069,7 @@ describe("обработка ответа генерации в приложен
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: true,
         json: () =>
           Promise.resolve({
@@ -1084,6 +1123,7 @@ describe("обработка ответа генерации в приложен
     expect(getForm().getAttribute("aria-busy")).toBe("true");
 
     resolveResponse({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     } as Response);
@@ -1097,6 +1137,7 @@ describe("обработка ответа генерации в приложен
   it("сбрасывает предыдущий результат и статус копирования при новом валидном запросе", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     const successResponse = {
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     };
@@ -1131,6 +1172,7 @@ describe("обработка ответа генерации в приложен
     expect(getSubmitButton().disabled).toBe(true);
 
     resolveResponse({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Новая заявка", body: "Новый текст", warnings: [] }),
     } as Response);
@@ -1142,6 +1184,7 @@ describe("обработка ответа генерации в приложен
 
   it("не загружает и не запускает CAPTCHA в отключённом режиме", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -1201,6 +1244,7 @@ describe("обработка ответа генерации в приложен
       api: captchaApi,
     });
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -1231,6 +1275,8 @@ describe("обработка ответа генерации в приложен
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
       description: initialDescription,
       location: initialLocation,
       consequences: initialConsequences,
@@ -1272,6 +1318,7 @@ describe("обработка ответа генерации в приложен
       api: captchaApi,
     });
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });
@@ -1308,6 +1355,7 @@ describe("обработка ответа генерации в приложен
           return Promise.reject(new Error("temporary configuration failure"));
         }
         return Promise.resolve({
+          headers: new Headers(),
           ok: true,
           json: () =>
             Promise.resolve({
@@ -1319,6 +1367,7 @@ describe("обработка ответа генерации в приложен
       }
 
       return Promise.resolve({
+        headers: new Headers(),
         ok: true,
         json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
       });
@@ -1354,6 +1403,7 @@ describe("обработка ответа генерации в приложен
     const fetchMock = vi.fn().mockImplementation((input: string | URL | Request) => {
       if (String(input) === "/api/captcha/config") {
         return Promise.resolve({
+          headers: new Headers(),
           ok: true,
           json: () =>
             Promise.resolve({
@@ -1365,6 +1415,7 @@ describe("обработка ответа генерации в приложен
       }
 
       return Promise.resolve({
+        headers: new Headers(),
         ok: true,
         json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
       });
@@ -1409,6 +1460,7 @@ describe("обработка ответа генерации в приложен
     [
       "captcha_failed",
       {
+        headers: new Headers(),
         ok: false,
         json: () =>
           Promise.resolve({
@@ -1424,6 +1476,7 @@ describe("обработка ответа генерации в приложен
     [
       "captcha_unavailable",
       {
+        headers: new Headers(),
         ok: false,
         json: () =>
           Promise.resolve({
@@ -1473,6 +1526,7 @@ describe("обработка ответа генерации в приложен
       api: captchaApi,
     });
     const fetchMock = vi.fn().mockResolvedValue({
+      headers: new Headers(),
       ok: true,
       json: () => Promise.resolve({ title: "Заявка", body: "Текст", warnings: [] }),
     });

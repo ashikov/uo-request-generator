@@ -8,6 +8,7 @@ import {
 } from "@uo-request-generator/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
+import { acceptedConsent, createTestConsentLedger } from "./consent-fixture.js";
 
 type ApiErrorCode =
   | "generation_provider_unavailable"
@@ -72,6 +73,7 @@ async function injectGenerate(
   gateway: LlmGateway = new DisabledLlmGateway(),
 ) {
   const app = createApp({
+    consentLedger: createTestConsentLedger(),
     llmGateway: gateway,
     generationRateLimitConfig,
     generationSafeguardConfig,
@@ -85,7 +87,7 @@ async function injectGenerate(
     headers: {
       "content-type": "application/json",
     },
-    payload,
+    payload: { ...acceptedConsent, ...payload },
   });
 }
 

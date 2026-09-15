@@ -18,6 +18,7 @@ import type { GenerationLogEvent } from "../src/generation-log";
 import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config";
 import type { GenerationSafeguardOptions } from "../src/generation-safeguard";
 import { createLlmGateway } from "../src/llm-config";
+import { acceptedConsent, createTestConsentLedger } from "./consent-fixture.js";
 
 const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const isoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -138,6 +139,7 @@ function createCapturingApp(
 ): { app: FastifyInstance; events: GenerationLogEvent[] } {
   const events: GenerationLogEvent[] = [];
   const app = createApp({
+    consentLedger: createTestConsentLedger(),
     llmGateway: options.llmGateway ?? {
       generateRequest: vi.fn().mockResolvedValue(generatedOutcome),
     },
@@ -166,7 +168,7 @@ async function injectGenerate(
     method: "POST",
     url: "/api/generate",
     headers: { "content-type": "application/json" },
-    payload,
+    payload: { ...acceptedConsent, ...payload },
   });
 }
 
@@ -958,6 +960,7 @@ describe("структурированные события POST /api/generate",
         cookie: `unrelated=${cookie}`,
       },
       payload: {
+        ...acceptedConsent,
         description: privateDescription,
         captchaToken,
       },

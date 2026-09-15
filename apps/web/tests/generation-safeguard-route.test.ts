@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { GenerationRateLimiter } from "../src/generation-rate-limiter.js";
 import { GenerationSafeguard } from "../src/generation-safeguard.js";
+import { acceptedConsent, createTestConsentLedger } from "./consent-fixture.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 const validInput = {
@@ -32,6 +33,7 @@ function createTestApp(options: {
   verifier?: { verify: () => Promise<{ status: "verified" | "failed" | "unavailable" }> };
 }) {
   const app = createApp({
+    consentLedger: createTestConsentLedger(),
     llmGateway: options.gateway,
     generationRateLimitConfig: rateLimitConfig,
     generationSafeguard: options.safeguard,
@@ -50,7 +52,7 @@ function request(app: ReturnType<typeof createApp>, remoteAddress = "198.51.100.
     method: "POST",
     url: "/api/generate",
     headers: { "content-type": "application/json" },
-    payload: validInput,
+    payload: { ...acceptedConsent, ...validInput },
     remoteAddress,
   });
 }
@@ -98,6 +100,7 @@ describe("предохранитель POST /api/generate", () => {
       },
     };
     const app = createApp({
+      consentLedger: createTestConsentLedger(),
       llmGateway: gateway,
       generationRateLimitConfig: rateLimitConfig,
       generationRateLimiter: limiter,

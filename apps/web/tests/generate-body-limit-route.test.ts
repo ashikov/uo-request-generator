@@ -5,6 +5,7 @@ import { generateRequestBodyLimitBytes } from "../src/generation-http-contract.j
 import type { GenerationLogEvent } from "../src/generation-log.js";
 import { GenerationRateLimiter } from "../src/generation-rate-limiter.js";
 import { GenerationSafeguard } from "../src/generation-safeguard.js";
+import { acceptedConsent, createTestConsentLedger } from "./consent-fixture.js";
 
 const expectedGenerateBodyLimitBytes = 45_635;
 const oversizedSentinel = "oversized-sensitive-sentinel";
@@ -57,6 +58,7 @@ function createObservedApp() {
     });
   const events: GenerationLogEvent[] = [];
   const app = createApp({
+    consentLedger: createTestConsentLedger(),
     llmGateway: { generateRequest, generateRequestWithMetadata },
     generationRateLimitConfig,
     generationRateLimiter: rateLimiter,
@@ -110,6 +112,7 @@ describe("body limit POST /api/generate", () => {
   it("пропускает реалистичный максимальный продуктовый payload в handler", async () => {
     const observed = createObservedApp();
     const payload = {
+      ...acceptedConsent,
       description: "Ж".repeat(2_000),
       location: "Ж".repeat(120),
       consequences: "Ж".repeat(500),

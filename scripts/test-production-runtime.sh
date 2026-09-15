@@ -26,7 +26,7 @@ cleanup() {
     PRODUCTION_IMAGE="$PRODUCTION_IMAGE" \
       PRODUCTION_ENV_FILE="$PRODUCTION_ENV_FILE" \
       PRODUCTION_PROXY_NETWORK="$PROXY_NETWORK" \
-      "$COMPOSE_WRAPPER" -p "$COMPOSE_PROJECT_NAME" down --remove-orphans \
+      "$COMPOSE_WRAPPER" -p "$COMPOSE_PROJECT_NAME" down --volumes --remove-orphans \
       >/dev/null 2>&1 || true
   fi
   if [[ "$NETWORK_CREATED" == true ]]; then
@@ -81,6 +81,19 @@ assert_container_image() {
     fail "container uses an unexpected image reference"
   [[ "$actual_image_id" == "$expected_image_id" ]] || \
     fail "container uses an unexpected image ID"
+}
+
+assert_consent_receipt() {
+  docker exec -e EXPECTED_CONSENT_RECEIPT="$CONSENT_TEST_RECEIPT" "$CONTAINER_ID" \
+    node --input-type=module -e '
+      import { DatabaseSync } from "node:sqlite";
+      const db = new DatabaseSync(process.env.CONSENT_LEDGER_FILE, { readOnly: true });
+      const receipt = db.prepare("SELECT * FROM consent_receipts WHERE consentReceiptId = ?")
+        .get(process.env.EXPECTED_CONSENT_RECEIPT);
+      if (!receipt || receipt.status !== "accepted" || receipt.consentVersion !== "c1-2026-09-15-r1")
+        process.exitCode = 1;
+      db.close();
+    '
 }
 
 printf 'Checking required Compose inputs...\n'
@@ -168,6 +181,9 @@ if (!Array.isArray(requestGenerator.cap_drop) || !requestGenerator.cap_drop.incl
 if (!Array.isArray(requestGenerator.security_opt) || !requestGenerator.security_opt.includes("no-new-privileges:true")) throw new Error("no-new-privileges must be enabled");
 if (!Number.isSafeInteger(requestGenerator.pids_limit) || requestGenerator.pids_limit <= 0) throw new Error("positive pids_limit is required");
 if ("mem_limit" in requestGenerator || "cpus" in requestGenerator) throw new Error("unmeasured resource limits must not be set");
+const ledgerMount = requestGenerator.volumes ?? [];
+if (ledgerMount.length !== 1 || ledgerMount[0].type !== "volume" || ledgerMount[0].target !== "/consent-evidence") throw new Error("one persistent consent volume is required");
+if (requestGenerator.environment?.CONSENT_LEDGER_FILE !== "/consent-evidence/ledger.sqlite") throw new Error("ledger must use the dedicated volume");
 if ("tmpfs" in requestGenerator) throw new Error("application does not require tmpfs");
 const attachedNetworks = Object.keys(requestGenerator.networks ?? {});
 if (attachedNetworks.length !== 1 || attachedNetworks[0] !== "reverse-proxy") throw new Error("service must use only the reverse-proxy network");
@@ -243,7 +259,17 @@ docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
   -e "fetch('http://request-generator:3000/vendor/bootstrap/bootstrap.min.css').then(async response => { const body = await response.text(); if (!response.ok || !response.headers.get('content-type')?.includes('text/css') || !/Bootstrap\\s+v5\\.3\\.8/.test(body)) process.exit(1) }).catch(() => process.exit(1))"
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
-  -e "fetch('http://request-generator:3000/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description: 'Тестовое описание неисправности без персональных данных' }) }).then(async response => { const body = await response.json(); if (response.status !== 503 || body.error?.code !== 'generation_provider_unavailable') process.exit(1) }).catch(() => process.exit(1))"
+  -e "fetch('http://request-generator:3000/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description: 'Тестовое описание неисправности без персональных данных', consentAccepted: true, consentVersion: 'c1-2026-09-15-r1' }) }).then(async response => { const body = await response.json(); if (response.status !== 503 || body.error?.code !== 'generation_provider_unavailable') process.exit(1) }).catch(() => process.exit(1))"
+
+CONSENT_TEST_RECEIPT=$(docker exec "$CONTAINER_ID" node --input-type=module -e '
+  import { DatabaseSync } from "node:sqlite";
+  const db = new DatabaseSync(process.env.CONSENT_LEDGER_FILE, { readOnly: true });
+  const receipt = db.prepare("SELECT consentReceiptId FROM consent_receipts").get();
+  if (!receipt) process.exitCode = 1;
+  else process.stdout.write(receipt.consentReceiptId);
+  db.close();
+')
+assert_consent_receipt
 
 printf 'Checking graceful SIGTERM and restart...\n'
 compose stop request-generator
@@ -252,6 +278,7 @@ compose up -d --no-build --pull never
 CONTAINER_ID=$(compose ps -q request-generator)
 wait_until_healthy
 assert_container_image "$FIRST_IMAGE" "$FIRST_IMAGE_ID"
+assert_consent_receipt
 
 printf 'Replacing the full SHA image reference...\n'
 PRODUCTION_IMAGE="$SECOND_IMAGE"
@@ -259,6 +286,7 @@ compose up -d --no-build --pull never --force-recreate
 CONTAINER_ID=$(compose ps -q request-generator)
 wait_until_healthy
 assert_container_image "$SECOND_IMAGE" "$SECOND_IMAGE_ID"
+assert_consent_receipt
 
 printf 'Rolling back to the previous image reference...\n'
 PRODUCTION_IMAGE="$FIRST_IMAGE"
@@ -266,5 +294,6 @@ compose up -d --no-build --pull never --force-recreate
 CONTAINER_ID=$(compose ps -q request-generator)
 wait_until_healthy
 assert_container_image "$FIRST_IMAGE" "$FIRST_IMAGE_ID"
+assert_consent_receipt
 
 printf 'Production runtime contract checks passed.\n'

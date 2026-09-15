@@ -12,6 +12,9 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: "3000"
+      CONSENT_LEDGER_FILE: /consent-evidence/ledger.sqlite
+    volumes:
+      - consent-ledger:/consent-evidence
     expose:
       - "3000"
     networks:
@@ -48,3 +51,6 @@ networks:
   reverse-proxy:
     external: true
     name: "${PRODUCTION_PROXY_NETWORK:?external proxy network required}"
+
+volumes:
+  consent-ledger:
