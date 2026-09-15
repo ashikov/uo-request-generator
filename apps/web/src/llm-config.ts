@@ -87,6 +87,7 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
       authScheme: LLM_AUTH_SCHEME,
       apiProtocol: LLM_API_PROTOCOL,
       provider: LLM_PROVIDER,
+      configurationClass: "custom-openai-compatible",
       extraHeaders,
     });
   }
@@ -111,6 +112,7 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
     authScheme: LLM_AUTH_SCHEME ?? YANDEX_AUTH_SCHEME,
     apiProtocol: LLM_API_PROTOCOL,
     provider: "yandex",
+    configurationClass: "builtin-yandex",
     extraHeaders,
   });
 }

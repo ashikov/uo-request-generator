@@ -126,7 +126,13 @@ describe("createLlmGateway", () => {
       description: "На лестничной площадке не горит свет",
     });
 
-    expect(generation).toMatchObject({ status: "success", metadata: { provider: "yandex" } });
+    expect(generation).toMatchObject({
+      status: "success",
+      metadata: {
+        provider: "yandex",
+        configurationClass: "builtin-yandex",
+      },
+    });
   });
 
   it("явно выбирает Yandex Chat Completions", async () => {
@@ -287,10 +293,18 @@ describe("createLlmGateway", () => {
     });
 
     expect(first).toMatchObject({
-      metadata: { provider: "provider-alpha", model: "shared-model-name" },
+      metadata: {
+        provider: "provider-alpha",
+        model: "shared-model-name",
+        configurationClass: "custom-openai-compatible",
+      },
     });
     expect(second).toMatchObject({
-      metadata: { provider: "provider-beta", model: "shared-model-name" },
+      metadata: {
+        provider: "provider-beta",
+        model: "shared-model-name",
+        configurationClass: "custom-openai-compatible",
+      },
     });
   });
 

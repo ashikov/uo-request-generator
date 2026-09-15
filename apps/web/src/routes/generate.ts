@@ -22,6 +22,7 @@ import type {
   GenerationEventWriter,
   GenerationFailedEvent,
   GenerationRejectedEvent,
+  LoggedLlmGenerationMetadata,
 } from "../generation-log.js";
 import type { GenerationRateLimiter } from "../generation-rate-limiter.js";
 import type { GenerationSafeguard } from "../generation-safeguard.js";
@@ -152,10 +153,13 @@ function ensureGenerationContext(
   return context;
 }
 
-function selectLlmGenerationMetadata(metadata: LlmGenerationMetadata): LlmGenerationMetadata {
+function selectLlmGenerationMetadata(metadata: LlmGenerationMetadata): LoggedLlmGenerationMetadata {
   return {
-    provider: metadata.provider,
-    model: metadata.model,
+    provider:
+      metadata.configurationClass === "builtin-yandex"
+        ? "yandex-builtin"
+        : "openai-compatible-custom",
+    model: "configured-model",
     usage:
       metadata.usage === null
         ? null

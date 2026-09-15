@@ -17,6 +17,7 @@ import { createApp } from "../src/app";
 import type { GenerationLogEvent } from "../src/generation-log";
 import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config";
 import type { GenerationSafeguardOptions } from "../src/generation-safeguard";
+import { createLlmGateway } from "../src/llm-config";
 
 const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const isoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -195,6 +196,164 @@ function expectGenerationProviderError(
 const validInput = { description: "На лестничной площадке не горит свет" };
 
 describe("структурированные события POST /api/generate", () => {
+  describe.each(["chat-completions", "responses"] as const)("aliases для %s", (apiProtocol) => {
+    describe.each(["builtin", "custom"] as const)("конфигурация %s", (configurationClass) => {
+      it.each([
+        ["generated", "generation_succeeded", 200],
+        ["multiple_issues", "generation_rejected", 400],
+        ["provider_unavailable", "generation_failed", 503],
+        ["timeout", "generation_failed", 503],
+        ["network_error", "generation_failed", 503],
+        ["invalid_response", "generation_failed", 503],
+      ] as const)("исключает raw metadata при %s", async (status, event, httpStatus) => {
+        const rawProvider = "synthetic-private-provider-sentinel";
+        const privateIdentifier = "synthetic-private-folder-sentinel";
+        const rawModel = `gpt://${privateIdentifier}/synthetic-private-model-sentinel/latest`;
+        if (status === "timeout")
+          vi.spyOn(AbortSignal, "timeout").mockReturnValue(AbortSignal.abort());
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+          if (status === "timeout") throw new DOMException("synthetic timeout", "TimeoutError");
+          if (status === "network_error") throw new TypeError("synthetic network error");
+          if (status === "provider_unavailable")
+            return new Response("synthetic body", { status: 429 });
+          if (status === "invalid_response") return new Response("{}", { status: 200 });
+          const content = JSON.stringify({
+            draft:
+              status === "multiple_issues"
+                ? {
+                    outcome: "multiple_issues",
+                    title: null,
+                    problem: null,
+                    circumstances: null,
+                    impact: null,
+                    subject: null,
+                    warnings: [],
+                  }
+                : {
+                    outcome: "generated",
+                    title: "Не работает освещение",
+                    problem: validInput.description,
+                    circumstances: null,
+                    impact: null,
+                    subject: null,
+                    warnings: [],
+                  },
+          });
+          const body =
+            apiProtocol === "responses"
+              ? {
+                  output_text: content,
+                  usage: { input_tokens: 101, output_tokens: 52, total_tokens: 153 },
+                }
+              : {
+                  choices: [{ message: { content } }],
+                  usage: { prompt_tokens: 101, completion_tokens: 52, total_tokens: 153 },
+                };
+          return new Response(JSON.stringify(body), { status: 200 });
+        });
+        const gateway = createLlmGateway({
+          LLM_API_PROTOCOL: apiProtocol,
+          LLM_API_KEY: "synthetic-api-key-sentinel",
+          LLM_FOLDER_ID: privateIdentifier,
+          ...(configurationClass === "custom"
+            ? {
+                LLM_API_URL: "https://provider.example/synthetic-endpoint",
+                LLM_AUTH_SCHEME: "Bearer",
+                LLM_PROVIDER: rawProvider,
+                LLM_MODEL: rawModel,
+              }
+            : apiProtocol === "responses"
+              ? { LLM_MODEL: rawModel }
+              : {}),
+        });
+        const { app, events } = createCapturingApp({ llmGateway: gateway });
+
+        const response = await injectGenerate(app, validInput);
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(response.statusCode).toBe(httpStatus);
+        const terminal = events[1];
+        const serializedEvent = JSON.stringify(terminal);
+        for (const sentinel of [
+          rawProvider,
+          rawModel,
+          privateIdentifier,
+          "synthetic-api-key-sentinel",
+          "synthetic-private-model-sentinel",
+        ]) {
+          expect(serializedEvent).not.toContain(sentinel);
+        }
+        expect(terminal).toMatchObject({
+          event,
+          status,
+          httpStatus,
+          requestId: requestIdFromResponse(response),
+          durationMs: expect.any(Number),
+          llm: {
+            provider:
+              configurationClass === "builtin" ? "yandex-builtin" : "openai-compatible-custom",
+            model: "configured-model",
+            usage:
+              httpStatus < 500 ? { inputTokens: 101, outputTokens: 52, totalTokens: 153 } : null,
+            usageStatus: httpStatus < 500 ? "available" : "missing",
+            systemPromptHash:
+              "sha256:266208e2034b423c43dbfd62f4ddd70afa828ae50d413c541582b306455a8715",
+            durationMs: expect.any(Number),
+          },
+        });
+        if (status === "provider_unavailable")
+          expect(terminal).toHaveProperty("providerHttpStatus", 429);
+        else expect(terminal).not.toHaveProperty("providerHttpStatus");
+      });
+    });
+  });
+
+  it.each([
+    undefined,
+    "synthetic-private-class-sentinel",
+  ])("использует общий alias при неизвестном классе %s, не читая raw provider/model", async (configurationClass) => {
+    const metadata: LlmGenerationMetadata = {
+      provider: "synthetic-private-provider-sentinel",
+      model: "synthetic-private-model-sentinel",
+      usage: null,
+      usageStatus: "missing",
+      systemPromptHash: "synthetic-prompt-hash",
+      durationMs: 42,
+    };
+    Object.defineProperty(metadata, "configurationClass", {
+      value: configurationClass,
+      enumerable: true,
+    });
+    for (const field of ["provider", "model"])
+      Object.defineProperty(metadata, field, {
+        get: () => {
+          throw new Error("Raw metadata must not be read");
+        },
+      });
+    const { app, events } = createCapturingApp({
+      llmGateway: {
+        generateRequest: vi.fn(),
+        generateRequestWithMetadata: vi
+          .fn()
+          .mockResolvedValue({ status: "success", outcome: generatedOutcome, metadata }),
+      },
+    });
+
+    const response = await injectGenerate(app, validInput);
+
+    expect(response.statusCode).toBe(200);
+    expect(events[1]).toMatchObject({
+      llm: {
+        provider: "openai-compatible-custom",
+        model: "configured-model",
+        durationMs: 42,
+        systemPromptHash: "synthetic-prompt-hash",
+      },
+    });
+    expect(JSON.stringify(events)).not.toContain("synthetic-private-");
+    expect(events[1]).not.toHaveProperty("llm.configurationClass");
+  });
+
   it("пишет начальное и итоговое событие с общим requestId при успехе", async () => {
     const { app, events } = createCapturingApp();
 
@@ -256,18 +415,28 @@ describe("структурированные события POST /api/generate",
       validInput,
       requestIdFromResponse(response),
     );
-    expect(events[1]).toMatchObject({ event: "generation_succeeded", llm: llmMetadata });
+    expect(events[1]).toMatchObject({
+      event: "generation_succeeded",
+      llm: {
+        ...llmMetadata,
+        provider: "openai-compatible-custom",
+        model: "configured-model",
+      },
+    });
     expect(JSON.stringify(events)).not.toContain(validInput.description);
     expect(JSON.stringify(events)).not.toContain("https://provider.example");
     expect(JSON.stringify(events)).not.toContain("test-api-key");
   });
 
-  it("сохраняет terminal event без usage провайдера", async () => {
+  it.each([
+    "missing",
+    "invalid",
+  ] as const)("сохраняет terminal event с usageStatus %s", async (usageStatus) => {
     const llmMetadata = {
       provider: "yandex" as const,
       model: "test-model-full-name",
       usage: null,
-      usageStatus: "missing" as const,
+      usageStatus,
       systemPromptHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       durationMs: 42,
     };
@@ -287,7 +456,12 @@ describe("структурированные события POST /api/generate",
     expect(response.statusCode).toBe(200);
     expect(events[1]).toMatchObject({
       event: "generation_succeeded",
-      llm: { usage: null, usageStatus: "missing" },
+      llm: {
+        usage: null,
+        usageStatus,
+        provider: "openai-compatible-custom",
+        model: "configured-model",
+      },
     });
   });
 
@@ -317,7 +491,7 @@ describe("структурированные события POST /api/generate",
     expect(events[1]).toMatchObject({
       event: "generation_failed",
       status: "timeout",
-      llm: llmMetadata,
+      llm: { ...llmMetadata, provider: "openai-compatible-custom", model: "configured-model" },
     });
   });
 

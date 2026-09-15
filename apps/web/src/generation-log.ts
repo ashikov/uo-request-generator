@@ -1,6 +1,14 @@
 import fs from "node:fs";
 import type { LlmGenerationMetadata } from "@uo-request-generator/core";
 
+export type LoggedLlmGenerationMetadata = Omit<
+  LlmGenerationMetadata,
+  "provider" | "model" | "configurationClass"
+> & {
+  provider: "yandex-builtin" | "openai-compatible-custom";
+  model: "configured-model";
+};
+
 export type GenerationStartedEvent = {
   event: "generation_started";
   requestId: string;
@@ -14,7 +22,7 @@ export type GenerationSucceededEvent = {
   status: "generated";
   durationMs: number;
   httpStatus: 200;
-  llm?: LlmGenerationMetadata;
+  llm?: LoggedLlmGenerationMetadata;
 };
 
 export type GenerationRejectedEvent = {
@@ -31,7 +39,7 @@ export type GenerationRejectedEvent = {
     | "generation_unavailable";
   durationMs: number;
   httpStatus: 400 | 413 | 429 | 500 | 503;
-  llm?: LlmGenerationMetadata;
+  llm?: LoggedLlmGenerationMetadata;
 };
 
 export type GenerationFailedEvent = {
@@ -47,7 +55,7 @@ export type GenerationFailedEvent = {
   durationMs: number;
   httpStatus: 400 | 429 | 500 | 503;
   providerHttpStatus?: number;
-  llm?: LlmGenerationMetadata;
+  llm?: LoggedLlmGenerationMetadata;
 };
 
 export type GenerationLogEvent =

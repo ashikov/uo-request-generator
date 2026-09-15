@@ -232,10 +232,24 @@ Route-level `onRequest` создаёт контекст генерации до 
 Начальное событие содержит `event`, `requestId` и `timestamp`. Итоговое событие
 дополнительно содержит `status`, `durationMs` и фактический `httpStatus`
 публичного ответа. После реально выполненного вызова metadata-capable gateway
-итоговое событие содержит безопасный вложенный объект `llm`: provider, полное
-имя model, нормализованный usage, `usageStatus`, SHA-256 hash точного system
+итоговое событие содержит безопасный вложенный объект `llm`: aliases в полях
+`provider` и `model`, нормализованный usage, `usageStatus`, SHA-256 hash точного system
 prompt и `durationMs` обращения к провайдеру. Верхнеуровневый `durationMs`
 остаётся длительностью всего HTTP-запроса.
+
+На общей границе формирования событий raw `provider` и `model` заменяются
+фиксированными aliases. Слой LLM-конфигурации передаёт типизированный
+`configurationClass` через gateway metadata. Встроенная Yandex-конфигурация
+получает `provider: yandex-builtin`, custom OpenAI-compatible конфигурация —
+`provider: openai-compatible-custom`. Для обоих классов `model: configured-model`:
+alias обозначает настроенную модель, а не её имя или семейство. Это правило
+одинаково для Chat Completions и Responses, явной модели и модели по умолчанию.
+Без известного класса используется общий `openai-compatible-custom`.
+`configurationClass` не входит в событие. Aliases не вычисляются из raw
+provider/model, URL, account, project, folder, resource URI или секретов и не
+различают частные конфигурации внутри класса. Raw metadata остаются во внутреннем
+gateway-контракте, но не читаются при формировании structured logs. Запрос
+провайдеру, выбор модели и остальные технические поля не изменяются.
 
 Событие `generation_failed` для внешнего ответа провайдера с non-2xx может
 дополнительно содержать только проверенный failure-only `providerHttpStatus`:
