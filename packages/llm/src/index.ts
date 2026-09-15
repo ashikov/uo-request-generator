@@ -28,6 +28,7 @@ export {
   createOpenAiCompatibleRequestBody,
   LLM_API_PROTOCOLS,
   type LlmApiProtocol,
+  type LlmConfigurationClass,
   type LlmProviderUsage,
   type OpenAiCompatibleEvaluationObservation,
   OpenAiCompatibleGateway,

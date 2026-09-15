@@ -5,7 +5,7 @@ export type LoggedLlmGenerationMetadata = Omit<
   LlmGenerationMetadata,
   "provider" | "model" | "configurationClass"
 > & {
-  provider: "yandex-builtin" | "openai-compatible-custom";
+  provider: "yandex-builtin" | "openai-compatible-custom" | "unclassified";
   model: "configured-model";
 };
 

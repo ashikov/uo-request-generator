@@ -335,6 +335,7 @@ describe("OpenAiCompatibleGateway", () => {
     });
     expect(generation.metadata.durationMs).toBeGreaterThanOrEqual(0);
     const requestBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+    expect(generation.metadata).not.toHaveProperty("configurationClass");
     expect(generation.metadata.systemPromptHash).toBe(
       createRequestDraftSystemPromptHash(requestBody.messages[0].content),
     );

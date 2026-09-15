@@ -11,6 +11,7 @@ import {
   GenerationNetworkError,
   GenerationProviderUnavailableError,
   GenerationTimeoutError,
+  type LlmConfigurationClass,
 } from "@uo-request-generator/llm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { prepareGenerationClientId } from "../generation-client-id.js";
@@ -153,12 +154,18 @@ function ensureGenerationContext(
   return context;
 }
 
+const providerLogAliases = {
+  "builtin-yandex": "yandex-builtin",
+  "custom-openai-compatible": "openai-compatible-custom",
+} as const satisfies Record<LlmConfigurationClass, LoggedLlmGenerationMetadata["provider"]>;
+
 function selectLlmGenerationMetadata(metadata: LlmGenerationMetadata): LoggedLlmGenerationMetadata {
   return {
     provider:
-      metadata.configurationClass === "builtin-yandex"
-        ? "yandex-builtin"
-        : "openai-compatible-custom",
+      typeof metadata.configurationClass === "string" &&
+      Object.hasOwn(providerLogAliases, metadata.configurationClass)
+        ? providerLogAliases[metadata.configurationClass as LlmConfigurationClass]
+        : "unclassified",
     model: "configured-model",
     usage:
       metadata.usage === null
