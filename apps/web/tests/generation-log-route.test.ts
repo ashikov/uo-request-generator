@@ -311,6 +311,7 @@ describe("структурированные события POST /api/generate",
   it.each([
     undefined,
     "synthetic-private-class-sentinel",
+    "__proto__",
   ])("использует общий alias при неизвестном классе %s, не читая raw provider/model", async (configurationClass) => {
     const metadata: LlmGenerationMetadata = {
       provider: "synthetic-private-provider-sentinel",
@@ -344,7 +345,7 @@ describe("структурированные события POST /api/generate",
     expect(response.statusCode).toBe(200);
     expect(events[1]).toMatchObject({
       llm: {
-        provider: "openai-compatible-custom",
+        provider: "unclassified",
         model: "configured-model",
         durationMs: 42,
         systemPromptHash: "synthetic-prompt-hash",
@@ -419,7 +420,7 @@ describe("структурированные события POST /api/generate",
       event: "generation_succeeded",
       llm: {
         ...llmMetadata,
-        provider: "openai-compatible-custom",
+        provider: "unclassified",
         model: "configured-model",
       },
     });
@@ -459,7 +460,7 @@ describe("структурированные события POST /api/generate",
       llm: {
         usage: null,
         usageStatus,
-        provider: "openai-compatible-custom",
+        provider: "unclassified",
         model: "configured-model",
       },
     });
@@ -491,7 +492,7 @@ describe("структурированные события POST /api/generate",
     expect(events[1]).toMatchObject({
       event: "generation_failed",
       status: "timeout",
-      llm: { ...llmMetadata, provider: "openai-compatible-custom", model: "configured-model" },
+      llm: { ...llmMetadata, provider: "unclassified", model: "configured-model" },
     });
   });
 

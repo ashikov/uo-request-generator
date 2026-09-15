@@ -34,6 +34,8 @@ import {
   type RequestDraft,
 } from "./request-draft.js";
 
+export type LlmConfigurationClass = "builtin-yandex" | "custom-openai-compatible";
+
 export type OpenAiCompatibleGatewayConfig = {
   apiUrl: string;
   apiKey: string;
@@ -41,7 +43,7 @@ export type OpenAiCompatibleGatewayConfig = {
   authScheme: string;
   apiProtocol: LlmApiProtocol;
   provider: string;
-  configurationClass?: LlmGenerationMetadata["configurationClass"];
+  configurationClass?: LlmConfigurationClass;
   extraHeaders?: Record<string, string>;
   timeoutMs?: number;
   maxOutputTokens?: number;
@@ -765,7 +767,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly provider: string;
-  private readonly configurationClass: NonNullable<LlmGenerationMetadata["configurationClass"]>;
+  private readonly configurationClass: LlmConfigurationClass | undefined;
   private readonly authScheme: string;
   private readonly apiProtocol: LlmApiProtocol;
   private readonly extraHeaders: Record<string, string>;
@@ -784,7 +786,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.provider = config.provider;
-    this.configurationClass = config.configurationClass ?? "custom-openai-compatible";
+    this.configurationClass = config.configurationClass;
     this.authScheme = config.authScheme;
     this.apiProtocol = config.apiProtocol;
     this.extraHeaders = config.extraHeaders ?? {};
@@ -886,7 +888,9 @@ export class OpenAiCompatibleGateway implements LlmGateway {
 
     const generation = await this.executeProviderGeneration(normalizedInput, requestBody);
     const metadata: LlmGenerationMetadata = {
-      configurationClass: this.configurationClass,
+      ...(this.configurationClass === undefined
+        ? {}
+        : { configurationClass: this.configurationClass }),
       provider: this.provider,
       model: this.model,
       usage: readOwnDataProperty(generation, "usage") ?? null,
