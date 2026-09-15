@@ -20,6 +20,12 @@ proxy. Семантика Docker logging driver повторно провере�
 log-safe aliases. Эта проверка и решения не подтверждают закрытые факты
 фактического production runtime, proxy logs и механизма удаления.
 
+15 сентября 2026 года в рамках application change #275 raw `provider` и `model`
+заменены фиксированными aliases на границе structured generation events.
+Локальные синтетические regression tests проверяют оба класса конфигурации и
+оба протокола, успех, отклонение и metadata-bearing отказы. Это не проверка
+фактической production-инфраструктуры и не завершение #190.
+
 Документ не является юридическим заключением и не подтверждает соответствие
 сервиса Федеральному закону № 152-ФЗ. Он отделяет установленное требование,
 факт текущей архитектуры, предлагаемое инженерное решение и вопрос, который
@@ -260,7 +266,7 @@ flowchart LR
 | LLM provider → backend | Черновик, provider usage и HTTP response | Пользователь и возможные третьи лица | `Ц1`: проверить schema и детерминированно собрать результат | Ответ находится в памяти запроса. Приложение не пишет его в storage или structured logs. Provider retention неизвестен до проверки | [`openai-compatible-gateway.ts`](../packages/llm/src/openai-compatible-gateway.ts), [`generate.ts`](../apps/web/src/routes/generate.ts) | Основание `Ц1`: статья 6, часть 1, пункт 1, согласие, выбрано решением оператора по проекту от 8 сентября 2026 года. Реализация #264 ещё не выполнена. Подтвердить provider retention, поиск и удаление |
 | Backend → reverse proxy → browser | `title`, `body`, `warnings`, безопасная ошибка и `requestId` в HTTP response | Пользователь и возможные третьи лица в результате | `Ц1`: предоставить результат | Серверная история отсутствует. Приложение отображает результат на текущей странице, а browser-managed restoration не контролирует | [`generate.ts`](../apps/web/src/routes/generate.ts), [`app.js`](../apps/web/public/app.js) | Основание `Ц1`: статья 6, часть 1, пункт 1, согласие, выбрано решением оператора по проекту от 8 сентября 2026 года. Реализация #264 ещё не выполнена. Отразить отсутствие собственной серверной истории в политике |
 | Browser → system clipboard | `title` и `body` по явному действию пользователя | Пользователь и возможные третьи лица в результате | `Ц1`: локально скопировать результат | Срок и последующие получатели определяются браузером и ОС. Backend копию не получает | [`app.js`](../apps/web/public/app.js), [`copy-utils.js`](../apps/web/public/copy-utils.js) | Отдельного серверного основания не добавлять. Прозрачно описать границу локальной обработки |
-| Backend → structured logs | `event`, `requestId`, timestamp, статус, HTTP status, duration, raw `provider`, raw `model`, usage и hash prompt | Пользователь как потенциально определяемое лицо через корреляцию | `Ц4`: диагностика и контроль работы | stdout и stderr ограничены объёмом и числом файлов, но не днями. Свободный текст, результат, IP, cookie и CAPTCHA token не входят в контракт. В custom configuration оба raw значения задаются допустимыми произвольными строками, а встроенная model может содержать project или folder identifier | [`llm-config.ts`](../apps/web/src/llm-config.ts), [`generation-log.ts`](../apps/web/src/generation-log.ts), [`ARCHITECTURE.md`](ARCHITECTURE.md#структурированное-логирование-генерации) | Основание `Ц4`: статья 6, часть 1, пункт 7, выбрано решением оператора по проекту от 8 сентября 2026 года только для минимальных технических событий диагностики и контроля расходов. Утверждённые доступ, срок и aliases, а также незавершённые проверки зафиксированы в [контракте technical logs](#technical-logs-утверждённый-контракт-и-незавершённая-фактическая-проверка) |
+| Backend → structured logs | `event`, `requestId`, timestamp, статус, HTTP status, duration, aliases в `provider` и `model`, usage и hash prompt | Пользователь как потенциально определяемое лицо через корреляцию | `Ц4`: диагностика и контроль работы | stdout и stderr ограничены объёмом и числом файлов, но не днями. Свободный текст, результат, IP, cookie и CAPTCHA token не входят в контракт. Raw provider/model не читаются при формировании событий и заменяются фиксированными aliases публичных классов конфигурации | [`llm-config.ts`](../apps/web/src/llm-config.ts), [`generation-log.ts`](../apps/web/src/generation-log.ts), [`ARCHITECTURE.md`](ARCHITECTURE.md#структурированное-логирование-генерации) | Основание `Ц4`: статья 6, часть 1, пункт 7, выбрано решением оператора по проекту от 8 сентября 2026 года только для минимальных технических событий диагностики и контроля расходов. Утверждённые доступ, срок и aliases, а также незавершённые проверки зафиксированы в [контракте technical logs](#technical-logs-утверждённый-контракт-и-незавершённая-фактическая-проверка) |
 | Backend → audit storage | Потенциально полный ввод, результат и metadata | Пользователь и третьи лица | `Ц5`: возможный будущий аудит | Не реализовано. Сроки 30 и 365 дней из #21 предварительны и не являются принятым решением | Issue #19, #21, #48 и #51 | Основание отсутствует. Не включать до решения о необходимости, составе, доступе, сроке и уничтожении |
 
 ### Ветки недоступной генерации
@@ -506,8 +512,8 @@ app-level contract и поставляемая конфигурация подт
 log-safe aliases для `provider` и `model` и сохранение `systemPromptHash` в тех
 же границах доступа и срока. Фактический production runtime, дополнительные
 копии app logs, состав proxy logs и поддерживаемый механизм календарного
-удаления остаются `UNKNOWN`. Изменение приложения для aliases вынесено в #275 и
-ещё не реализовано. По evidence-policy такой результат нельзя считать
+удаления остаются `UNKNOWN`. Изменение приложения для aliases реализовано в
+рамках #275 и проверено локально 15 сентября. По evidence-policy такой результат нельзя считать
 `approved`.
 
 Владельцем этого контракта и решения о доступе является оператор публичного
@@ -519,7 +525,7 @@ log-safe aliases для `provider` и `model` и сохранение `systemPro
 
 | Вопрос | Статус | Evidence, дата и граница применимости |
 | --- | --- | --- |
-| App events | `CONFIRMED` для списка полей | Код и тесты `main` `37057ee`, проверенные 14 сентября 2026 года, подтверждают структурный allowlist JSON Lines в stdout и безопасный fallback в stderr. Fastify access logger отключён. Безопасность значений raw `provider` и `model` этим не доказана |
+| App events | `CONFIRMED` для application contract | Структурный allowlist JSON Lines в stdout и безопасный fallback в stderr проверены по `main` `37057ee` 14 сентября. Fastify access logger отключён. Application change #275 и локальные синтетические regression tests от 15 сентября подтверждают замену raw `provider` и `model` фиксированными aliases |
 | Диагностика запуска | `CONFIRMED` в проверенной ветви | Невалидная LLM-конфигурация завершает процесс с общей ошибкой конфигурации и стандартной диагностикой Node.js в stderr. Regression test подтверждает отсутствие raw API key, model и URL только для этой ветви. Это не часть схемы generation events и не доказательство состава любой возможной runtime error |
 | Поставляемое хранение app logs | `CONFIRMED` только для Compose-контракта | `compose.production.yaml` задаёт `json-file`, `max-size: 10m` и `max-file: 3`. Разрешённая синтетическая конфигурация Compose проверена 14 сентября. [D1] подтверждает ротацию по размеру и удаление старейшего избыточного файла, но не срок в днях |
 | Фактический production runtime | `UNKNOWN` | Оператор 14 сентября отдельно подтвердил, что репозиторный Compose-контракт не считается доказательством фактического runtime. Logging driver, options и дополнительные копии app logs требуют закрытой проверки фактически запущенного контейнера. По [D2] driver проверяется на созданном контейнере |
@@ -527,15 +533,15 @@ log-safe aliases для `provider` и `model` и сохранение `systemPro
 | Доступ и его lifecycle | `CONFIRMED` как решение оператора | Решение оператора от 14 сентября: владелец — оператор, постоянный доступ имеет только роль оператора runtime, дополнительный доступ ограничен конкретной диагностикой или incident и сроком цели. Пересмотр выполняется перед #169, после существенного изменения, после incident и при выдаче или изменении временного доступа. Прекращение роли или цели требует отзыва в тот же день. Фиксированный 90-дневный пересмотр для текущего однопользовательского MVP не установлен |
 | Календарный retention | `CONFIRMED` как решение оператора | Решением оператора от 14 сентября максимальный срок app и применимых proxy logs установлен в 7 календарных дней для текущей public beta. Это срок проекта, а не нормативный срок. `max-size` и `max-file` не доказывают его соблюдение |
 | Уничтожение и подтверждение | `UNKNOWN` для фактического механизма | `docker logs --since` и `--until` фильтруют просмотр по [D3] и не удаляют данные. Ежедневная проверка отсутствия старых записей допустима как evidence контроля, но не является механизмом удаления. Поддерживаемый механизм определяется только после проверки actual runtime |
-| `provider`, `model`, `systemPromptHash` | `CONFIRMED` как решение оператора, изменение не выполнено | Оператор 14 сентября выбрал log-safe aliases для `provider` и `model`. `systemPromptHash` сохраняется с тем же минимальным доступом и семидневным сроком. Реализация aliases вынесена в #275 |
+| `provider`, `model`, `systemPromptHash` | `CONFIRMED` для решения и application change | Оператор 14 сентября выбрал log-safe aliases для `provider` и `model`. Замена реализована по #275 и проверена локально 15 сентября. `systemPromptHash` сохраняет прежнюю семантику, минимальный доступ и семидневный срок. Фактическое production runtime этим не подтверждено |
 
 Состав app events ограничен следующими полями:
 
 - `generation_started`: `event`, `requestId`, `timestamp`
 - итоговое событие: `event`, `requestId`, `timestamp`, `status`, `durationMs`,
   `httpStatus`
-- после обращения к metadata-capable LLM gateway: вложенный `llm` с raw
-  `provider`, raw `model`, `usage`, `usageStatus`, `systemPromptHash` и
+- после обращения к metadata-capable LLM gateway: вложенный `llm` с aliases в
+  `provider` и `model`, `usage`, `usageStatus`, `systemPromptHash` и
   `durationMs`
 - только для допустимой ошибки ответа provider: проверенный
   `providerHttpStatus`
@@ -545,12 +551,11 @@ log-safe aliases для `provider` и `model` и сохранение `systemPro
 Этот перечень является исчерпывающим структурным allowlist приложения.
 Поля `description`, `location`, `consequences`, `desiredActions`, готовая заявка,
 system prompt, provider response body, IP-адрес, browser UUID, cookie, CAPTCHA
-token, API keys, `Authorization`, полный набор HTTP headers и `process.env` не
-передаются как отдельные поля app events. Однако произвольные raw `provider` и
-`model` остаются недоверенными значениями. До выполнения #275 текущая реализация
-не доказывает, что ошибочная конфигурация не поместит secret или private
-identifier внутрь этих полей. Полный контракт событий и статусов находится в
-разделе
+token, API keys, `Authorization`, полный набор HTTP headers и `process.env`
+не передаются в app events. Недоверенные raw `provider` и `model` не читаются
+на границе structured logging: aliases основаны только на публичном классе
+конфигурации и не включают частные значения или их производные. Полный контракт
+aliases, событий и статусов находится в разделе
 [«Структурированное логирование генерации»](ARCHITECTURE.md#структурированное-логирование-генерации).
 
 Отдельная общая диагностика ошибки конфигурации при запуске может попасть в
@@ -576,11 +581,12 @@ private configuration identifier. Operational contract консервативн�
    `requestId`, контролем доступности и класса отказа, проверкой технического
    usage и расходов. Использование для продуктовой аналитики, профилирования или
    восстановления пользовательского текста не допускается.
-2. Целевой app contract заменяет raw `provider` и `model` стабильными log-safe
+2. Реализованный app contract заменяет raw `provider` и `model` стабильными log-safe
    aliases, не содержащими account, project, folder, endpoint или иной private
    identifier. Закрытое сопоставление aliases с одобренной конфигурацией хранит
-   оператор. До выполнения #275 текущие raw значения считаются private
-   configuration metadata и не получают более широкого доступа.
+   оператор. Aliases различают только публичные классы, а не конкретные модели
+   или частные конфигурации. Raw значения остаются private configuration metadata
+   внутреннего gateway-контракта и не передаются в structured app events.
 3. `systemPromptHash` сохраняется только для воспроизводимости вызова, не
    публикуется и не используется как пользовательский атрибут. Он получает тот же
    минимальный доступ и семидневный срок. Его изменение или замена не входят в
@@ -619,9 +625,9 @@ private configuration identifier. Operational contract консервативн�
 
 Для `approved` оператор должен в закрытом evidence register подтвердить
 фактический runtime, дополнительные копии app logs, наличие и состав proxy logs,
-поддерживаемый механизм календарного удаления и evidence его выполнения. #275
-должна заменить raw `provider` и `model` на aliases без ослабления metadata-only
-contract. Публично фиксируются только дата, итоговый статус и обезличенная
+поддерживаемый механизм календарного удаления и evidence его выполнения.
+Application change #275 сохраняет metadata-only contract, но не подтверждает
+эти operational facts. Публично фиксируются только дата, итоговый статус и обезличенная
 область проверки.
 
 ## Локализация и трансграничная передача
@@ -1007,8 +1013,8 @@ issue допустим только безопасный статус `approved`
 Отсутствие пользовательских текстов не делает все поля логов публично
 безопасными. В custom configuration raw `provider` и `model` задаются
 произвольными допустимыми строками, а встроенная model может включать private
-project или folder identifier. Оператор выбрал для них log-safe aliases,
-но изменение приложения по #275 ещё не выполнено. Актуальный доступ,
+project или folder identifier. Приложение по #275 заменяет эти значения
+фиксированными log-safe aliases в structured events. Актуальный доступ,
 срок и границы фактической проверки определены в
 [контракте technical logs](#technical-logs-утверждённый-контракт-и-незавершённая-фактическая-проверка).
 
@@ -1027,8 +1033,7 @@ project или folder identifier. Оператор выбрал для них lo
   metadata-only без копирования payload, но полноту охвата подтверждает оператор
   по документированным техническим и правовым evidence
 - выполнение фактических проверок и изменений из
-  [контракта technical logs](#technical-logs-утверждённый-контракт-и-незавершённая-фактическая-проверка),
-  включая #275
+  [контракта technical logs](#technical-logs-утверждённый-контракт-и-незавершённая-фактическая-проверка)
 - закрытый provider evidence register и договорные incident contacts
 - оценка вреда по требованиям Роскомнадзора [L8]
 - определение уровня защищённости и применимого набора мер по ПП РФ № 1119 и
@@ -1109,10 +1114,10 @@ DLP или WAF не следует из исследования как обяз
 | Срок и область technical browser cookie | `already satisfied` | #187: cookie ограничена `/api/generate` и следующей UTC-day boundary, legacy `Path=/` удаляется с сохранением UUID. Закон не задаёт точный срок или path |
 | Generation request при глобально отключённой генерации | `already satisfied` | #188 закрыта: public configuration останавливает browser до CAPTCHA и submit, а backend guard до validation, cookie, limiter, CAPTCHA, admission и LLM сохраняет только `requestId` и metadata-only events |
 | Частичная production LLM-конфигурация | `requires application change` | Сейчас может молча выбрать disabled gateway. Production contract должен fail closed до начала приёма пользовательских запросов |
-| Raw provider/model в structured logs | `documented decision`, требуется application change | Оператор 14 сентября выбрал log-safe aliases. Текущий allowlist всё ещё передаёт raw configuration strings, поэтому решение считается реализованным только после #275 |
+| Aliases provider/model в structured logs | `already satisfied` для приложения | Решение оператора от 14 сентября реализовано по #275 и проверено локально 15 сентября: фиксированные aliases публичных классов заменяют raw configuration strings. Production runtime не проверялось |
 | Процесс запросов субъектов | `requires operational procedure` | Нужны канал, проверка заявителя, сроки и действия всех получателей |
 | Необходимые и достаточные меры статьи 18.1 | `documented decision` | Набор мер и личный внутренний контроль утверждены 12 сентября. Выполнение и достаточность проверяются до #169. Решение не подтверждает уже проведённую проверку или исполнение связанных задач |
-| Доступ и жизненный цикл technical logs | `blocked` | Оператор 14 сентября утвердил владельца, минимальные роли, событийный пересмотр, отзыв в тот же день и максимальный срок 7 дней. Фактический runtime, дополнительные копии, proxy logs, механизм удаления и выполнение #275 остаются незавершёнными |
+| Доступ и жизненный цикл technical logs | `blocked` | Оператор 14 сентября утвердил владельца, минимальные роли, событийный пересмотр, отзыв в тот же день и максимальный срок 7 дней. Application change #275 реализовано, но фактический runtime, дополнительные копии, proxy logs и механизм удаления остаются незавершёнными |
 | Применимые меры защиты ИСПДн | `requires operational procedure` | Нужны закрытая классификация, оценка вреда и угроз, уровень защищённости и проверяемый минимальный набор мер. Атомарный outcome #191 |
 | Incident response | `requires operational procedure` | Нужны полный trigger нарушения прав, закрытый журнал, точный RKN/NKTsKI flow и tabletop. Атомарный outcome #183 |
 | Допустимые CAPTCHA и LLM configurations | `requires provider/configuration constraint` | #181 утверждает внешних получателей и целевой configuration class по закрытому evidence register. В #229 фактическая конфигурация проверяется до включения против одобренной записи без обязательного runtime policy engine |
@@ -1154,8 +1159,8 @@ DLP или WAF не следует из исследования как обяз
    доступ и жизненный цикл technical logs #190, применимые меры защиты ИСПДн
    #191 и incident process #183. На 14 сентября #190 имеет статус `blocked`.
    Доступ, максимальный семидневный срок и aliases утверждены, но actual runtime,
-   дополнительные копии, proxy logs и механизм удаления не подтверждены, а #275
-   не выполнена.
+   дополнительные копии, proxy logs и механизм удаления не подтверждены.
+   Application change #275 реализовано и проверено локально 15 сентября.
 7. Technical browser cookie ограничена `/api/generate` и следующей UTC-day
    boundary, общей с дневным limiter. Legacy-вариант `Path=/` удаляется без
    замены UUID. Закон не задаёт точный TTL или `Path`.
@@ -1243,10 +1248,10 @@ issue #169. Новую дублирующую release-gate issue создава�
 | #187 | `[S]` Минимизировать срок и область передачи browser identifier | Limiter contract #39 | Реализовано: UUID передаётся только на `/api/generate` до следующей UTC-day boundary, а legacy `Path=/` удаляется с сохранением UUID. Точные значения закон не задаёт |
 | #188 | `[M]` Не обрабатывать запрос при отключённой генерации | Safeguards #38–#41 и CAPTCHA #62 | Закрыта 21 августа 2026 года: реализованный invariant предотвращает CAPTCHA, submit и downstream processing при отключённой генерации |
 | #189 | `[S]` Запрещать частичную production LLM-конфигурацию | Runtime #83, #92 и provider approval #181 | Неполная production-конфигурация должна fail closed до приёма пользовательских запросов |
-| #190 | `[M]` Утвердить доступ и жизненный цикл technical logs | #18, #20, #47, #115, #181 и #182 | Публичный статус от 14 сентября — `blocked`. Доступ, семидневный срок и aliases утверждены, но actual runtime, proxy logs, удаление и выполнение #275 не подтверждены |
+| #190 | `[M]` Утвердить доступ и жизненный цикл technical logs | #18, #20, #47, #115, #181 и #182 | Публичный статус от 14 сентября — `blocked`. Доступ, семидневный срок и aliases утверждены. Application change #275 реализовано, но actual runtime, дополнительные копии app logs, proxy logs и удаление не подтверждены |
 | #191 | `[M]` Определить применимые меры защиты ИСПДн | #24, #181 и #182, параллельно с #190 | До обработки нужен утверждённый оператором по evidence минимальный набор мер, а не заранее выбранный security stack |
 | #193 | `[M]` Утвердить решение для browser trust boundary внешнего CAPTCHA script | Provider facts #181 используются как входные данные | 22 августа 2026 года для текущего MVP документированно принят остаточный same-document риск и добавлен обезличенный characterization test. Provider behavior не утверждается |
-| #275 | `[M]` Заменить raw `provider` и `model` в application technical logs на log-safe aliases | Operator decision #190 | Application change выполняется отдельно от runtime/proxy verification и блокирует финальный статус #190 и #169 |
+| #275 | `[M]` Заменить raw `provider` и `model` в application technical logs на log-safe aliases | Operator decision #190 | Application change реализовано и проверено локально 15 сентября. Отдельные operational checks #190 остаются blockers финальной проверки #169 |
 
 Минимально уточнены существующие #17, #19, #21, #37, #48 и #51: полный аудит
 и browser history сохранены post-launch, значения 30/365 не считаются принятым
