@@ -21,3 +21,8 @@ node_modules
 playwright-report
 reports
 test-results
+.consent-evidence/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm

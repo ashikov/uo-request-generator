@@ -43,6 +43,7 @@ COPY --from=builder --chown=node:node /app/packages/core/dist ./packages/core/di
 COPY --from=builder --chown=node:node /app/packages/llm/package.json ./packages/llm/package.json
 COPY --from=builder --chown=node:node /app/packages/llm/dist ./packages/llm/dist
 
+RUN mkdir /consent-evidence && chown node:node /consent-evidence && chmod 700 /consent-evidence
 USER node
 EXPOSE 3000
 

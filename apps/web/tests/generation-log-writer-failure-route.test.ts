@@ -7,6 +7,7 @@ import { createApp } from "../src/app";
 import type { GenerationEventWriter, GenerationLogEvent } from "../src/generation-log";
 import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config";
 import type { GenerationSafeguardOptions } from "../src/generation-safeguard";
+import { acceptedConsent, createTestConsentLedger } from "./consent-fixture.js";
 
 const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const validInput = { description: "На лестничной площадке не горит свет" };
@@ -45,6 +46,7 @@ function createWriterFailureApp(
   writeGenerationEvent: GenerationEventWriter,
 ): FastifyInstance {
   const app = createApp({
+    consentLedger: createTestConsentLedger(),
     llmGateway: { generateRequest },
     generationRateLimitConfig,
     generationSafeguardConfig,
@@ -68,7 +70,7 @@ function injectValidRequest(app: FastifyInstance) {
     method: "POST",
     url: "/api/generate",
     headers: { "content-type": "application/json" },
-    payload: validInput,
+    payload: { ...acceptedConsent, ...validInput },
   });
 }
 

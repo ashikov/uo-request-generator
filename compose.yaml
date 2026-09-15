@@ -7,6 +7,10 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      CONSENT_LEDGER_FILE: /consent-evidence/ledger.sqlite
+    volumes:
+      - consent-ledger:/consent-evidence
     # Ограничивает локальный объём логов встроенной ротацией json-file:
     # один текущий файл и два архива по 10 МБ (итог около 30 МБ).
     # К файлам logging driver обращаться внешними инструментами не следует.
@@ -15,3 +19,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  consent-ledger:

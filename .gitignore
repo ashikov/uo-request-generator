@@ -21,3 +21,8 @@ start-server.bat
 server.log
 .omo/
 .omx/
+.consent-evidence/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm

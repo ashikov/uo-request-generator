@@ -45,6 +45,7 @@ test("загружает начальное состояние и отправл
   });
 
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   const submissionNotice = page.locator("#submission-notice");
   await expect(
@@ -73,11 +74,16 @@ test("загружает начальное состояние и отправл
   await page.locator("#submit-button").click();
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
-  expect(submittedPayload).toEqual({ description: requiredDescription });
+  expect(submittedPayload).toEqual({
+    description: requiredDescription,
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
+  });
 });
 
 test("показывает короткие подписи предметов и сохраняет их контракт", async ({ page }) => {
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   const subjectSelect = page.locator("#confirmed-problem-subject");
   await expect(subjectSelect.locator("option")).toHaveText([
@@ -126,6 +132,7 @@ test("показывает короткие подписи предметов и
 
 test("показывает пояснение только для выбранного предмета проблемы", async ({ page }, testInfo) => {
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   const subjectSelect = page.locator("#confirmed-problem-subject");
   const generalHint = page.locator("#confirmed-problem-subject-hint");
@@ -204,6 +211,7 @@ test("сохраняет переводы строк только в сгене�
     await fulfillJson(route, 200, generatedResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   const placeholder = page.locator("#result-placeholder");
   await expect(placeholder).toHaveJSProperty(
@@ -231,6 +239,7 @@ test("отправляет явное подтверждение предмет�
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   await page.locator("#description").fill("Входная дверь подъезда не закрывается.");
   await page.locator("#confirmed-problem-subject").selectOption("common_area_entrance_door");
@@ -238,6 +247,8 @@ test("отправляет явное подтверждение предмет�
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
   expect(submittedPayload).toEqual({
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
     description: "Входная дверь подъезда не закрывается.",
     confirmedProblemSubject: "common_area_entrance_door",
   });
@@ -250,6 +261,7 @@ test("отправляет явное подтверждение освещен�
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   await page
     .locator("#description")
@@ -259,6 +271,8 @@ test("отправляет явное подтверждение освещен�
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
   expect(submittedPayload).toEqual({
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
     description: "В общем коридоре многоквартирного дома не работает освещение.",
     confirmedProblemSubject: "common_area_premises_lighting",
   });
@@ -271,6 +285,7 @@ test("отправляет явное подтверждение уборки п
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   await page.locator("#description").fill("В подъезде многоквартирного дома не выполнена уборка.");
   await page.locator("#confirmed-problem-subject").selectOption("common_area_premises_cleaning");
@@ -278,6 +293,8 @@ test("отправляет явное подтверждение уборки п
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
   expect(submittedPayload).toEqual({
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
     description: "В подъезде многоквартирного дома не выполнена уборка.",
     confirmedProblemSubject: "common_area_premises_cleaning",
   });
@@ -290,6 +307,7 @@ test("отправляет явное подтверждение кровли м
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   await page.locator("#description").fill("На кровле многоквартирного дома обнаружена протечка.");
   await page.locator("#confirmed-problem-subject").selectOption("common_area_roof");
@@ -297,6 +315,8 @@ test("отправляет явное подтверждение кровли м
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
   expect(submittedPayload).toEqual({
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
     description: "На кровле многоквартирного дома обнаружена протечка.",
     confirmedProblemSubject: "common_area_roof",
   });
@@ -309,6 +329,7 @@ test("отправляет явное подтверждение вентиля�
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   await page
     .locator("#description")
@@ -318,6 +339,8 @@ test("отправляет явное подтверждение вентиля�
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
   expect(submittedPayload).toEqual({
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
     description: "Общедомовой вентиляционный канал, обслуживающий помещения подъезда, не работает.",
     confirmedProblemSubject: "common_area_ventilation",
   });
@@ -330,6 +353,7 @@ test("отправляет явное подтверждение лифта об
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   await page
     .locator("#description")
@@ -339,6 +363,8 @@ test("отправляет явное подтверждение лифта об
 
   await expect(page.locator("#result-area h3")).toHaveText(standardGenerationResult.title);
   expect(submittedPayload).toEqual({
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
     description: "Лифт в многоквартирном доме не реагирует на вызов с первого этажа.",
     confirmedProblemSubject: "common_area_elevator",
   });
@@ -351,6 +377,7 @@ test("показывает локальную ошибку до запроса �
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   await page.locator("#description").fill("Коротко");
   await page.locator("#submit-button").click();
@@ -364,6 +391,7 @@ test("показывает локальную ошибку до запроса �
 
 test("не считает постоянный box-shadow видимой focus-индикацией", async ({ page }) => {
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
   const control = page.locator("#description");
   await control.evaluate((element) => {
     const htmlElement = element as HTMLElement;
@@ -396,6 +424,7 @@ test("сохраняет все введённые значения после �
     });
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
   await fillAllFields(page);
 
   await page.locator("#submit-button").click();
@@ -409,7 +438,11 @@ test("сохраняет все введённые значения после �
   await expect(page.locator("#location")).toHaveValue(fullFormValues.location);
   await expect(page.locator("#consequences")).toHaveValue(fullFormValues.consequences);
   await expect(page.locator("#desired-actions")).toHaveValue(fullFormValues.desiredActions);
-  expect(submittedPayload).toEqual(fullFormValues);
+  expect(submittedPayload).toEqual({
+    ...fullFormValues,
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
+  });
 });
 
 test("контролирует loading и блокирует повторную отправку", async ({ page }) => {
@@ -434,10 +467,15 @@ test("контролирует loading и блокирует повторную 
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
   await fillAllFields(page);
 
   await page.locator("#submit-button").click();
-  expect(await requestPayload).toEqual(fullFormValues);
+  expect(await requestPayload).toEqual({
+    ...fullFormValues,
+    consentAccepted: true,
+    consentVersion: "c1-2026-09-15-r1",
+  });
 
   const form = page.locator("#request-form");
   const submitButton = page.locator("#submit-button");
@@ -480,6 +518,7 @@ test("показывает длинный результат, позволяет
     await fulfillJson(route, 200, longGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
   await fillAllFields(page);
 
   await page.locator("#submit-button").click();
@@ -526,6 +565,7 @@ test("проходит по интерактивным элементам кла
     await fulfillJson(route, 200, standardGenerationResult);
   });
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   const expectKeyboardFocus = async (focusedElement: Locator, name: string): Promise<void> => {
     await expectVisibleFocusIndication(focusedElement);
@@ -541,7 +581,7 @@ test("проходит по интерактивным элементам кла
     expect(rectangle.y + rectangle.height).toBeGreaterThan(0);
   };
 
-  await page.keyboard.press("Tab");
+  await page.locator("#description").focus();
   await expectKeyboardFocus(page.locator("#description"), "#description");
   await page.keyboard.type(requiredDescription);
 
@@ -550,6 +590,8 @@ test("проходит по интерактивным элементам кла
     "#consequences",
     "#desired-actions",
     "#confirmed-problem-subject",
+    "#consent-accepted",
+    "#consent-text a",
     "#submit-button",
   ]) {
     await page.keyboard.press("Tab");
@@ -564,4 +606,32 @@ test("проходит по интерактивным элементам кла
 
   await page.keyboard.press("Shift+Tab");
   await expectKeyboardFocus(page.locator("#submit-button"), "#submit-button");
+});
+
+test("без отдельного согласия не отправляет форму и не загружает CAPTCHA", async ({ page }) => {
+  let generationRequests = 0;
+  const externalRequests: string[] = [];
+  await page.route("**/api/captcha/config", (route) =>
+    fulfillJson(route, 200, {
+      generationAvailable: true,
+      required: true,
+      clientKey: "synthetic-public-key",
+    }),
+  );
+  await page.route(generateUrlPattern, async (route) => {
+    generationRequests += 1;
+    await fulfillJson(route, 200, standardGenerationResult);
+  });
+  await page.route("https://**/*", async (route) => {
+    externalRequests.push(route.request().url());
+    await route.abort();
+  });
+  await page.goto("/");
+  await expect(page.locator("#consent-accepted")).not.toBeChecked();
+  await page.locator("#description").fill(requiredDescription);
+  await page.locator("#submit-button").click();
+  await expect(page.locator("#consent-accepted")).toBeFocused();
+  await expect(page.locator("#error-area")).toContainText("согласие");
+  expect(generationRequests).toBe(0);
+  expect(externalRequests).toEqual([]);
 });
