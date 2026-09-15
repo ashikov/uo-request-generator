@@ -1,5 +1,6 @@
 import { DisabledLlmGateway } from "@uo-request-generator/llm";
 import { createApp } from "./app.js";
+import { openConsentLedger } from "./consent-runtime.js";
 import { createGenerationRateLimitConfig } from "./generation-rate-limit-config.js";
 import { createGenerationSafeguardConfig } from "./generation-safeguard-config.js";
 import { createLlmGateway } from "./llm-config.js";
@@ -28,12 +29,24 @@ async function main(): Promise<void> {
   const generationSafeguardConfig = createGenerationSafeguardConfig(process.env, {
     allowImplicitDisabledGateway: llmGateway instanceof DisabledLlmGateway,
   });
+  let consentLedger: ReturnType<typeof openConsentLedger>;
+  try {
+    consentLedger = openConsentLedger(process.env, {
+      allowMissing: llmGateway instanceof DisabledLlmGateway,
+    });
+  } catch {
+    process.stderr.write("Не удалось открыть долговечный журнал согласий.\n");
+    process.exitCode = 1;
+    return;
+  }
   const app = createApp({
+    ...(consentLedger === undefined ? {} : { consentLedger }),
     llmGateway,
     generationRateLimitConfig,
     smartCaptchaConfig,
     ...(generationSafeguardConfig === undefined ? {} : { generationSafeguardConfig }),
   });
+  app.addHook("onClose", async () => consentLedger?.close());
   const shutdown = createShutdown({
     close: () => app.close(),
     setExitCode: (code) => {

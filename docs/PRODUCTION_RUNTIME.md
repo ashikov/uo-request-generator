@@ -174,8 +174,11 @@ issue #84 использует digest как источник истины. `lat
 Контейнер явно запускается как пользователь `node` из production image. Для него
 включены встроенный init-процесс Compose, `restart: unless-stopped`, read-only
 root filesystem, удаление всех Linux capabilities, `no-new-privileges` и предел
-в 128 процессов. Приложение не пишет файлы и не требует writable temporary
-directory, поэтому `tmpfs` и volume не добавлены. CPU и memory limits не заданы:
+в 128 процессов. Узкий consent ledger #264 использует
+единственный writable persistent volume, остальные области приложения не
+становятся writable. `tmpfs` не требуется. Порядок сохранения volume, закрытого
+доступа, удаления и проверки snapshots/backups определён в
+[C1_CONSENT.md](C1_CONSENT.md#узкий-долговечный-ledger). CPU и memory limits не заданы:
 их можно выбирать только после наблюдения за фактическим потреблением.
 
 Container healthcheck выполняет встроенный `fetch` Node.js к

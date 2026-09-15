@@ -14,8 +14,10 @@ import {
   type LlmConfigurationClass,
 } from "@uo-request-generator/llm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { ConsentLedger } from "../consent-ledger.js";
 import { prepareGenerationClientId } from "../generation-client-id.js";
 import {
+  generateConsentSchema,
   generateHttpRequestSchema,
   generateRequestBodyLimitBytes,
 } from "../generation-http-contract.js";
@@ -48,6 +50,7 @@ type ApiError = {
 };
 
 type GenerationRequestContext = {
+  consentReceiptId?: string;
   requestId: string;
   startedAt: number;
   terminalEventAttempted: boolean;
@@ -385,6 +388,7 @@ function sendGenerationFailure(
 }
 
 type RegisterGenerateRouteOptions = {
+  consentLedger: Pick<ConsentLedger, "accept"> | undefined;
   llmGateway: LlmGateway;
   generationRateLimiter: GenerationRateLimiter;
   generationNow: () => number;
@@ -401,7 +405,10 @@ export function registerGenerateRoute(
 ): void {
   const pendingClientCookieSetters = new WeakMap<FastifyReply, () => void>();
 
-  app.addHook("onSend", async (_request, reply, payload) => {
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.generationContext?.consentReceiptId !== undefined) {
+      reply.header("x-consent-receipt-id", request.generationContext.consentReceiptId);
+    }
     const setClientCookie = pendingClientCookieSetters.get(reply);
     if (setClientCookie !== undefined) {
       pendingClientCookieSetters.delete(reply);
@@ -476,7 +483,8 @@ export function registerGenerateRoute(
         );
       }
 
-      const { captchaToken, ...generationInput } = inputValidation.data;
+      const { captchaToken, consentAccepted, consentVersion, ...generationInput } =
+        inputValidation.data;
       let releaseRateLimit: (() => void) | undefined;
 
       try {
@@ -547,6 +555,35 @@ export function registerGenerateRoute(
             );
           }
         }
+
+        const consent = generateConsentSchema.safeParse({ consentAccepted, consentVersion });
+        if (!consent.success) {
+          return sendApiErrorWithEvent(
+            reply,
+            validationApiError,
+            context,
+            { event: "generation_rejected", status: "validation_error" },
+            options.writeGenerationEvent,
+          );
+        }
+        if (options.consentLedger === undefined) {
+          if (options.llmGateway instanceof DisabledLlmGateway) {
+            return sendGenerationFailure(
+              new GenerationProviderUnavailableError(),
+              options.llmGateway,
+              reply,
+              context,
+              options.writeGenerationEvent,
+            );
+          }
+          throw new Error("Consent ledger is unavailable");
+        }
+        const receipt = options.consentLedger.accept(
+          context.requestId,
+          consent.data.consentVersion,
+        );
+        context.consentReceiptId = receipt.consentReceiptId;
+        reply.header("x-consent-receipt-id", receipt.consentReceiptId);
 
         const safeguardDecision = options.generationSafeguard.acquire();
         if (!safeguardDecision.allowed) {

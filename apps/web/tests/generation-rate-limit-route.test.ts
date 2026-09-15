@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { generationClientCookieName } from "../src/generation-client-id.js";
 import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config.js";
+import { acceptedConsent, createTestConsentLedger } from "./consent-fixture.js";
 
 const validInput = {
   description: "На тестовой площадке не работает освещение",
@@ -56,6 +57,7 @@ function successfulGateway(): LlmGateway {
 
 function registerApp(options: Parameters<typeof createApp>[0] = {}): ReturnType<typeof createApp> {
   const app = createApp({
+    consentLedger: createTestConsentLedger(),
     llmGateway: successfulGateway(),
     generationRateLimitConfig: rateLimitConfig(),
     generationSafeguardConfig,
@@ -140,7 +142,7 @@ async function injectGenerate(
         ? {}
         : { "x-forwarded-proto": options.forwardedProto }),
     },
-    payload: options.payload ?? validInput,
+    payload: { ...acceptedConsent, ...(options.payload ?? validInput) },
     ...(options.remoteAddress === undefined ? {} : { remoteAddress: options.remoteAddress }),
   });
 }

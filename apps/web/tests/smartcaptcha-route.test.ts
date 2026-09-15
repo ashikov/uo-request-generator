@@ -4,6 +4,7 @@ import { createApp } from "../src/app";
 import type { GenerationRateLimitConfig } from "../src/generation-rate-limit-config";
 import { GenerationRateLimiter } from "../src/generation-rate-limiter";
 import type { SmartCaptchaVerificationResult } from "../src/smartcaptcha-verifier";
+import { acceptedConsent, createTestConsentLedger } from "./consent-fixture.js";
 
 const cookieSecret = "test-cookie-signing-secret-32-characters";
 const serverKey = "test-private-server-key";
@@ -65,6 +66,7 @@ function registerRequiredApp(options: {
   generationRateLimitConfig?: GenerationRateLimitConfig;
 }) {
   const app = createApp({
+    consentLedger: createTestConsentLedger(),
     generationRateLimitConfig: options.generationRateLimitConfig ?? generationRateLimitConfig,
     generationSafeguardConfig,
     smartCaptchaConfig: {
@@ -101,10 +103,7 @@ async function injectGenerate(
       ...(options.cookie === undefined ? {} : { cookie: options.cookie }),
       ...(options.forwardedFor === undefined ? {} : { "x-forwarded-for": options.forwardedFor }),
     },
-    payload: options.payload ?? {
-      ...validInput,
-      captchaToken,
-    },
+    payload: { ...acceptedConsent, ...(options.payload ?? { ...validInput, captchaToken }) },
     remoteAddress: options.remoteAddress ?? remoteAddress,
   });
 }
@@ -170,6 +169,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
 
     const response = await injectGenerate(app, {
       payload: {
+        ...acceptedConsent,
         description: "Коротко",
         captchaToken,
       },
@@ -260,7 +260,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
 
     const firstResponse = await injectGenerate(app, { payload: validInput });
     const secondResponse = await injectGenerate(app, {
-      payload: validInput,
+      payload: { ...acceptedConsent, ...validInput },
       cookie: cookieHeaderFrom(firstResponse),
     });
 
@@ -416,6 +416,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
     };
     const gateway = successfulGateway();
     const app = createApp({
+      consentLedger: createTestConsentLedger(),
       generationRateLimitConfig,
       generationSafeguardConfig,
       smartCaptchaConfig: {
@@ -443,6 +444,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
     const verifier = verifierWithResults({ status: "verified" });
     const gateway = successfulGateway();
     const app = createApp({
+      consentLedger: createTestConsentLedger(),
       generationRateLimitConfig,
       generationSafeguardConfig,
       smartCaptchaConfig: { mode: "disabled" },
@@ -472,6 +474,7 @@ describe("SmartCaptcha в POST /api/generate", () => {
 
     const response = await injectGenerate(app, {
       payload: {
+        ...acceptedConsent,
         ...validInput,
         captchaToken: "x".repeat(4_097),
       },

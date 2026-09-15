@@ -4,6 +4,14 @@ import {
   generateRequestLimits,
 } from "@uo-request-generator/core";
 import { z } from "zod";
+import { C1_CONSENT_VERSION } from "./consent-policy.js";
+
+export const generateConsentSchema = z
+  .object({
+    consentAccepted: z.literal(true),
+    consentVersion: z.literal(C1_CONSENT_VERSION),
+  })
+  .strict();
 
 export const captchaTokenMaxLength = 4_096;
 
@@ -39,5 +47,8 @@ export const generateRequestBodyLimitBytes =
 export const generateHttpRequestSchema = generateRequestInputSchema
   .extend({
     captchaToken: z.string().trim().min(1).max(captchaTokenMaxLength).optional(),
+    // Семантика согласия проверяется после CAPTCHA, независимо от основания Ц3.
+    consentAccepted: z.unknown().optional(),
+    consentVersion: z.unknown().optional(),
   })
   .strict();

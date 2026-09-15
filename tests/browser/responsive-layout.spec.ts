@@ -121,6 +121,7 @@ test("сохраняет layout-инварианты от формы до дли
   });
 
   await page.goto("/");
+  await page.locator("#consent-accepted").check();
 
   await expect(
     page.getByRole("heading", { level: 1, name: "Заявка в управляющую организацию" }),
@@ -256,6 +257,12 @@ test("сохраняет layout-инварианты от формы до дли
   await expectNoHorizontalDocumentOverflow(page);
 
   expect(generationRequestCount).toBe(2);
-  expect(submittedPayloads).toEqual([fullFormValues, fullFormValues]);
+  expect(submittedPayloads).toEqual(
+    [1, 2].map(() => ({
+      ...fullFormValues,
+      consentAccepted: true,
+      consentVersion: "c1-2026-09-15-r1",
+    })),
+  );
   expect(unexpectedExternalRequests).toEqual([]);
 });

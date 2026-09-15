@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import type { LlmGateway } from "@uo-request-generator/core";
 import { DisabledLlmGateway } from "@uo-request-generator/llm";
 import Fastify, { type FastifyInstance } from "fastify";
+import type { ConsentLedger } from "./consent-ledger.js";
 import {
   createFailSafeGenerationEventWriter,
   type GenerationEventWriter,
@@ -27,6 +28,7 @@ import type { SmartCaptchaConfig } from "./smartcaptcha-config.js";
 import { SmartCaptchaVerifier } from "./smartcaptcha-verifier.js";
 
 export type CreateAppOptions = {
+  consentLedger?: Pick<ConsentLedger, "accept">;
   llmGateway?: LlmGateway;
   generationRateLimitConfig?: GenerationRateLimitConfig;
   generationRateLimiterNow?: () => number;
@@ -99,6 +101,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   registerHealthRoute(app);
   registerCaptchaConfigRoute(app, smartCaptchaConfig, generationSafeguard.isGenerationEnabled());
   registerGenerateRoute(app, {
+    consentLedger: options.consentLedger,
     llmGateway,
     generationRateLimiter,
     generationNow,

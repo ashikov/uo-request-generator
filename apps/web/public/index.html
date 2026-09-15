@@ -213,6 +213,32 @@
                   </div>
                 </section>
 
+                <div class="form-check">
+                  <input
+                    id="consent-accepted"
+                    class="form-check-input"
+                    type="checkbox"
+                    name="consentAccepted"
+                    required
+                    aria-describedby="consent-text consent-version-hint"
+                  />
+                  <label class="form-check-label fw-semibold" for="consent-accepted">
+                    Согласие на подготовку одной заявки (Ц1)
+                  </label>
+                  <p id="consent-text" class="small mt-2 mb-1">
+                    Я даю согласие на обработку персональных данных, которые указываю в этой форме,
+                    исключительно для подготовки и возврата мне текста одной заявки в управляющую
+                    организацию. Для этой цели введённые данные могут быть переданы внешнему сервису
+                    на базе LLM, используемому оператором для подготовки текста заявки. Согласие
+                    действует до достижения указанной цели или до его отзыва. Отозвать согласие
+                    можно, написав на <a href="mailto:zayavka@ashikov.ru">zayavka@ashikov.ru</a>.
+                  </p>
+                  <p id="consent-version-hint" class="small mb-0">
+                    Версия:
+                    <span id="consent-version" data-consent-version="c1-2026-09-15-r1">c1-2026-09-15-r1</span>
+                  </p>
+                </div>
+
                 <div class="vstack gap-2">
                   <div id="captcha-container"></div>
                   <p id="captcha-notice" class="form-text mb-0" hidden>
@@ -248,6 +274,22 @@
                   </h2>
                   <p id="result-placeholder" class="mt-3 mb-0">
                     Здесь появится результат после успешной генерации.
+                  </p>
+                </section>
+
+                <section
+                  id="consent-receipt-area"
+                  class="card card-body small"
+                  aria-live="polite"
+                  hidden
+                >
+                  <p class="mb-1">
+                    Код согласия: <span id="consent-receipt-id" class="text-break"></span>
+                  </p>
+                  <p class="mb-0">
+                    Для отзыва согласия напишите на
+                    <a href="mailto:zayavka@ashikov.ru">zayavka@ashikov.ru</a>.
+                    Сохраните код для поиска записи. Он не подтверждает вашу личность.
                   </p>
                 </section>
 

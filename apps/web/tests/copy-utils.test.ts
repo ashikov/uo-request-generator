@@ -88,6 +88,9 @@ const mockResult = {
 function setupFormDOM() {
   document.body.innerHTML = `
     <form id="request-form">
+      <input id="consent-accepted" type="checkbox" checked />
+      <span id="consent-version" data-consent-version="c1-2026-09-15-r1">c1-2026-09-15-r1</span>
+      <div id="consent-receipt-area" hidden><span id="consent-receipt-id"></span></div>
       <textarea id="description" minlength="10" maxlength="500">
         Описание неисправности для проверки работы формы
       </textarea>
@@ -131,6 +134,7 @@ describe("copy button in app", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: true,
         json: () => Promise.resolve({ generationAvailable: true, required: false }),
       }),
@@ -171,6 +175,7 @@ describe("copy button in app", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        headers: new Headers(),
         ok: true,
         json: () => Promise.resolve(mockResult),
       }),

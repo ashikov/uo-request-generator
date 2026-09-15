@@ -21,6 +21,10 @@ export function initializeCaptcha() {
   const locationCount = document.querySelector("#location-count");
   const consequencesCount = document.querySelector("#consequences-count");
   const desiredActionsCount = document.querySelector("#desired-actions-count");
+  const consentAccepted = document.querySelector("#consent-accepted");
+  const consentVersion = document.querySelector("#consent-version");
+  const consentReceiptArea = document.querySelector("#consent-receipt-area");
+  const consentReceiptId = document.querySelector("#consent-receipt-id");
   const submitButton = document.querySelector("#submit-button");
   const captchaNotice = document.querySelector("#captcha-notice");
   const errorArea = document.querySelector("#error-area");
@@ -72,6 +76,8 @@ export function initializeCaptcha() {
 
     return {
       description: description.value,
+      consentAccepted: consentAccepted.checked,
+      consentVersion: consentVersion.dataset.consentVersion,
       ...(normalizedLocation === "" ? {} : { location: normalizedLocation }),
       ...(normalizedConsequences === "" ? {} : { consequences: normalizedConsequences }),
       ...(normalizedDesiredActions === "" ? {} : { desiredActions: normalizedDesiredActions }),
@@ -303,7 +309,22 @@ export function initializeCaptcha() {
       return;
     }
 
+    if (!input.consentAccepted) {
+      renderError("Подтвердите отдельное согласие на подготовку заявки");
+      consentAccepted.setAttribute("aria-invalid", "true");
+      consentAccepted.setAttribute(
+        "aria-describedby",
+        "consent-text consent-version-hint error-area",
+      );
+      consentAccepted.focus();
+      return;
+    }
+
     clearError();
+    consentAccepted.removeAttribute("aria-invalid");
+    consentAccepted.setAttribute("aria-describedby", "consent-text consent-version-hint");
+    consentReceiptArea.hidden = true;
+    consentReceiptId.textContent = "";
     resetResult();
     setSubmitting(true);
 
@@ -327,12 +348,24 @@ export function initializeCaptcha() {
             requestInput = { ...input, captchaToken };
           }
 
+          if (!consentAccepted.checked) {
+            renderError("Подтвердите отдельное согласие на подготовку заявки");
+            consentAccepted.focus();
+            return;
+          }
+
           let response;
           try {
             response = await submitRequest(requestInput);
           } catch {
             renderError("Не удалось связаться с сервисом. Попробуйте позже");
             return;
+          }
+
+          const receiptId = response.headers.get("x-consent-receipt-id");
+          if (receiptId !== null) {
+            consentReceiptId.textContent = receiptId;
+            consentReceiptArea.hidden = false;
           }
 
           let payload;
