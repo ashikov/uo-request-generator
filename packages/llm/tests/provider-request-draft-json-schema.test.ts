@@ -18,9 +18,15 @@ describe("provider RequestDraft JSON Schema", () => {
       "problem",
       "circumstances",
       "impact",
+      "requestItem",
       "subject",
       "warnings",
     ]);
+    expect(draftSchema.properties.requestItem).toMatchObject({
+      type: ["string", "null"],
+      minLength: 1,
+      maxLength: primaryRequestDraftLimits.requestItem.max,
+    });
     expect(Object.keys(draftSchema.properties)).toEqual(draftSchema.required);
     expect(JSON.stringify(draftSchema)).not.toContain("requestItems");
     expect(JSON.stringify(draftSchema)).not.toContain("actionPlan");

@@ -22,6 +22,7 @@ describe("evaluation canonical validation diagnostics", () => {
           problem: "В помещении общего пользования не работает освещение.",
           circumstances: null,
           impact: null,
+          requestItem: null,
           subject: null,
           warnings: [],
         },

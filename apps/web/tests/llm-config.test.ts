@@ -12,6 +12,7 @@ function llmText(description: string): string {
       problem: description,
       circumstances: null,
       impact: null,
+      requestItem: null,
       subject: null,
       warnings: [],
     },
