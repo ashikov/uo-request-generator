@@ -75,6 +75,10 @@ const fakeClassicScript = `
     };
 
     document.addEventListener("change", publishCapability);
+    document.addEventListener("synthetic-consent-action", () => {
+      document.querySelector("#consent-accepted").checked = true;
+      document.querySelector("#request-form").requestSubmit();
+    });
     new MutationObserver(publishCapability).observe(document.body, {
       childList: true,
       subtree: true,
@@ -104,7 +108,7 @@ const fakeClassicScript = `
   })();
 `;
 
-test("доказывает техническую возможность same-document classic script читать ввод и последующий DOM", async ({
+test("характеризует чтение DOM, изменение consent control и submit same-document classic script", async ({
   page,
 }) => {
   const unexpectedExternalRequests: string[] = [];
@@ -246,5 +250,18 @@ test("доказывает техническую возможность same-do
       captchaToken: "synthetic-captcha-token-2",
     },
   ]);
+  await page.locator("#consent-accepted").uncheck();
+  await expect(page.locator("#consent-accepted")).not.toBeChecked();
+  await page.evaluate(() => document.dispatchEvent(new Event("synthetic-consent-action")));
+  await expect(page.locator("#consent-accepted")).toBeChecked();
+  await expect(classicScript).toHaveAttribute("data-reset-count", "3");
+  expect(submittedPayloads).toHaveLength(3);
+  expect(submittedPayloads[2]).toEqual({
+    ...fullFormValues,
+    confirmedProblemSubject,
+    consentAccepted: true,
+    consentVersion,
+    captchaToken: "synthetic-captcha-token-3",
+  });
   expect(unexpectedExternalRequests).toEqual([]);
 });
