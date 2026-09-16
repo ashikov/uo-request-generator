@@ -187,6 +187,8 @@ if (requestGenerator.environment?.CONSENT_LEDGER_FILE !== "/consent-evidence/led
 if ("tmpfs" in requestGenerator) throw new Error("application does not require tmpfs");
 const attachedNetworks = Object.keys(requestGenerator.networks ?? {});
 if (attachedNetworks.length !== 1 || attachedNetworks[0] !== "reverse-proxy") throw new Error("service must use only the reverse-proxy network");
+const networkAliases = requestGenerator.networks?.["reverse-proxy"]?.aliases;
+if (!Array.isArray(networkAliases) || networkAliases.length !== 1 || networkAliases[0] !== "uo-request-generator") throw new Error("reverse-proxy network must expose only the stable uo-request-generator alias");
 const network = config.networks?.["reverse-proxy"];
 if (!network || network.external !== true || network.name !== process.env.EXPECTED_NETWORK) throw new Error("reverse-proxy network must be explicitly named and external");
 if (!requestGenerator.healthcheck?.test?.join(" ").includes("/api/health")) throw new Error("healthcheck must use /api/health");
@@ -256,6 +258,8 @@ fi
 
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
   -e "fetch('http://request-generator:3000/api/health').then(async response => { if (!response.ok || (await response.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"
+docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
+  -e "fetch('http://uo-request-generator:3000/api/health').then(async response => { if (!response.ok || (await response.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
   -e "fetch('http://request-generator:3000/vendor/bootstrap/bootstrap.min.css').then(async response => { const body = await response.text(); if (!response.ok || !response.headers.get('content-type')?.includes('text/css') || !/Bootstrap\\s+v5\\.3\\.8/.test(body)) process.exit(1) }).catch(() => process.exit(1))"
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
