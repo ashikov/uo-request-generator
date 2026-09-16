@@ -18,7 +18,9 @@ services:
     expose:
       - "3000"
     networks:
-      - reverse-proxy
+      reverse-proxy:
+        aliases:
+          - uo-request-generator
     read_only: true
     cap_drop:
       - ALL
