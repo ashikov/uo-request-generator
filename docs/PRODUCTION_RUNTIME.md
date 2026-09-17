@@ -204,10 +204,14 @@ Container healthcheck выполняет встроенный `fetch` Node.js к
 контракта, а не описание существующего production-узла. Перед запуском
 контейнера оператор создаёт каталог с владельцем `syslog:syslog` и правами
 `0700`, размещает [rsyslog-конфигурацию](../ops/technical-logs/rsyslog.conf)
-в `/etc/rsyslog.d/` и
-[правило logrotate](../ops/technical-logs/logrotate.conf) в
-`/etc/logrotate.d/`. На узле нужны учётная запись `syslog`, загруженный
-`imuxsock`, действующий `rsyslog.service` и ежедневный планировщик logrotate.
+в `/etc/rsyslog.d/`, [правило logrotate](../ops/technical-logs/logrotate.conf)
+в `/etc/uo-request-generator/`, [скрипт ротации](../ops/technical-logs/rotate-technical-logs)
+и отдельные [service](../ops/technical-logs/uo-request-generator-technical-logrotate.service)
+и [timer](../ops/technical-logs/uo-request-generator-technical-logrotate.timer).
+Правило не устанавливается в `/etc/logrotate.d/`: системный планировщик не
+должен запускать его со вторым файлом состояния. На узле нужны учётная запись
+`syslog`, загруженный `imuxsock`, работающий от `syslog` процесс
+`rsyslog.service`, `logrotate`, `flock` и systemd timer.
 Конфигурация приёма привязывает отдельный сокет к отдельному ruleset и пишет
 только в `/var/log/uo-request-generator/technical.log` с правами `0600`.
 Она не меняет общие правила хранения системных журналов. Значение
@@ -216,31 +220,64 @@ Container healthcheck выполняет встроенный `fetch` Node.js к
 Docker отказывает в создании контейнера.
 
 После merge, в отдельном согласованном внедрении, из каталога с перенесёнными
-артефактами установка двух файлов выполняется с правами администратора до
+артефактами установка выполняется с правами администратора до
 пересоздания приложения:
 
 ```bash
 install -d -o syslog -g syslog -m 0700 /var/log/uo-request-generator
+touch /var/log/uo-request-generator/technical.log
+chown syslog:syslog /var/log/uo-request-generator/technical.log
+chmod 0600 /var/log/uo-request-generator/technical.log
+install -d -m 0755 /etc/uo-request-generator /usr/local/libexec/uo-request-generator
 install -m 0644 ops/technical-logs/rsyslog.conf /etc/rsyslog.d/30-uo-request-generator-technical.conf
-install -m 0644 ops/technical-logs/logrotate.conf /etc/logrotate.d/uo-request-generator-technical
+install -m 0644 ops/technical-logs/logrotate.conf /etc/uo-request-generator/technical-logrotate.conf
+install -m 0755 ops/technical-logs/rotate-technical-logs /usr/local/libexec/uo-request-generator/rotate-technical-logs
+install -m 0644 ops/technical-logs/uo-request-generator-technical-logrotate.service /etc/systemd/system/
+install -m 0644 ops/technical-logs/uo-request-generator-technical-logrotate.timer /etc/systemd/system/
 rsyslogd -N1
-logrotate -d /etc/logrotate.d/uo-request-generator-technical
+logrotate -d -s /var/log/uo-request-generator/.logrotate.state /etc/uo-request-generator/technical-logrotate.conf
+systemd-analyze verify /etc/systemd/system/uo-request-generator-technical-logrotate.service /etc/systemd/system/uo-request-generator-technical-logrotate.timer
+systemctl daemon-reload
 systemctl restart rsyslog.service
 test -S /var/log/uo-request-generator/technical.sock
+rsyslog_pid=$(systemctl show --property=MainPID --value rsyslog.service)
+test "$rsyslog_pid" -gt 0
+test "$(ps -o euid= -p "$rsyslog_pid" | tr -d ' ')" = "$(id -u syslog)"
+systemctl enable --now uo-request-generator-technical-logrotate.timer
+systemctl start uo-request-generator-technical-logrotate.service
+test "$(stat -c %U:%G /var/log/uo-request-generator/.rotation.lock)" = syslog:syslog
+test "$(stat -c %U:%G /var/log/uo-request-generator/.logrotate.state)" = syslog:syslog
 ```
 
 Оператор перед применением сверяет путь сокета в Compose, права и активность
-ежедневного планировщика. Если проверка конфигурации или сокета не проходит,
+отдельного ежедневного timer. Проверка UID нужна потому, что досрочный запуск
+наследует пользователя rsyslog, а ежедневная служба запускается от `syslog`.
+Если проверка конфигурации, UID или сокета не проходит,
 пересоздание контейнера не выполняется.
 
 Во время отдельного внедрения оператор проверяет итоговую конфигурацию
-через `rsyslogd -N1` и `logrotate -d`, затем подтверждает наличие и тип сокета,
-права каталога и файла, успешную доставку синтетического сообщения и
+через `rsyslogd -N1`, `logrotate -d` и `systemd-analyze verify`, затем
+подтверждает наличие и тип сокета, права каталога и файла, успешную доставку
+синтетического сообщения, досрочную ротацию при превышении порога и
 `HostConfig.LogConfig` фактически созданного контейнера. Требуемые поля —
 `Type=syslog`, локальный `syslog-address`, `cache-disabled=true` и указанный tag.
-Если rsyslog или logrotate отсутствуют в CI, проверка их синтаксиса и работы
-остаётся обязательным шагом внедрения на целевой ОС. Текущее изменение
+Если host tools отсутствуют в CI, проверка их синтаксиса и работы остаётся
+обязательным шагом внедрения на целевой ОС. Текущее изменение
 репозитория само по себе production не переключает.
+
+Оба источника пишут в один файл, поэтому порог
+[rsyslog output channel](https://docs.rsyslog.com/doc/configuration/output_channels.html)
+`10485760` байт (10 МиБ) ограничивает общий поток приложения и применимого
+proxy. После достижения порога rsyslog вызывает один скрипт с принудительным
+запуском того же правила logrotate. Отдельный systemd timer ежедневно вызывает
+его без `--force`. Оба вызова выполняются от `syslog`, используют один файл
+состояния и общую блокировку `flock`. Это не два конкурирующих механизма
+переименования файла. Правило содержит `copytruncate`, чтобы rsyslog продолжал
+запись в тот же открытый файл без `HUP`; согласно документации logrotate между
+копированием и усечением возможна потеря отдельных строк. Порог допускает
+небольшое превышение на размер сообщения и не является точным лимитом байт.
+Текущий файл и четыре архива ограничивают постоянное место для project logs;
+временная копия при ротации также требует свободного места.
 
 Правило logrotate содержит `daily`, `ifempty`, `rotate 4` и `maxage 5`.
 [Документация logrotate](https://man7.org/linux/man-pages/man8/logrotate.8.html)
@@ -253,10 +290,11 @@ test -S /var/log/uo-request-generator/technical.sock
 раньше границы семи календарных дней. `ifempty` обеспечивает ротацию и без
 нового трафика.
 `maxage` дополнительно удаляет старые архивы, но проверяется только во время
-ротации и сам по себе срок не гарантирует. `postrotate` посылает rsyslog `HUP`,
-чтобы запись продолжилась в новом файле. При остановленном или ошибочном
-планировщике гарантия не действует: оператор проверяет, что ежедневное задание
-включён, активен и завершает запуски успешно.
+ротации и сам по себе срок не гарантирует. Досрочные ротации могут удалить
+архивы раньше календарного срока. При остановленном или ошибочном timer
+календарная гарантия не действует: оператор проверяет, что
+`uo-request-generator-technical-logrotate.timer` включён, активен, а связанный
+service завершает ежедневные запуски успешно.
 
 После внедрения оператор закрыто и только на чтение проверяет временные метки записей
 в текущем файле и четырёх возможных архивах, сопоставляет самую старую запись с
@@ -304,7 +342,7 @@ host должно быть достаточно места для текущег
 
 Репозиторий, Git, Node.js и сборочные инструменты на production host не нужны.
 Во время одноразового bootstrap разместите версионированные
-`compose.production.yaml`, `scripts/production-compose.sh` и два файла
+`compose.production.yaml`, `scripts/production-compose.sh` и файлы
 `ops/technical-logs/` в закрытом операторском runtime-каталоге, сохранив
 относительное расположение файлов.
 Передавайте их на host утверждённым внешним способом, а не через checkout

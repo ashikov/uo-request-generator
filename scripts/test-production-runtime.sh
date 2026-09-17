@@ -24,8 +24,13 @@ CONTAINER_ID=""
 FIRST_IMAGE_ID=""
 SECOND_IMAGE_ID=""
 NETWORK_CREATED=false
+TECHNICAL_TEST_RSYSLOG_PID=""
 
 cleanup() {
+  if [[ -n "$TECHNICAL_TEST_RSYSLOG_PID" ]]; then
+    kill "$TECHNICAL_TEST_RSYSLOG_PID" >/dev/null 2>&1 || true
+    wait "$TECHNICAL_TEST_RSYSLOG_PID" 2>/dev/null || true
+  fi
   if [[ -f "$COMPOSE_FILE" && -n "${PRODUCTION_IMAGE:-}" ]]; then
     PRODUCTION_IMAGE="$PRODUCTION_IMAGE" \
       PRODUCTION_ENV_FILE="$PRODUCTION_ENV_FILE" \
@@ -182,7 +187,7 @@ docker exec "$LOG_RECEIVER" test -S /socket/technical-logs.sock || \
 PRODUCTION_SYSLOG_SOCKET="$(docker volume inspect --format '{{.Mountpoint}}' "$LOG_VOLUME")/technical-logs.sock"
 
 if command -v rsyslogd >/dev/null 2>&1; then
-  printf 'module(load="imuxsock")\ninclude(file="%s/ops/technical-logs/rsyslog.conf")\n' \
+  printf 'module(load="imuxsock" SysSock.Use="off")\ninclude(file="%s/ops/technical-logs/rsyslog.conf")\n' \
     "$ROOT_DIRECTORY" >"$TEMP_DIRECTORY/rsyslog-validation.conf"
   rsyslogd -N1 -f "$TEMP_DIRECTORY/rsyslog-validation.conf"
 else
@@ -198,6 +203,99 @@ if command -v logrotate >/dev/null 2>&1; then
     fail "logrotate would retain the current file without traffic"
 else
   printf 'logrotate unavailable; host syntax validation remains a rollout gate.\n'
+fi
+
+if command -v rsyslogd >/dev/null 2>&1 && \
+  command -v logrotate >/dev/null 2>&1 && \
+  command -v flock >/dev/null 2>&1 && \
+  command -v logger >/dev/null 2>&1; then
+  printf 'Checking bounded technical-log storage with rsyslog and logrotate...\n'
+  TECHNICAL_TEST_DIRECTORY="$TEMP_DIRECTORY/technical-log-test"
+  TECHNICAL_TEST_LOG_DIRECTORY="$TECHNICAL_TEST_DIRECTORY/logs"
+  mkdir -p "$TECHNICAL_TEST_LOG_DIRECTORY"
+  install -m 0600 /dev/null "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log"
+  sed \
+    -e "s#/var/log/uo-request-generator#$TECHNICAL_TEST_LOG_DIRECTORY#g" \
+    -e "s#/usr/local/libexec/uo-request-generator/rotate-technical-logs#$TECHNICAL_TEST_DIRECTORY/rotate-technical-logs#g" \
+    -e 's/,10485760,/,4096,/' \
+    "$ROOT_DIRECTORY/ops/technical-logs/rsyslog.conf" \
+    >"$TECHNICAL_TEST_DIRECTORY/rsyslog.conf"
+  sed \
+    -e "s#/var/log/uo-request-generator#$TECHNICAL_TEST_LOG_DIRECTORY#g" \
+    "$ROOT_DIRECTORY/ops/technical-logs/logrotate.conf" \
+    >"$TECHNICAL_TEST_DIRECTORY/logrotate.conf"
+  sed \
+    -e "s#/var/log/uo-request-generator#$TECHNICAL_TEST_LOG_DIRECTORY#g" \
+    -e "s#/etc/uo-request-generator/technical-logrotate.conf#$TECHNICAL_TEST_DIRECTORY/logrotate.conf#g" \
+    "$ROOT_DIRECTORY/ops/technical-logs/rotate-technical-logs" \
+    >"$TECHNICAL_TEST_DIRECTORY/rotate-technical-logs"
+  chmod 755 "$TECHNICAL_TEST_DIRECTORY/rotate-technical-logs"
+  printf 'module(load="imuxsock" SysSock.Use="off")\ninclude(file="%s/rsyslog.conf")\n' \
+    "$TECHNICAL_TEST_DIRECTORY" >"$TECHNICAL_TEST_DIRECTORY/rsyslog-main.conf"
+  rsyslogd -N1 -f "$TECHNICAL_TEST_DIRECTORY/rsyslog-main.conf"
+  LC_ALL=C logrotate -d -s "$TECHNICAL_TEST_DIRECTORY/debug.state" \
+    "$TECHNICAL_TEST_DIRECTORY/logrotate.conf" \
+    >"$TECHNICAL_TEST_DIRECTORY/logrotate-debug.log" 2>&1
+  rsyslogd -n -i "$TECHNICAL_TEST_DIRECTORY/rsyslog.pid" \
+    -f "$TECHNICAL_TEST_DIRECTORY/rsyslog-main.conf" \
+    >"$TECHNICAL_TEST_DIRECTORY/rsyslog.log" 2>&1 &
+  TECHNICAL_TEST_RSYSLOG_PID=$!
+  for attempt in {1..50}; do
+    [[ -S "$TECHNICAL_TEST_LOG_DIRECTORY/technical.sock" ]] && break
+    sleep 0.1
+  done
+  [[ -S "$TECHNICAL_TEST_LOG_DIRECTORY/technical.sock" ]] || \
+    fail "test rsyslog receiver did not create its socket"
+  for attempt in {1..100}; do
+    logger --socket "$TECHNICAL_TEST_LOG_DIRECTORY/technical.sock" \
+      --tag uo-request-generator-proxy "bounded-storage-$attempt $(printf '%0900d' 0)"
+  done
+  for attempt in {1..50}; do
+    [[ -f "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.1" ]] && break
+    sleep 0.1
+  done
+  [[ -f "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.1" ]] || \
+    fail "rsyslog did not trigger size-based rotation"
+  logger --socket "$TECHNICAL_TEST_LOG_DIRECTORY/technical.sock" \
+    --tag uo-request-generator-app 'delivery-after-size-rotation'
+  for attempt in {1..50}; do
+    grep -q 'delivery-after-size-rotation' "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log" && break
+    sleep 0.1
+  done
+  grep -q 'delivery-after-size-rotation' "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log" || \
+    fail "receiver stopped writing after size-based rotation"
+  TECHNICAL_TEST_ARCHIVES=("$TECHNICAL_TEST_LOG_DIRECTORY"/technical.log.[0-9]*)
+  [[ -f "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.4" ]] || \
+    fail "burst did not exercise the four-archive limit"
+  (( ${#TECHNICAL_TEST_ARCHIVES[@]} <= 4 )) || \
+    fail "technical logs exceeded the four-archive limit"
+  TECHNICAL_TEST_BYTES=$(du -cb "$TECHNICAL_TEST_LOG_DIRECTORY"/technical.log* | tail -n 1 | cut -f 1)
+  (( TECHNICAL_TEST_BYTES < 30000 )) || \
+    fail "technical logs grew beyond the bounded-storage contract"
+  [[ "$(stat -c %a "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log")" == "600" ]] || \
+    fail "technical log permissions changed after rotation"
+  kill "$TECHNICAL_TEST_RSYSLOG_PID"
+  wait "$TECHNICAL_TEST_RSYSLOG_PID"
+  TECHNICAL_TEST_RSYSLOG_PID=""
+else
+  printf 'rsyslogd/logrotate/flock/logger unavailable; bounded-storage runtime validation remains a rollout gate.\n'
+fi
+
+if command -v systemd-analyze >/dev/null 2>&1; then
+  grep -q '^OnCalendar=daily$' \
+    "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.timer" || \
+    fail "technical-log timer must run daily"
+  sed \
+    "s#/usr/local/libexec/uo-request-generator/rotate-technical-logs#$ROOT_DIRECTORY/ops/technical-logs/rotate-technical-logs#" \
+    "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.service" \
+    >"$TEMP_DIRECTORY/uo-request-generator-technical-logrotate.service"
+  cp "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.timer" \
+    "$TEMP_DIRECTORY/uo-request-generator-technical-logrotate.timer"
+  systemd-analyze verify \
+    "$TEMP_DIRECTORY/uo-request-generator-technical-logrotate.service" \
+    "$TEMP_DIRECTORY/uo-request-generator-technical-logrotate.timer"
+else
+  printf 'systemd-analyze unavailable; timer validation remains a rollout gate.\n'
 fi
 
 compose config --quiet

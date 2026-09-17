@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily rotation of uo-request-generator technical logs
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=uo-request-generator-technical-logrotate.service
+
+[Install]
+WantedBy=timers.target
