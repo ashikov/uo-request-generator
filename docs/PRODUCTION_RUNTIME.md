@@ -188,6 +188,98 @@ Container healthcheck выполняет встроенный `fetch` Node.js к
 приложению 15 секунд на остановку, что оставляет запас относительно его
 10-секундного graceful shutdown.
 
+## Technical logs
+
+`compose.production.yaml` задаёт для stdout/stderr приложения Docker `syslog`
+с обязательным `PRODUCTION_SYSLOG_SOCKET`, статическим tag
+`uo-request-generator-app` и `cache-disabled: "true"`. По документации
+[Docker syslog driver](https://docs.docker.com/engine/logging/drivers/syslog/)
+поддерживает локальный `unixgram` socket, а
+[отключение dual logging](https://docs.docker.com/engine/logging/dual-logging/)
+исключает дополнительную копию Docker с ротацией по объёму. После
+отключения кеша `docker logs` для production-контейнера недоступен.
+
+Новый публичный интерфейс проекта — локальный сокет
+`/var/log/uo-request-generator/technical.sock`. Это требуемый путь нового
+контракта, а не описание существующего production-узла. Перед запуском
+контейнера оператор создаёт каталог с владельцем `syslog:syslog` и правами
+`0700`, размещает [rsyslog-конфигурацию](../ops/technical-logs/rsyslog.conf)
+в `/etc/rsyslog.d/` и
+[правило logrotate](../ops/technical-logs/logrotate.conf) в
+`/etc/logrotate.d/`. На узле нужны учётная запись `syslog`, загруженный
+`imuxsock`, действующий `rsyslog.service` и ежедневный планировщик logrotate.
+Конфигурация приёма привязывает отдельный сокет к отдельному ruleset и пишет
+только в `/var/log/uo-request-generator/technical.log` с правами `0600`.
+Она не меняет общие правила хранения системных журналов. Значение
+`PRODUCTION_SYSLOG_SOCKET` при внедрении равно объявленному выше пути. При
+отсутствии переменной Compose отказывает на `config`, а при отсутствии сокета
+Docker отказывает в создании контейнера.
+
+После merge, в отдельном согласованном внедрении, из каталога с перенесёнными
+артефактами установка двух файлов выполняется с правами администратора до
+пересоздания приложения:
+
+```bash
+install -d -o syslog -g syslog -m 0700 /var/log/uo-request-generator
+install -m 0644 ops/technical-logs/rsyslog.conf /etc/rsyslog.d/30-uo-request-generator-technical.conf
+install -m 0644 ops/technical-logs/logrotate.conf /etc/logrotate.d/uo-request-generator-technical
+rsyslogd -N1
+logrotate -d /etc/logrotate.d/uo-request-generator-technical
+systemctl restart rsyslog.service
+test -S /var/log/uo-request-generator/technical.sock
+```
+
+Оператор перед применением сверяет путь сокета в Compose, права и активность
+ежедневного планировщика. Если проверка конфигурации или сокета не проходит,
+пересоздание контейнера не выполняется.
+
+Во время отдельного внедрения оператор проверяет итоговую конфигурацию
+через `rsyslogd -N1` и `logrotate -d`, затем подтверждает наличие и тип сокета,
+права каталога и файла, успешную доставку синтетического сообщения и
+`HostConfig.LogConfig` фактически созданного контейнера. Требуемые поля —
+`Type=syslog`, локальный `syslog-address`, `cache-disabled=true` и указанный tag.
+Если rsyslog или logrotate отсутствуют в CI, проверка их синтаксиса и работы
+остаётся обязательным шагом внедрения на целевой ОС. Текущее изменение
+репозитория само по себе production не переключает.
+
+Правило logrotate содержит `daily`, `ifempty`, `rotate 4` и `maxage 5`.
+[Документация logrotate](https://man7.org/linux/man-pages/man8/logrotate.8.html)
+различает текущий файл и архивы: `rotate 7` сохранил бы текущий файл плюс семь
+архивов. Первый запуск нового правила может только создать файл состояния без
+ротации.
+Даже при таком пропуске запись, попавшая сразу после дневного запуска,
+удаляется не позднее шестого следующего календарного запуска: один запуск
+создаёт файл состояния, ещё пять выполняют ротацию и удаляют старейший архив. Это
+раньше границы семи календарных дней. `ifempty` обеспечивает ротацию и без
+нового трафика.
+`maxage` дополнительно удаляет старые архивы, но проверяется только во время
+ротации и сам по себе срок не гарантирует. `postrotate` посылает rsyslog `HUP`,
+чтобы запись продолжилась в новом файле. При остановленном или ошибочном
+планировщике гарантия не действует: оператор проверяет, что ежедневное задание
+включён, активен и завершает запуски успешно.
+
+После внедрения оператор закрыто и только на чтение проверяет временные метки записей
+в текущем файле и четырёх возможных архивах, сопоставляет самую старую запись с
+моментом проверки минус семь календарных дней, проверяет отсутствие иных копий
+и фиксирует дату, результат и состояние планировщика без содержимого логов.
+Строки начинаются с временной метки RFC 3339, назначенной локальным приёмником.
+Для применимого reverse proxy его stdout/stderr направляются в тот же сокет
+через локальный Docker `syslog` с `cache-disabled: "true"` и статическим tag
+`uo-request-generator-proxy`. Для proxy-контейнера публичная часть настройки:
+
+```yaml
+logging:
+  driver: syslog
+  options:
+    syslog-address: "unixgram:///var/log/uo-request-generator/technical.sock"
+    cache-disabled: "true"
+    tag: uo-request-generator-proxy
+```
+
+Фактическая proxy-конфигурация остаётся вне репозитория. Оператор отдельно
+проверяет состав proxy logs и отсутствие дополнительных копий. Статус #190
+остаётся `blocked` до внедрения и последующей закрытой проверки только на чтение.
+
 ## Контракт reverse proxy
 
 Backend не должен быть доступен публичному клиенту в обход reverse proxy.
@@ -212,8 +304,9 @@ host должно быть достаточно места для текущег
 
 Репозиторий, Git, Node.js и сборочные инструменты на production host не нужны.
 Во время одноразового bootstrap разместите версионированные
-`compose.production.yaml` и `scripts/production-compose.sh` в закрытом
-операторском runtime-каталоге, сохранив относительное расположение файлов.
+`compose.production.yaml`, `scripts/production-compose.sh` и два файла
+`ops/technical-logs/` в закрытом операторском runtime-каталоге, сохранив
+относительное расположение файлов.
 Передавайте их на host утверждённым внешним способом, а не через checkout
 рабочей ветки.
 
@@ -228,6 +321,7 @@ host должно быть достаточно места для текущег
    export RUNTIME_DIRECTORY=/absolute/path/to/runtime-directory
    export PRODUCTION_PROXY_NETWORK=application-proxy
    export PRODUCTION_ENV_FILE="$RUNTIME_DIRECTORY/.env.production"
+   export PRODUCTION_SYSLOG_SOCKET=/var/log/uo-request-generator/technical.sock
    cd "$RUNTIME_DIRECTORY"
    ```
 
@@ -292,15 +386,16 @@ host должно быть достаточно места для текущег
 
    Ожидаемый результат после старта — `running healthy`.
 
-9. Просмотрите только последние технические логи штатным средством Docker:
+9. Уполномоченный оператор просматривает только необходимые последние записи
+   выделенного файла:
 
    ```bash
-   ./scripts/production-compose.sh logs --tail=100 request-generator
+   tail -n 100 /var/log/uo-request-generator/technical.log
    ```
 
    Не запускайте вывод environment или полной разрешённой Compose-конфигурации.
-   Политика ротации и дополнительные команды просмотра описаны в разделе
-   [«Логи»](../README.md#логи).
+   Установка и проверки retention описаны в разделе
+   [«Technical logs»](#technical-logs).
 
 10. Проверьте HTTP-доступность через настроенный reverse proxy без генерации:
 
@@ -346,7 +441,8 @@ export PRODUCTION_IMAGE='registry.example/namespace/uo-request-generator@sha256:
 ./scripts/production-compose.sh up -d --no-build --remove-orphans request-generator
 ```
 
-Повторите проверки `ps`, container healthcheck, последних логов и
+Повторите проверки `ps`, container healthcheck, последних записей выделенного
+файла и
 `GET /api/health` через reverse proxy. Работает один контейнер, поэтому во время
 его замены возможно короткое окно недоступности.
 
@@ -373,7 +469,8 @@ export PRODUCTION_IMAGE="$PREVIOUS_IMAGE"
 ./scripts/production-compose.sh up -d --no-build --remove-orphans request-generator
 ```
 
-После rollback снова проверьте `ps`, значение `healthy`, последние логи и
+После rollback снова проверьте `ps`, значение `healthy`, последние записи
+выделенного файла и
 `GET /api/health` через reverse proxy. Если registry временно недоступен, уже
 загруженный предыдущий image можно запустить той же командой `up` без `pull`.
 
