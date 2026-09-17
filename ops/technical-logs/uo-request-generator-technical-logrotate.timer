@@ -1,8 +1,9 @@
 [Unit]
-Description=Daily rotation of uo-request-generator technical logs
+Description=Check rotation of uo-request-generator technical logs every minute
 
 [Timer]
-OnCalendar=daily
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
 Persistent=true
 Unit=uo-request-generator-technical-logrotate.service
 

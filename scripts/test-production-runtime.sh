@@ -186,6 +186,25 @@ docker exec "$LOG_RECEIVER" test -S /socket/technical-logs.sock || \
   fail "test syslog receiver did not create its socket"
 PRODUCTION_SYSLOG_SOCKET="$(docker volume inspect --format '{{.Mountpoint}}' "$LOG_VOLUME")/technical-logs.sock"
 
+if grep -Eq '\$outchannel|rotation\.sizeLimitCommand|rotate-technical-logs' \
+  "$ROOT_DIRECTORY/ops/technical-logs/rsyslog.conf"; then
+  fail "rsyslog must not execute the project rotation helper"
+fi
+grep -q '^    maxsize 10M$' "$ROOT_DIRECTORY/ops/technical-logs/logrotate.conf" || \
+  fail "technical-log rotation must check the 10 MiB size condition"
+grep -q '^OnCalendar=\*-\*-\* \*:\*:00$' \
+  "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.timer" || \
+  fail "technical-log timer must check every minute"
+grep -q '^AccuracySec=1s$' \
+  "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.timer" || \
+  fail "technical-log timer accuracy must be one second"
+grep -q '^Persistent=true$' \
+  "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.timer" || \
+  fail "technical-log timer must catch up after downtime"
+grep -q '^ExecStart=/usr/local/libexec/uo-request-generator/rotate-technical-logs$' \
+  "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.service" || \
+  fail "timer service must invoke the project rotation wrapper"
+
 if command -v rsyslogd >/dev/null 2>&1; then
   printf 'module(load="imuxsock" SysSock.Use="off")\ninclude(file="%s/ops/technical-logs/rsyslog.conf")\n' \
     "$ROOT_DIRECTORY" >"$TEMP_DIRECTORY/rsyslog-validation.conf"
@@ -209,19 +228,18 @@ if command -v rsyslogd >/dev/null 2>&1 && \
   command -v logrotate >/dev/null 2>&1 && \
   command -v flock >/dev/null 2>&1 && \
   command -v logger >/dev/null 2>&1; then
-  printf 'Checking bounded technical-log storage with rsyslog and logrotate...\n'
+  printf 'Checking timer-driven technical-log rotation with rsyslog and logrotate...\n'
   TECHNICAL_TEST_DIRECTORY="$TEMP_DIRECTORY/technical-log-test"
   TECHNICAL_TEST_LOG_DIRECTORY="$TECHNICAL_TEST_DIRECTORY/logs"
   mkdir -p "$TECHNICAL_TEST_LOG_DIRECTORY"
   install -m 0600 /dev/null "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log"
   sed \
     -e "s#/var/log/uo-request-generator#$TECHNICAL_TEST_LOG_DIRECTORY#g" \
-    -e "s#/usr/local/libexec/uo-request-generator/rotate-technical-logs#$TECHNICAL_TEST_DIRECTORY/rotate-technical-logs#g" \
-    -e 's/,10485760,/,4096,/' \
     "$ROOT_DIRECTORY/ops/technical-logs/rsyslog.conf" \
     >"$TECHNICAL_TEST_DIRECTORY/rsyslog.conf"
   sed \
     -e "s#/var/log/uo-request-generator#$TECHNICAL_TEST_LOG_DIRECTORY#g" \
+    -e 's/maxsize 10M/maxsize 4k/' \
     "$ROOT_DIRECTORY/ops/technical-logs/logrotate.conf" \
     >"$TECHNICAL_TEST_DIRECTORY/logrotate.conf"
   sed \
@@ -230,6 +248,10 @@ if command -v rsyslogd >/dev/null 2>&1 && \
     "$ROOT_DIRECTORY/ops/technical-logs/rotate-technical-logs" \
     >"$TECHNICAL_TEST_DIRECTORY/rotate-technical-logs"
   chmod 755 "$TECHNICAL_TEST_DIRECTORY/rotate-technical-logs"
+  if "$TECHNICAL_TEST_DIRECTORY/rotate-technical-logs" force \
+    >"$TECHNICAL_TEST_DIRECTORY/force-argument.log" 2>&1; then
+    fail "rotation wrapper accepted the removed force argument"
+  fi
   printf 'module(load="imuxsock" SysSock.Use="off")\ninclude(file="%s/rsyslog.conf")\n' \
     "$TECHNICAL_TEST_DIRECTORY" >"$TECHNICAL_TEST_DIRECTORY/rsyslog-main.conf"
   rsyslogd -N1 -f "$TECHNICAL_TEST_DIRECTORY/rsyslog-main.conf"
@@ -246,16 +268,27 @@ if command -v rsyslogd >/dev/null 2>&1 && \
   done
   [[ -S "$TECHNICAL_TEST_LOG_DIRECTORY/technical.sock" ]] || \
     fail "test rsyslog receiver did not create its socket"
-  for attempt in {1..100}; do
-    logger --socket "$TECHNICAL_TEST_LOG_DIRECTORY/technical.sock" \
-      --tag uo-request-generator-proxy "bounded-storage-$attempt $(printf '%0900d' 0)"
+  for round in {1..6}; do
+    for attempt in {1..6}; do
+      logger --socket "$TECHNICAL_TEST_LOG_DIRECTORY/technical.sock" \
+        --tag uo-request-generator-proxy "bounded-storage-$round-$attempt $(printf '%0900d' 0)"
+    done
+    for attempt in {1..50}; do
+      (( $(stat -c %s "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log") > 4096 )) && break
+      sleep 0.1
+    done
+    (( $(stat -c %s "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log") > 4096 )) || \
+      fail "test receiver did not write above the size threshold"
+    if (( round == 1 )); then
+      [[ ! -e "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.1" ]] || \
+        fail "rsyslog rotated the file without the project timer path"
+    fi
+    "$TECHNICAL_TEST_DIRECTORY/rotate-technical-logs"
+    [[ -f "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.1" ]] || \
+      fail "timer service command did not rotate the oversized file"
+    (( $(stat -c %s "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log") < 4096 )) || \
+      fail "active technical log stayed above the test size threshold after rotation"
   done
-  for attempt in {1..50}; do
-    [[ -f "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.1" ]] && break
-    sleep 0.1
-  done
-  [[ -f "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.1" ]] || \
-    fail "rsyslog did not trigger size-based rotation"
   logger --socket "$TECHNICAL_TEST_LOG_DIRECTORY/technical.sock" \
     --tag uo-request-generator-app 'delivery-after-size-rotation'
   for attempt in {1..50}; do
@@ -263,10 +296,14 @@ if command -v rsyslogd >/dev/null 2>&1 && \
     sleep 0.1
   done
   grep -q 'delivery-after-size-rotation' "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log" || \
-    fail "receiver stopped writing after size-based rotation"
+    fail "receiver stopped writing after timer-driven rotation"
   TECHNICAL_TEST_ARCHIVES=("$TECHNICAL_TEST_LOG_DIRECTORY"/technical.log.[0-9]*)
   [[ -f "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.4" ]] || \
     fail "burst did not exercise the four-archive limit"
+  grep -q 'uo-request-generator-proxy' "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log.1" || \
+    fail "proxy tag was lost in rotated technical logs"
+  grep -q 'uo-request-generator-app' "$TECHNICAL_TEST_LOG_DIRECTORY/technical.log" || \
+    fail "application tag was lost after rotation"
   (( ${#TECHNICAL_TEST_ARCHIVES[@]} <= 4 )) || \
     fail "technical logs exceeded the four-archive limit"
   TECHNICAL_TEST_BYTES=$(du -cb "$TECHNICAL_TEST_LOG_DIRECTORY"/technical.log* | tail -n 1 | cut -f 1)
@@ -282,9 +319,8 @@ else
 fi
 
 if command -v systemd-analyze >/dev/null 2>&1; then
-  grep -q '^OnCalendar=daily$' \
-    "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.timer" || \
-    fail "technical-log timer must run daily"
+  systemd-analyze calendar --iterations=2 '*-*-* *:*:00' \
+    >"$TEMP_DIRECTORY/technical-log-calendar.log"
   sed \
     "s#/usr/local/libexec/uo-request-generator/rotate-technical-logs#$ROOT_DIRECTORY/ops/technical-logs/rotate-technical-logs#" \
     "$ROOT_DIRECTORY/ops/technical-logs/uo-request-generator-technical-logrotate.service" \
