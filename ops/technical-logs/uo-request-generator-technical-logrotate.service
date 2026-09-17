@@ -1,0 +1,8 @@
+[Unit]
+Description=Rotate uo-request-generator technical logs
+
+[Service]
+Type=oneshot
+User=syslog
+Group=syslog
+ExecStart=/usr/local/libexec/uo-request-generator/rotate-technical-logs

@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+case "$#:${1-}" in
+    0:)
+        ;;
+    1:force)
+        set -- --force
+        ;;
+    2:force)
+        [ "$2" = /var/log/uo-request-generator/technical.log ] || exit 2
+        set -- --force
+        ;;
+    *)
+        exit 2
+        ;;
+esac
+
+exec /usr/bin/flock -w 60 /var/log/uo-request-generator/.rotation.lock \
+    /usr/sbin/logrotate -s /var/log/uo-request-generator/.logrotate.state \
+    "$@" /etc/uo-request-generator/technical-logrotate.conf
