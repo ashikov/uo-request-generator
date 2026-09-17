@@ -9,6 +9,10 @@ TEMP_DIRECTORY=$(mktemp -d -t uo-runtime-contract.XXXXXXXXXX)
 TEST_ID=$(printf '%s' "$TEMP_DIRECTORY" | sha256sum | cut -c 1-12)
 COMPOSE_PROJECT_NAME="uo-runtime-contract-${TEST_ID}"
 PROXY_NETWORK="uo-runtime-proxy-${TEST_ID}"
+LOG_VOLUME="uo-runtime-logs-${TEST_ID}"
+LOG_RECEIVER="uo-runtime-log-receiver-${TEST_ID}"
+PRODUCTION_SYSLOG_SOCKET="$TEMP_DIRECTORY/technical-logs.sock"
+export PRODUCTION_SYSLOG_SOCKET
 FIRST_SHA="1111111111111111111111111111111111111111"
 SECOND_SHA="2222222222222222222222222222222222222222"
 FIRST_IMAGE="uo-request-generator-contract-${TEST_ID}:${FIRST_SHA}"
@@ -26,12 +30,15 @@ cleanup() {
     PRODUCTION_IMAGE="$PRODUCTION_IMAGE" \
       PRODUCTION_ENV_FILE="$PRODUCTION_ENV_FILE" \
       PRODUCTION_PROXY_NETWORK="$PROXY_NETWORK" \
+      PRODUCTION_SYSLOG_SOCKET="$PRODUCTION_SYSLOG_SOCKET" \
       "$COMPOSE_WRAPPER" -p "$COMPOSE_PROJECT_NAME" down --volumes --remove-orphans \
       >/dev/null 2>&1 || true
   fi
   if [[ "$NETWORK_CREATED" == true ]]; then
     docker network rm "$PROXY_NETWORK" >/dev/null 2>&1 || true
   fi
+  docker rm -f "$LOG_RECEIVER" >/dev/null 2>&1 || true
+  docker volume rm "$LOG_VOLUME" >/dev/null 2>&1 || true
   docker image rm "$CONTEXT_PROBE_IMAGE" "$SECOND_IMAGE" "$FIRST_IMAGE" \
     >/dev/null 2>&1 || true
   rm -rf "$TEMP_DIRECTORY"
@@ -47,6 +54,7 @@ compose() {
   PRODUCTION_IMAGE="$PRODUCTION_IMAGE" \
     PRODUCTION_ENV_FILE="$PRODUCTION_ENV_FILE" \
     PRODUCTION_PROXY_NETWORK="$PROXY_NETWORK" \
+    PRODUCTION_SYSLOG_SOCKET="$PRODUCTION_SYSLOG_SOCKET" \
     "$COMPOSE_WRAPPER" -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 
@@ -60,13 +68,13 @@ wait_until_healthy() {
       return 0
     fi
     if [[ "$status" == "unhealthy" ]]; then
-      compose logs --tail=100 request-generator >&2 || true
+      docker exec "$LOG_RECEIVER" tail -n 100 /socket/received.log >&2 || true
       fail "container became unhealthy"
     fi
     sleep 1
   done
 
-  compose logs --tail=100 request-generator >&2 || true
+  docker exec "$LOG_RECEIVER" tail -n 100 /socket/received.log >&2 || true
   fail "container did not become healthy before timeout"
 }
 
@@ -117,6 +125,15 @@ if env -u PRODUCTION_PROXY_NETWORK \
   fail "docker compose config accepted a missing proxy network"
 fi
 
+if env -u PRODUCTION_SYSLOG_SOCKET \
+  PRODUCTION_IMAGE="$PRODUCTION_IMAGE" \
+  PRODUCTION_ENV_FILE="$PRODUCTION_ENV_FILE" \
+  PRODUCTION_PROXY_NETWORK="$PROXY_NETWORK" \
+  docker compose --env-file /dev/null -f "$COMPOSE_FILE" config --quiet \
+  >"$TEMP_DIRECTORY/missing-syslog-socket.log" 2>&1; then
+  fail "docker compose config accepted a missing syslog socket"
+fi
+
 if PRODUCTION_IMAGE="$PRODUCTION_IMAGE" \
   PRODUCTION_ENV_FILE="$TEMP_DIRECTORY/missing.env" \
   PRODUCTION_PROXY_NETWORK="$PROXY_NETWORK" \
@@ -150,6 +167,39 @@ grep -q 'Overriding the production Compose file' \
   "$TEMP_DIRECTORY/compose-override.log" || \
   fail "Compose file override was rejected for an unexpected reason"
 
+docker volume create "$LOG_VOLUME" >/dev/null
+docker run -d --name "$LOG_RECEIVER" -v "$LOG_VOLUME:/socket" alpine:3.21 \
+  sh -c 'ln -s /socket/technical-logs.sock /dev/log && exec busybox syslogd -n -O /socket/received.log' \
+  >/dev/null
+for attempt in {1..10}; do
+  if docker exec "$LOG_RECEIVER" test -S /socket/technical-logs.sock; then
+    break
+  fi
+  sleep 1
+done
+docker exec "$LOG_RECEIVER" test -S /socket/technical-logs.sock || \
+  fail "test syslog receiver did not create its socket"
+PRODUCTION_SYSLOG_SOCKET="$(docker volume inspect --format '{{.Mountpoint}}' "$LOG_VOLUME")/technical-logs.sock"
+
+if command -v rsyslogd >/dev/null 2>&1; then
+  printf 'module(load="imuxsock")\ninclude(file="%s/ops/technical-logs/rsyslog.conf")\n' \
+    "$ROOT_DIRECTORY" >"$TEMP_DIRECTORY/rsyslog-validation.conf"
+  rsyslogd -N1 -f "$TEMP_DIRECTORY/rsyslog-validation.conf"
+else
+  printf 'rsyslogd unavailable; host syntax validation remains a rollout gate.\n'
+fi
+if command -v logrotate >/dev/null 2>&1; then
+  LC_ALL=C logrotate -d -s "$TEMP_DIRECTORY/logrotate.state" \
+    "$ROOT_DIRECTORY/ops/technical-logs/logrotate.conf" \
+    >"$TEMP_DIRECTORY/logrotate-validation.log" 2>&1
+  grep -q 'after 1 days (4 rotations)' "$TEMP_DIRECTORY/logrotate-validation.log" || \
+    fail "logrotate did not accept the daily four-archive contract"
+  grep -q 'empty log files are rotated' "$TEMP_DIRECTORY/logrotate-validation.log" || \
+    fail "logrotate would retain the current file without traffic"
+else
+  printf 'logrotate unavailable; host syntax validation remains a rollout gate.\n'
+fi
+
 compose config --quiet
 PRODUCTION_IMAGE="uo-request-generator-contract@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
   PRODUCTION_ENV_FILE="$PRODUCTION_ENV_FILE" \
@@ -162,7 +212,7 @@ PRODUCTION_IMAGE="$PRODUCTION_IMAGE" \
   PRODUCTION_PROXY_NETWORK="$PROXY_NETWORK" \
   docker compose --env-file /dev/null -f "$COMPOSE_FILE" config --format json >"$COMPOSE_OUTPUT"
 
-COMPOSE_OUTPUT="$COMPOSE_OUTPUT" EXPECTED_IMAGE="$FIRST_IMAGE" EXPECTED_NETWORK="$PROXY_NETWORK" node <<'NODE'
+COMPOSE_OUTPUT="$COMPOSE_OUTPUT" EXPECTED_IMAGE="$FIRST_IMAGE" EXPECTED_NETWORK="$PROXY_NETWORK" EXPECTED_SYSLOG_SOCKET="$PRODUCTION_SYSLOG_SOCKET" node <<'NODE'
 const fs = require("node:fs");
 const config = JSON.parse(fs.readFileSync(process.env.COMPOSE_OUTPUT, "utf8"));
 const services = config.services ?? {};
@@ -192,6 +242,12 @@ if (!Array.isArray(networkAliases) || networkAliases.length !== 1 || networkAlia
 const network = config.networks?.["reverse-proxy"];
 if (!network || network.external !== true || network.name !== process.env.EXPECTED_NETWORK) throw new Error("reverse-proxy network must be explicitly named and external");
 if (!requestGenerator.healthcheck?.test?.join(" ").includes("/api/health")) throw new Error("healthcheck must use /api/health");
+const logging = requestGenerator.logging;
+if (logging?.driver !== "syslog") throw new Error("production logging driver must be syslog");
+if (logging.options?.["syslog-address"] !== `unixgram://${process.env.EXPECTED_SYSLOG_SOCKET}`) throw new Error("syslog must use the required local socket");
+if (logging.options?.["cache-disabled"] !== "true") throw new Error("Docker dual logging cache must be disabled");
+if (logging.options?.tag !== "uo-request-generator-app") throw new Error("application syslog tag must be stable");
+if ("max-size" in logging.options || "max-file" in logging.options) throw new Error("size-based json-file retention must not remain");
 NODE
 
 printf 'Checking that .env files are excluded from the build context...\n'
@@ -230,13 +286,21 @@ fi
 printf 'Starting production Compose on an isolated network...\n'
 docker network create --internal "$PROXY_NETWORK" >/dev/null
 NETWORK_CREATED=true
+ACTIVE_SYSLOG_SOCKET="$PRODUCTION_SYSLOG_SOCKET"
+PRODUCTION_SYSLOG_SOCKET="$TEMP_DIRECTORY/missing.sock"
+if compose create request-generator >"$TEMP_DIRECTORY/missing-socket-runtime.log" 2>&1; then
+  fail "Docker accepted a missing syslog receiver socket"
+fi
+grep -Fq "$PRODUCTION_SYSLOG_SOCKET" "$TEMP_DIRECTORY/missing-socket-runtime.log" || \
+  fail "Docker rejected the missing socket for an unexpected reason"
+PRODUCTION_SYSLOG_SOCKET="$ACTIVE_SYSLOG_SOCKET"
 compose up -d --no-build --pull never
 CONTAINER_ID=$(compose ps -q request-generator)
 [[ -n "$CONTAINER_ID" ]] || fail "request-generator container was not created"
 wait_until_healthy
 assert_container_image "$FIRST_IMAGE" "$FIRST_IMAGE_ID"
 
-CONTAINER_ID="$CONTAINER_ID" EXPECTED_NETWORK="$PROXY_NETWORK" node <<'NODE'
+CONTAINER_ID="$CONTAINER_ID" EXPECTED_NETWORK="$PROXY_NETWORK" EXPECTED_SYSLOG_SOCKET="$PRODUCTION_SYSLOG_SOCKET" node <<'NODE'
 const { execFileSync } = require("node:child_process");
 const inspection = JSON.parse(execFileSync("docker", ["inspect", process.env.CONTAINER_ID], { encoding: "utf8" }))[0];
 const host = inspection.HostConfig;
@@ -247,6 +311,10 @@ if (host.PortBindings && Object.keys(host.PortBindings).length !== 0) throw new 
 if (!host.CapDrop?.includes("ALL")) throw new Error("container did not drop all capabilities");
 if (!host.SecurityOpt?.includes("no-new-privileges:true")) throw new Error("container lacks no-new-privileges");
 if (!(host.PidsLimit > 0)) throw new Error("container lacks a process limit");
+if (host.LogConfig?.Type !== "syslog") throw new Error("container logging driver is not syslog");
+if (host.LogConfig.Config?.["syslog-address"] !== `unixgram://${process.env.EXPECTED_SYSLOG_SOCKET}`) throw new Error("container syslog address differs from Compose");
+if (host.LogConfig.Config?.["cache-disabled"] !== "true") throw new Error("container has Docker dual logging cache enabled");
+if (host.LogConfig.Config?.tag !== "uo-request-generator-app") throw new Error("container syslog tag differs from Compose");
 const networks = Object.keys(inspection.NetworkSettings.Networks ?? {});
 if (networks.length !== 1 || networks[0] !== process.env.EXPECTED_NETWORK) throw new Error("container joined an unexpected network");
 NODE
@@ -264,6 +332,8 @@ docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
   -e "fetch('http://request-generator:3000/vendor/bootstrap/bootstrap.min.css').then(async response => { const body = await response.text(); if (!response.ok || !response.headers.get('content-type')?.includes('text/css') || !/Bootstrap\\s+v5\\.3\\.8/.test(body)) process.exit(1) }).catch(() => process.exit(1))"
 docker run --rm --network "$PROXY_NETWORK" --entrypoint node "$FIRST_IMAGE" \
   -e "fetch('http://request-generator:3000/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description: 'Тестовое описание неисправности без персональных данных', consentAccepted: true, consentVersion: 'c1-2026-09-15-r1' }) }).then(async response => { const body = await response.json(); if (response.status !== 503 || body.error?.code !== 'generation_provider_unavailable') process.exit(1) }).catch(() => process.exit(1))"
+docker exec "$LOG_RECEIVER" grep -q 'uo-request-generator-app' /socket/received.log || \
+  fail "application output did not reach the local syslog receiver"
 
 CONSENT_TEST_RECEIPT=$(docker exec "$CONTAINER_ID" node --input-type=module -e '
   import { DatabaseSync } from "node:sqlite";
