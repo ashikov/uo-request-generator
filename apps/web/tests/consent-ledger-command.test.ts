@@ -57,6 +57,10 @@ it("requires retention and destruction review and preserves explicit holds", () 
   expect(
     runConsentLedgerCommand(["find", path, receipt.consentReceiptId, "--request-verified"]),
   ).toBeNull();
+  expect(runConsentLedgerCommand(["export-destruction-events", path])).toEqual([
+    expect.objectContaining({ consentReceiptId: receipt.consentReceiptId }),
+  ]);
+  expect(() => runConsentLedgerCommand(["purge-expired-destruction-events", path])).toThrow();
   expect(() =>
     runConsentLedgerCommand(["find", path, receipt.consentReceiptId, "--unknown"]),
   ).toThrow();

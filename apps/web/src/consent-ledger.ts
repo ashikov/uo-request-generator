@@ -2,7 +2,25 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, closeSync, constants, openSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { C1_CONSENT_VERSION, consentEvidenceExpiresAt } from "./consent-policy.js";
+import {
+  C1_CONSENT_VERSION,
+  consentEvidenceExpiresAt,
+  threeCalendarYearsAfter,
+} from "./consent-policy.js";
+
+const destructionDetails = {
+  dataCategory: "Данные о согласии Ц1",
+  informationSystem: "consent ledger Ц1",
+  reason: "истечение операторского срока хранения",
+} as const;
+const destructionEventSchema = z.strictObject({
+  consentReceiptId: z.string().min(1),
+  destroyedAt: z.iso.datetime(),
+  dataCategory: z.string().min(1),
+  informationSystem: z.string().min(1),
+  reason: z.string().min(1),
+});
+export type ConsentDestructionEvent = z.infer<typeof destructionEventSchema>;
 
 const receiptFields = {
   consentReceiptId: z.string().min(1),
@@ -71,6 +89,13 @@ export class ConsentLedger {
           CHECK((status = 'accepted' AND revocationTimestamp IS NULL)
             OR (status = 'revoked' AND revocationTimestamp IS NOT NULL))
         ) STRICT;
+        CREATE TABLE IF NOT EXISTS consent_destructions (
+          consentReceiptId TEXT PRIMARY KEY NOT NULL,
+          destroyedAt TEXT NOT NULL,
+          dataCategory TEXT NOT NULL,
+          informationSystem TEXT NOT NULL,
+          reason TEXT NOT NULL
+        ) STRICT;
       `);
       const tables = this.#database
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -89,13 +114,31 @@ export class ConsentLedger {
           "SELECT strict FROM pragma_table_list WHERE name = 'consent_receipts' AND schema = 'main'",
         )
         .get();
+      const destructionColumns = this.#database
+        .prepare("PRAGMA table_info(consent_destructions)")
+        .all();
+      const destructionTable = this.#database
+        .prepare(
+          "SELECT strict FROM pragma_table_list WHERE name = 'consent_destructions' AND schema = 'main'",
+        )
+        .get();
       if (
-        tables.length !== 1 ||
-        tables[0]?.name !== "consent_receipts" ||
+        tables.length !== 2 ||
+        !tables.some((entry) => entry.name === "consent_receipts") ||
+        !tables.some((entry) => entry.name === "consent_destructions") ||
         table?.strict !== 1 ||
+        destructionTable?.strict !== 1 ||
         columns.length !== expectedColumns.length ||
         columns.some(
           (column, index) => column.name !== expectedColumns[index] || column.type !== "TEXT",
+        ) ||
+        destructionColumns.length !== 5 ||
+        destructionColumns.some(
+          (column, index) =>
+            column.name !==
+              ["consentReceiptId", "destroyedAt", "dataCategory", "informationSystem", "reason"][
+                index
+              ] || column.type !== "TEXT",
         )
       ) {
         throw new Error("Схема файла согласий не соответствует утверждённому контракту.");
@@ -183,7 +226,79 @@ export class ConsentLedger {
       const remove = this.#database.prepare(
         "DELETE FROM consent_receipts WHERE consentReceiptId = ?",
       );
-      for (const receipt of expired) remove.run(receipt.consentReceiptId);
+      const record = this.#database.prepare(
+        `INSERT INTO consent_destructions
+        (consentReceiptId, destroyedAt, dataCategory, informationSystem, reason)
+        VALUES (?, ?, ?, ?, ?)`,
+      );
+      const findEvent = this.#database.prepare(
+        "SELECT * FROM consent_destructions WHERE consentReceiptId = ?",
+      );
+      for (const receipt of expired) {
+        const deletion = remove.run(receipt.consentReceiptId);
+        if (deletion.changes !== 1 || this.find(receipt.consentReceiptId))
+          throw new Error("Уничтожение записи согласия не подтверждено.");
+        const destroyedAt = this.#now().toISOString();
+        const insertion = record.run(
+          receipt.consentReceiptId,
+          destroyedAt,
+          destructionDetails.dataCategory,
+          destructionDetails.informationSystem,
+          destructionDetails.reason,
+        );
+        const stored = findEvent.get(receipt.consentReceiptId);
+        const confirmed = stored ? destructionEventSchema.parse(stored) : undefined;
+        if (
+          insertion.changes !== 1 ||
+          confirmed?.destroyedAt !== destroyedAt ||
+          confirmed.dataCategory !== destructionDetails.dataCategory ||
+          confirmed.informationSystem !== destructionDetails.informationSystem ||
+          confirmed.reason !== destructionDetails.reason
+        ) {
+          throw new Error("Событие уничтожения не подтверждено.");
+        }
+      }
+      return expired;
+    });
+  }
+
+  destructionEvents(): ConsentDestructionEvent[] {
+    return this.#database
+      .prepare("SELECT * FROM consent_destructions ORDER BY destroyedAt, consentReceiptId")
+      .all()
+      .map((row) => destructionEventSchema.parse(row));
+  }
+
+  expiredDestructionEvents(protectedReceiptIds: readonly string[] = []): ConsentDestructionEvent[] {
+    const protectedIds = new Set(protectedReceiptIds);
+    const now = this.#now().toISOString();
+    return this.destructionEvents().filter(
+      (event) =>
+        !protectedIds.has(event.consentReceiptId) &&
+        threeCalendarYearsAfter(event.destroyedAt) <= now,
+    );
+  }
+
+  purgeExpiredDestructionEvents(review: {
+    holdsReviewed: boolean;
+    documentsArchived: boolean;
+    protectedReceiptIds: readonly string[];
+  }): ConsentDestructionEvent[] {
+    if (!review.holdsReviewed || !review.documentsArchived)
+      throw new Error("Требуется проверка исключений и сохранности акта и выгрузки.");
+    return this.#transaction(() => {
+      const expired = this.expiredDestructionEvents(review.protectedReceiptIds);
+      const remove = this.#database.prepare(
+        "DELETE FROM consent_destructions WHERE consentReceiptId = ?",
+      );
+      const findEvent = this.#database.prepare(
+        "SELECT 1 FROM consent_destructions WHERE consentReceiptId = ?",
+      );
+      for (const event of expired) {
+        const deletion = remove.run(event.consentReceiptId);
+        if (deletion.changes !== 1 || findEvent.get(event.consentReceiptId))
+          throw new Error("Удаление записи журнала уничтожения не подтверждено.");
+      }
       return expired;
     });
   }

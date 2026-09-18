@@ -5,9 +5,13 @@ type ConsentEvidenceEvent =
   | { status: "revoked"; serverTimestamp: string; revocationTimestamp: string };
 
 export function consentEvidenceExpiresAt(event: ConsentEvidenceEvent): string {
-  const expiry = new Date(
+  return threeCalendarYearsAfter(
     event.status === "revoked" ? event.revocationTimestamp : event.serverTimestamp,
   );
+}
+
+export function threeCalendarYearsAfter(timestamp: string): string {
+  const expiry = new Date(timestamp);
   const month = expiry.getUTCMonth();
   expiry.setUTCFullYear(expiry.getUTCFullYear() + 3);
   // Для 29 февраля годовщина приходится на последний день февраля.
