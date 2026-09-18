@@ -13,6 +13,7 @@ const destructionDetails = {
   informationSystem: "consent ledger Ц1",
   reason: "истечение операторского срока хранения",
 } as const;
+const destructionJournalVersion = 286;
 const destructionEventSchema = z.strictObject({
   consentReceiptId: z.string().min(1),
   destroyedAt: z.iso.datetime(),
@@ -76,9 +77,9 @@ export class ConsentLedger {
     this.#generateReceiptId = options.generateReceiptId ?? randomUUID;
     try {
       this.#database.exec(`
-        PRAGMA journal_mode = DELETE;
-        PRAGMA synchronous = EXTRA;
-        PRAGMA secure_delete = ON;
+        PRAGMA main.journal_mode = DELETE;
+        PRAGMA main.synchronous = EXTRA;
+        PRAGMA main.secure_delete = ON;
         CREATE TABLE IF NOT EXISTS consent_receipts (
           consentReceiptId TEXT PRIMARY KEY NOT NULL,
           requestId TEXT NOT NULL,
@@ -88,13 +89,6 @@ export class ConsentLedger {
           revocationTimestamp TEXT,
           CHECK((status = 'accepted' AND revocationTimestamp IS NULL)
             OR (status = 'revoked' AND revocationTimestamp IS NOT NULL))
-        ) STRICT;
-        CREATE TABLE IF NOT EXISTS consent_destructions (
-          consentReceiptId TEXT PRIMARY KEY NOT NULL,
-          destroyedAt TEXT NOT NULL,
-          dataCategory TEXT NOT NULL,
-          informationSystem TEXT NOT NULL,
-          reason TEXT NOT NULL
         ) STRICT;
       `);
       const tables = this.#database
@@ -114,24 +108,65 @@ export class ConsentLedger {
           "SELECT strict FROM pragma_table_list WHERE name = 'consent_receipts' AND schema = 'main'",
         )
         .get();
-      const destructionColumns = this.#database
-        .prepare("PRAGMA table_info(consent_destructions)")
-        .all();
-      const destructionTable = this.#database
-        .prepare(
-          "SELECT strict FROM pragma_table_list WHERE name = 'consent_destructions' AND schema = 'main'",
-        )
-        .get();
       if (
-        tables.length !== 2 ||
-        !tables.some((entry) => entry.name === "consent_receipts") ||
-        !tables.some((entry) => entry.name === "consent_destructions") ||
+        tables.length !== 1 ||
+        tables[0]?.name !== "consent_receipts" ||
         table?.strict !== 1 ||
-        destructionTable?.strict !== 1 ||
         columns.length !== expectedColumns.length ||
         columns.some(
           (column, index) => column.name !== expectedColumns[index] || column.type !== "TEXT",
-        ) ||
+        )
+      ) {
+        throw new Error("Схема файла согласий не соответствует утверждённому контракту.");
+      }
+
+      const version = this.#database.prepare("PRAGMA main.user_version").get()?.user_version;
+      if (version !== 0 && version !== destructionJournalVersion)
+        throw new Error("Неизвестная версия журнала уничтожения.");
+      const destructionPath = `${path}.destruction.sqlite`;
+      const destructionDescriptor = openSync(
+        destructionPath,
+        (version === 0 ? constants.O_CREAT : 0) | constants.O_RDWR | constants.O_NOFOLLOW,
+        0o600,
+      );
+      closeSync(destructionDescriptor);
+      chmodSync(destructionPath, 0o600);
+      this.#database.prepare("ATTACH DATABASE ? AS destruction").run(destructionPath);
+      this.#database.exec(`
+        PRAGMA destruction.journal_mode = DELETE;
+        PRAGMA destruction.synchronous = EXTRA;
+        PRAGMA destruction.secure_delete = ON;
+      `);
+      if (version === 0)
+        this.#database.exec(`
+        CREATE TABLE IF NOT EXISTS destruction.consent_destructions (
+          consentReceiptId TEXT PRIMARY KEY NOT NULL,
+          destroyedAt TEXT NOT NULL,
+          dataCategory TEXT NOT NULL,
+          informationSystem TEXT NOT NULL,
+          reason TEXT NOT NULL
+        ) STRICT;
+      `);
+      const destructionTables = this.#database
+        .prepare("SELECT name FROM destruction.sqlite_master WHERE type = 'table'")
+        .all();
+      const destructionColumns = this.#database
+        .prepare("PRAGMA destruction.table_info(consent_destructions)")
+        .all();
+      const destructionTable = this.#database
+        .prepare(
+          "SELECT strict FROM pragma_table_list WHERE name = 'consent_destructions' AND schema = 'destruction'",
+        )
+        .get();
+      if (
+        this.#database.prepare("PRAGMA main.journal_mode").get()?.journal_mode !== "delete" ||
+        this.#database.prepare("PRAGMA destruction.journal_mode").get()?.journal_mode !==
+          "delete" ||
+        this.#database.prepare("PRAGMA main.synchronous").get()?.synchronous !== 3 ||
+        this.#database.prepare("PRAGMA destruction.synchronous").get()?.synchronous !== 3 ||
+        destructionTables.length !== 1 ||
+        destructionTables[0]?.name !== "consent_destructions" ||
+        destructionTable?.strict !== 1 ||
         destructionColumns.length !== 5 ||
         destructionColumns.some(
           (column, index) =>
@@ -141,8 +176,10 @@ export class ConsentLedger {
               ] || column.type !== "TEXT",
         )
       ) {
-        throw new Error("Схема файла согласий не соответствует утверждённому контракту.");
+        throw new Error("Схема журнала уничтожения не соответствует утверждённому контракту.");
       }
+      if (version === 0)
+        this.#database.exec(`PRAGMA main.user_version = ${destructionJournalVersion}`);
     } catch (error) {
       this.#database.close();
       throw error;
@@ -227,12 +264,12 @@ export class ConsentLedger {
         "DELETE FROM consent_receipts WHERE consentReceiptId = ?",
       );
       const record = this.#database.prepare(
-        `INSERT INTO consent_destructions
+        `INSERT INTO destruction.consent_destructions
         (consentReceiptId, destroyedAt, dataCategory, informationSystem, reason)
         VALUES (?, ?, ?, ?, ?)`,
       );
       const findEvent = this.#database.prepare(
-        "SELECT * FROM consent_destructions WHERE consentReceiptId = ?",
+        "SELECT * FROM destruction.consent_destructions WHERE consentReceiptId = ?",
       );
       for (const receipt of expired) {
         const deletion = remove.run(receipt.consentReceiptId);
@@ -264,7 +301,9 @@ export class ConsentLedger {
 
   destructionEvents(): ConsentDestructionEvent[] {
     return this.#database
-      .prepare("SELECT * FROM consent_destructions ORDER BY destroyedAt, consentReceiptId")
+      .prepare(
+        "SELECT * FROM destruction.consent_destructions ORDER BY destroyedAt, consentReceiptId",
+      )
       .all()
       .map((row) => destructionEventSchema.parse(row));
   }
@@ -289,10 +328,10 @@ export class ConsentLedger {
     return this.#transaction(() => {
       const expired = this.expiredDestructionEvents(review.protectedReceiptIds);
       const remove = this.#database.prepare(
-        "DELETE FROM consent_destructions WHERE consentReceiptId = ?",
+        "DELETE FROM destruction.consent_destructions WHERE consentReceiptId = ?",
       );
       const findEvent = this.#database.prepare(
-        "SELECT 1 FROM consent_destructions WHERE consentReceiptId = ?",
+        "SELECT 1 FROM destruction.consent_destructions WHERE consentReceiptId = ?",
       );
       for (const event of expired) {
         const deletion = remove.run(event.consentReceiptId);
