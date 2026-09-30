@@ -333,4 +333,23 @@ describe("GenerationRateLimiter", () => {
 
     expectAllowed(acquireGeneration(limiter, { ip: "ip-a", clientId: "client-a" })).release();
   });
+
+  it("удаляет истёкшие записи явной очисткой без нового обращения и сохраняет актуальные", () => {
+    const { clock, limiter } = createLimiter();
+
+    expectAllowed(acquireGeneration(limiter, { ip: "ip-a", clientId: "client-a" })).release();
+    const active = expectAllowed(acquireGeneration(limiter, { ip: "ip-b", clientId: "client-b" }));
+    expect(limiter.stateSize).toBe(6);
+
+    clock.advance(minuteMs);
+    limiter.removeExpiredState();
+    expect(limiter.stateSize).toBe(4);
+
+    clock.advance(dayMs);
+    limiter.removeExpiredState();
+    expect(limiter.stateSize).toBe(2);
+
+    active.release();
+    expect(limiter.stateSize).toBe(0);
+  });
 });

@@ -15,7 +15,7 @@ import {
   createGenerationRateLimitConfig,
   type GenerationRateLimitConfig,
 } from "./generation-rate-limit-config.js";
-import { GenerationRateLimiter } from "./generation-rate-limiter.js";
+import { expiredStateCleanupIntervalMs, GenerationRateLimiter } from "./generation-rate-limiter.js";
 import { GenerationSafeguard } from "./generation-safeguard.js";
 import {
   createGenerationSafeguardConfig,
@@ -82,6 +82,16 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const generationRateLimiter =
     options.generationRateLimiter ??
     new GenerationRateLimiter(generationRateLimitConfig, generationNow);
+  // Истёкшее состояние обязано удаляться и без новых обращений: таймер не
+  // удерживает процесс и останавливается вместе с приложением.
+  const expiredStateCleanupTimer = setInterval(
+    () => generationRateLimiter.removeExpiredState(),
+    expiredStateCleanupIntervalMs,
+  );
+  expiredStateCleanupTimer.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(expiredStateCleanupTimer);
+  });
   const generationSafeguard =
     options.generationSafeguard ??
     new GenerationSafeguard(generationSafeguardConfig, options.generationSafeguardNow);
