@@ -30,6 +30,10 @@ type ClientDailyUsage = {
 
 const utcDayDurationMs = 86_400_000;
 
+// Период равен IP-окну по умолчанию: истёкшая запись удаляется не позднее одного
+// периода после того, как перестала влиять на решения, даже без новых обращений.
+export const expiredStateCleanupIntervalMs = 60_000;
+
 export function nextUtcDayBoundary(timestamp: number): number {
   return startOfUtcDay(timestamp) + utcDayDurationMs;
 }
@@ -132,6 +136,17 @@ export class GenerationRateLimiter {
         }
       },
     };
+  }
+
+  removeExpiredState(): void {
+    const now = this.#now();
+    this.#removeExpiredState(now, startOfUtcDay(now));
+  }
+
+  // Единственный канал наблюдения за физическим удалением истёкшего состояния:
+  // счётчик удерживаемых записей без идентификаторов.
+  get stateSize(): number {
+    return this.#stateSize();
   }
 
   #removeExpiredState(now: number, utcDayStart: number): void {
