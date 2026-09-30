@@ -355,11 +355,13 @@ CAPTCHA, технической недоступности verifier, ошибк�
 или gateway.
 
 Технический UUID передаётся в подписанной cookie `uo_generation_client` с
-атрибутами `HttpOnly`, `SameSite=Strict`, `Path=/` и ограниченным сроком жизни.
-Для HTTPS-запроса добавляется `Secure`. Подпись создаёт и проверяет официальный
-плагин `@fastify/cookie`. Неподписанное, повреждённое или не соответствующее
-формату UUID значение не используется. Replacement cookie возвращается только
-после успешного допуска limiter.
+атрибутами `HttpOnly`, `SameSite=Strict`, `Path=/api/generate` и сроком жизни
+до следующей UTC-day boundary. Legacy-вариант с `Path=/` при валидном UUID
+удаляется как migration behavior. Для HTTPS-запроса добавляется `Secure`.
+Подпись создаёт и проверяет официальный плагин `@fastify/cookie`.
+Неподписанное, повреждённое или не соответствующее формату UUID значение не
+используется. Replacement cookie возвращается только после успешного допуска
+limiter.
 
 По умолчанию Fastify получает `trustProxy: false` и не доверяет
 proxy-заголовкам. `GENERATION_TRUSTED_PROXIES` принимает разделённый запятыми
