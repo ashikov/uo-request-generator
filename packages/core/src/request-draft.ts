@@ -25,6 +25,7 @@ export const generatedRequestDraftSchema = z
     problem: draftString(primaryRequestDraftLimits.problem.max),
     circumstances: draftString(primaryRequestDraftLimits.circumstances.max).nullable(),
     impact: draftString(primaryRequestDraftLimits.impact.max).nullable(),
+    requestItem: draftString(primaryRequestDraftLimits.requestItem.max).nullable(),
     subject: primaryRequestSubjectSchema,
     warnings: z
       .array(draftString(primaryRequestDraftLimits.warning.max))
@@ -60,11 +61,11 @@ function normalizeAuthoritativeRequestItem(value: string): string {
   });
 }
 
-function buildRequestItems(input: GenerateRequestInput): [string] {
+function buildRequestItems(input: GenerateRequestInput, requestItem: string | null): [string] {
   return [
     input.desiredActions === undefined
       ? PRIMARY_REQUEST_GENERIC_ITEM
-      : normalizeAuthoritativeRequestItem(input.desiredActions),
+      : (requestItem ?? normalizeAuthoritativeRequestItem(input.desiredActions)),
   ];
 }
 
@@ -81,7 +82,7 @@ export function materializePrimaryRequestDraft(
     circumstances: draft.circumstances,
     impact: draft.impact,
     subject: draft.subject,
-    requestItems: buildRequestItems(input),
+    requestItems: buildRequestItems(input, draft.requestItem),
     warnings: draft.warnings,
   });
 }

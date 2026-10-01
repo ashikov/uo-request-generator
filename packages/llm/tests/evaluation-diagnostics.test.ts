@@ -12,6 +12,7 @@ const generatedWireDraft = {
   problem: "В помещении общего пользования не работает освещение.",
   circumstances: null,
   impact: null,
+  requestItem: null,
   subject: null,
   warnings: [],
 } as const;
@@ -22,6 +23,7 @@ const multipleIssuesWireDraft = {
   problem: null,
   circumstances: null,
   impact: null,
+  requestItem: null,
   subject: null,
   warnings: [],
 } as const;
