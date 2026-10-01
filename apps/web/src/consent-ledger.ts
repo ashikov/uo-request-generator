@@ -14,6 +14,18 @@ const destructionDetails = {
   reason: "истечение операторского срока хранения",
 } as const;
 const destructionJournalVersion = 286;
+const destructionStateVersion = 302;
+const destructionStateTableSql = `CREATE TABLE consent_destruction_state (
+  consentReceiptId TEXT PRIMARY KEY NOT NULL,
+  localDeletedAt TEXT NOT NULL,
+  origin TEXT NOT NULL CHECK(origin IN ('local', 'legacy')),
+  timing TEXT,
+  completedAt TEXT,
+  completionMethod TEXT CHECK(completionMethod IN ('rotation', 'manual-backup-delete')),
+  CHECK((completedAt IS NULL AND completionMethod IS NULL) OR
+    (completedAt IS NOT NULL AND completionMethod IS NOT NULL AND timing IS NOT NULL))
+) STRICT`;
+const timestampSchema = z.iso.datetime().transform((value) => new Date(value).toISOString());
 const destructionEventSchema = z.strictObject({
   consentReceiptId: z.string().min(1),
   destroyedAt: z.iso.datetime(),
@@ -21,7 +33,65 @@ const destructionEventSchema = z.strictObject({
   informationSystem: z.string().min(1),
   reason: z.string().min(1),
 });
-export type ConsentDestructionEvent = z.infer<typeof destructionEventSchema>;
+const destructionTimingSchema = z.discriminatedUnion("backupPlan", [
+  z.strictObject({
+    triggerAt: timestampSchema,
+    deadlineAt: timestampSchema,
+    backupPlan: z.literal("rotation"),
+    expectedRotationAt: timestampSchema,
+    rotationSafetyMarginSeconds: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  }),
+  z.strictObject({
+    triggerAt: timestampSchema,
+    deadlineAt: timestampSchema,
+    backupPlan: z.literal("manual-backup-delete"),
+  }),
+]);
+export type ConsentDestructionTiming = z.infer<typeof destructionTimingSchema>;
+const destructionStateSchema = z.strictObject({
+  consentReceiptId: z.string().min(1),
+  localDeletedAt: timestampSchema,
+  origin: z.enum(["local", "legacy"]),
+  timing: z.string().nullable(),
+  completedAt: timestampSchema.nullable(),
+  completionMethod: z.enum(["rotation", "manual-backup-delete"]).nullable(),
+});
+type DestructionFlowDetails = {
+  consentReceiptId: string;
+  localDeletedAt: string;
+  dataCategory: string;
+  informationSystem: string;
+  reason: string;
+};
+export type PendingConsentDestruction = DestructionFlowDetails & {
+  status: "pending";
+  legacyReviewRequired: boolean;
+  timing?: ConsentDestructionTiming;
+};
+export type ConsentDestructionEvent = DestructionFlowDetails & {
+  status: "completed";
+  legacyReviewRequired: false;
+  timing: ConsentDestructionTiming;
+  completedAt: string;
+  completionMethod: "rotation" | "manual-backup-delete";
+  timely: boolean;
+};
+
+function validateDestructionTiming(timing: ConsentDestructionTiming, localDeletedAt: string): void {
+  if (timing.triggerAt > localDeletedAt || timing.deadlineAt <= timing.triggerAt)
+    throw new Error("Trigger и deadline должны относиться к основанию уничтожения.");
+  if (timing.backupPlan === "rotation") {
+    const rotationWithMargin =
+      Date.parse(timing.expectedRotationAt) + timing.rotationSafetyMarginSeconds * 1000;
+    if (
+      timing.expectedRotationAt <= localDeletedAt ||
+      rotationWithMargin > Date.parse(timing.deadlineAt)
+    )
+      throw new Error(
+        "Rotation не укладывается в deadline с запасом: требуется manual backup delete.",
+      );
+  }
+}
 
 const receiptFields = {
   consentReceiptId: z.string().min(1),
@@ -180,6 +250,7 @@ export class ConsentLedger {
       }
       if (version === 0)
         this.#database.exec(`PRAGMA main.user_version = ${destructionJournalVersion}`);
+      this.#initializeDestructionState(path);
     } catch (error) {
       this.#database.close();
       throw error;
@@ -255,57 +326,122 @@ export class ConsentLedger {
   deleteExpired(review: {
     holdsReviewed: boolean;
     protectedReceiptIds: readonly string[];
+    timing: ConsentDestructionTiming;
   }): ConsentReceipt[] {
     if (review.holdsReviewed !== true)
       throw new Error("Требуется проверка оснований продолжения хранения.");
     return this.#transaction(() => {
+      const timing = destructionTimingSchema.parse(review.timing);
+      const localDeletedAt = this.#now().toISOString();
+      validateDestructionTiming(timing, localDeletedAt);
+      this.#destructionFlows();
       const expired = this.expired(review.protectedReceiptIds);
       const remove = this.#database.prepare(
         "DELETE FROM consent_receipts WHERE consentReceiptId = ?",
-      );
-      const record = this.#database.prepare(
-        `INSERT INTO destruction.consent_destructions
-        (consentReceiptId, destroyedAt, dataCategory, informationSystem, reason)
-        VALUES (?, ?, ?, ?, ?)`,
-      );
-      const findEvent = this.#database.prepare(
-        "SELECT * FROM destruction.consent_destructions WHERE consentReceiptId = ?",
       );
       for (const receipt of expired) {
         const deletion = remove.run(receipt.consentReceiptId);
         if (deletion.changes !== 1 || this.find(receipt.consentReceiptId))
           throw new Error("Уничтожение записи согласия не подтверждено.");
-        const destroyedAt = this.#now().toISOString();
-        const insertion = record.run(
-          receipt.consentReceiptId,
-          destroyedAt,
-          destructionDetails.dataCategory,
-          destructionDetails.informationSystem,
-          destructionDetails.reason,
+        const stateInsertion = this.#database
+          .prepare(`INSERT INTO destruction_state.consent_destruction_state
+          (consentReceiptId, localDeletedAt, origin, timing) VALUES (?, ?, 'local', ?)`)
+          .run(receipt.consentReceiptId, localDeletedAt, JSON.stringify(timing));
+        const pending = this.pendingDestructions().find(
+          (flow) => flow.consentReceiptId === receipt.consentReceiptId,
         );
-        const stored = findEvent.get(receipt.consentReceiptId);
-        const confirmed = stored ? destructionEventSchema.parse(stored) : undefined;
         if (
-          insertion.changes !== 1 ||
-          confirmed?.destroyedAt !== destroyedAt ||
-          confirmed.dataCategory !== destructionDetails.dataCategory ||
-          confirmed.informationSystem !== destructionDetails.informationSystem ||
-          confirmed.reason !== destructionDetails.reason
-        ) {
-          throw new Error("Событие уничтожения не подтверждено.");
-        }
+          stateInsertion.changes !== 1 ||
+          pending?.localDeletedAt !== localDeletedAt ||
+          JSON.stringify(pending.timing) !== JSON.stringify(timing) ||
+          pending.legacyReviewRequired
+        )
+          throw new Error("Pending evidence локального удаления не подтверждено.");
       }
       return expired;
     });
   }
 
   destructionEvents(): ConsentDestructionEvent[] {
-    return this.#database
-      .prepare(
-        "SELECT * FROM destruction.consent_destructions ORDER BY destroyedAt, consentReceiptId",
+    return this.#destructionFlows()
+      .filter((flow): flow is ConsentDestructionEvent => flow.status === "completed")
+      .sort(
+        (left, right) =>
+          left.completedAt.localeCompare(right.completedAt) ||
+          left.consentReceiptId.localeCompare(right.consentReceiptId),
+      );
+  }
+
+  pendingDestructions(): PendingConsentDestruction[] {
+    return this.#destructionFlows().filter(
+      (flow): flow is PendingConsentDestruction => flow.status === "pending",
+    );
+  }
+
+  completeDestruction(
+    consentReceiptId: string,
+    confirmation: {
+      backupLifecycleConfirmed: boolean;
+      completedAt: string;
+      completionMethod: "rotation" | "manual-backup-delete";
+      legacyReviewed?: boolean;
+      timing?: ConsentDestructionTiming;
+    },
+  ): ConsentDestructionEvent {
+    const declaration = z
+      .strictObject({
+        backupLifecycleConfirmed: z.literal(true),
+        completedAt: timestampSchema,
+        completionMethod: z.enum(["rotation", "manual-backup-delete"]),
+        legacyReviewed: z.boolean().optional(),
+        timing: destructionTimingSchema.optional(),
+      })
+      .parse(confirmation);
+    return this.#transaction(() => {
+      const flow = this.pendingDestructions().find(
+        (candidate) => candidate.consentReceiptId === consentReceiptId,
+      );
+      if (!flow) throw new Error("Pending flow отсутствует или уже завершён.");
+      if (
+        flow.legacyReviewRequired !== (declaration.legacyReviewed === true) ||
+        flow.legacyReviewRequired !== (declaration.timing !== undefined)
       )
-      .all()
-      .map((row) => destructionEventSchema.parse(row));
+        throw new Error("Legacy evidence требует отдельного review и исходных timing inputs.");
+      const timing = flow.timing ?? declaration.timing;
+      if (!timing) throw new Error("Не определён исходный deadline уничтожения.");
+      validateDestructionTiming(timing, flow.localDeletedAt);
+      if (
+        declaration.completedAt < flow.localDeletedAt ||
+        declaration.completedAt > this.#now().toISOString() ||
+        (declaration.completionMethod === "rotation" &&
+          (declaration.completedAt === flow.localDeletedAt || timing.backupPlan !== "rotation"))
+      )
+        throw new Error("Недопустимая дата или способ completion.");
+      const expected: ConsentDestructionEvent = {
+        ...flow,
+        status: "completed",
+        legacyReviewRequired: false,
+        timing,
+        completedAt: declaration.completedAt,
+        completionMethod: declaration.completionMethod,
+        timely: declaration.completedAt <= timing.deadlineAt,
+      };
+      const update = this.#database
+        .prepare(`UPDATE destruction_state.consent_destruction_state
+        SET timing = ?, completedAt = ?, completionMethod = ? WHERE consentReceiptId = ? AND completedAt IS NULL`)
+        .run(
+          JSON.stringify(timing),
+          declaration.completedAt,
+          declaration.completionMethod,
+          consentReceiptId,
+        );
+      const stored = this.destructionEvents().find(
+        (event) => event.consentReceiptId === consentReceiptId,
+      );
+      if (update.changes !== 1 || JSON.stringify(stored) !== JSON.stringify(expected))
+        throw new Error("Completion не подтверждён долговечным состоянием.");
+      return expected;
+    });
   }
 
   expiredDestructionEvents(protectedReceiptIds: readonly string[] = []): ConsentDestructionEvent[] {
@@ -314,7 +450,7 @@ export class ConsentLedger {
     return this.destructionEvents().filter(
       (event) =>
         !protectedIds.has(event.consentReceiptId) &&
-        threeCalendarYearsAfter(event.destroyedAt) <= now,
+        threeCalendarYearsAfter(event.completedAt) <= now,
     );
   }
 
@@ -334,9 +470,26 @@ export class ConsentLedger {
         "SELECT 1 FROM destruction.consent_destructions WHERE consentReceiptId = ?",
       );
       for (const event of expired) {
-        const deletion = remove.run(event.consentReceiptId);
-        if (deletion.changes !== 1 || findEvent.get(event.consentReceiptId))
-          throw new Error("Удаление записи журнала уничтожения не подтверждено.");
+        // Только migrated legacy flow имеет строку в старом журнале.
+        if (findEvent.get(event.consentReceiptId)) {
+          const deletion = remove.run(event.consentReceiptId);
+          if (deletion.changes !== 1 || findEvent.get(event.consentReceiptId))
+            throw new Error("Удаление записи legacy журнала не подтверждено.");
+        }
+        const stateDeletion = this.#database
+          .prepare(
+            "DELETE FROM destruction_state.consent_destruction_state WHERE consentReceiptId = ?",
+          )
+          .run(event.consentReceiptId);
+        if (
+          stateDeletion.changes !== 1 ||
+          this.#database
+            .prepare(
+              "SELECT 1 FROM destruction_state.consent_destruction_state WHERE consentReceiptId = ?",
+            )
+            .get(event.consentReceiptId)
+        )
+          throw new Error("Удаление completion state не подтверждено.");
       }
       return expired;
     });
@@ -346,6 +499,164 @@ export class ConsentLedger {
     if (this.#closed) return;
     this.#database.close();
     this.#closed = true;
+  }
+
+  #initializeDestructionState(path: string): void {
+    const marker = this.#database.prepare("PRAGMA destruction.user_version").get()?.user_version;
+    if (marker !== 0 && marker !== destructionStateVersion)
+      throw new Error("Неизвестная версия destruction state.");
+    const statePath = `${path}.destruction-state.sqlite`;
+    const descriptor = openSync(
+      statePath,
+      (marker === 0 ? constants.O_CREAT : 0) | constants.O_RDWR | constants.O_NOFOLLOW,
+      0o600,
+    );
+    closeSync(descriptor);
+    chmodSync(statePath, 0o600);
+    this.#database.prepare("ATTACH DATABASE ? AS destruction_state").run(statePath);
+    this.#database.exec(`PRAGMA destruction_state.journal_mode = DELETE;
+      PRAGMA destruction_state.synchronous = EXTRA;
+      PRAGMA destruction_state.secure_delete = ON;`);
+    if (
+      this.#database.prepare("PRAGMA destruction_state.journal_mode").get()?.journal_mode !==
+        "delete" ||
+      this.#database.prepare("PRAGMA destruction_state.synchronous").get()?.synchronous !== 3
+    )
+      throw new Error("Недопустимый режим destruction state.");
+    // Marker и импорт legacy фиксируются одной транзакцией всех подключённых файлов.
+    this.#transaction(() => {
+      const currentMarker = this.#database
+        .prepare("PRAGMA destruction.user_version")
+        .get()?.user_version;
+      if (currentMarker === 0) {
+        if (
+          this.#database.prepare("SELECT name FROM destruction_state.sqlite_master").all()
+            .length !== 0 ||
+          this.#database.prepare("PRAGMA destruction_state.user_version").get()?.user_version !== 0
+        )
+          throw new Error("Неизвестное частичное состояние migration.");
+        this.#database.exec(
+          destructionStateTableSql.replace(
+            "CREATE TABLE consent_destruction_state",
+            "CREATE TABLE destruction_state.consent_destruction_state",
+          ),
+        );
+        const events = this.#database
+          .prepare("SELECT * FROM destruction.consent_destructions")
+          .all()
+          .map((row) => destructionEventSchema.parse(row));
+        for (const event of events)
+          this.#database
+            .prepare(`INSERT INTO destruction_state.consent_destruction_state
+            (consentReceiptId, localDeletedAt, origin) VALUES (?, ?, 'legacy')`)
+            .run(event.consentReceiptId, timestampSchema.parse(event.destroyedAt));
+        this.#database.exec(`PRAGMA destruction_state.user_version = ${destructionStateVersion};
+          PRAGMA destruction.user_version = ${destructionStateVersion};`);
+      } else if (currentMarker !== destructionStateVersion) {
+        throw new Error("Версия migration изменилась.");
+      }
+      const tables = this.#database
+        .prepare("SELECT name FROM destruction_state.sqlite_master WHERE type = 'table'")
+        .all();
+      const columns = this.#database
+        .prepare("PRAGMA destruction_state.table_info(consent_destruction_state)")
+        .all();
+      const storedSql = this.#database
+        .prepare(
+          "SELECT sql FROM destruction_state.sqlite_master WHERE type = 'table' AND name = 'consent_destruction_state'",
+        )
+        .get()?.sql;
+      const expectedColumns = [
+        "consentReceiptId",
+        "localDeletedAt",
+        "origin",
+        "timing",
+        "completedAt",
+        "completionMethod",
+      ];
+      if (
+        this.#database.prepare("PRAGMA destruction_state.user_version").get()?.user_version !==
+          destructionStateVersion ||
+        tables.length !== 1 ||
+        tables[0]?.name !== "consent_destruction_state" ||
+        typeof storedSql !== "string" ||
+        storedSql.replace(/\s+/g, " ").trim() !==
+          destructionStateTableSql.replace(/\s+/g, " ").trim() ||
+        this.#database
+          .prepare(
+            "SELECT strict FROM pragma_table_list WHERE name = 'consent_destruction_state' AND schema = 'destruction_state'",
+          )
+          .get()?.strict !== 1 ||
+        columns.length !== expectedColumns.length ||
+        columns.some(
+          (column, index) => column.name !== expectedColumns[index] || column.type !== "TEXT",
+        )
+      )
+        throw new Error("Схема destruction state не соответствует контракту.");
+      this.#destructionFlows();
+    });
+  }
+
+  #destructionFlows(): (PendingConsentDestruction | ConsentDestructionEvent)[] {
+    const events = this.#database
+      .prepare("SELECT * FROM destruction.consent_destructions")
+      .all()
+      .map((row) => destructionEventSchema.parse(row));
+    const states = this.#database
+      .prepare(
+        "SELECT * FROM destruction_state.consent_destruction_state ORDER BY localDeletedAt, consentReceiptId",
+      )
+      .all()
+      .map((row) => destructionStateSchema.parse(row));
+    if (events.length !== states.filter((state) => state.origin === "legacy").length)
+      throw new Error("Неполное legacy destruction state.");
+    const eventByReceipt = new Map(events.map((event) => [event.consentReceiptId, event]));
+    return states.map((state) => {
+      const legacy = eventByReceipt.get(state.consentReceiptId);
+      if (
+        state.origin === "legacy"
+          ? !legacy || state.localDeletedAt !== timestampSchema.parse(legacy.destroyedAt)
+          : legacy !== undefined
+      )
+        throw new Error("Несогласованное evidence local delete.");
+      const details = legacy ?? { consentReceiptId: state.consentReceiptId, ...destructionDetails };
+      const timing =
+        state.timing === null ? undefined : destructionTimingSchema.parse(JSON.parse(state.timing));
+      if (timing) validateDestructionTiming(timing, state.localDeletedAt);
+      else if (state.origin !== "legacy") throw new Error("Timing inputs потеряны.");
+      const flow = {
+        consentReceiptId: details.consentReceiptId,
+        dataCategory: details.dataCategory,
+        informationSystem: details.informationSystem,
+        reason: details.reason,
+        localDeletedAt: state.localDeletedAt,
+      };
+      if (state.completedAt === null && state.completionMethod === null)
+        return {
+          ...flow,
+          status: "pending",
+          legacyReviewRequired: state.origin === "legacy",
+          ...(timing ? { timing } : {}),
+        };
+      if (
+        !state.completedAt ||
+        !state.completionMethod ||
+        !timing ||
+        state.completedAt < state.localDeletedAt ||
+        (state.completionMethod === "rotation" &&
+          (state.completedAt === state.localDeletedAt || timing.backupPlan !== "rotation"))
+      )
+        throw new Error("Недопустимое completion state.");
+      return {
+        ...flow,
+        status: "completed",
+        legacyReviewRequired: false,
+        timing,
+        completedAt: state.completedAt,
+        completionMethod: state.completionMethod,
+        timely: state.completedAt <= timing.deadlineAt,
+      };
+    });
   }
 
   #transaction<T>(operation: () => T): T {

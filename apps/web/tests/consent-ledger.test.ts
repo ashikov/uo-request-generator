@@ -8,6 +8,11 @@ import { C1_CONSENT_VERSION, consentEvidenceExpiresAt } from "../src/consent-pol
 
 const directories: string[] = [];
 const ledgers: ConsentLedger[] = [];
+const timing = {
+  triggerAt: "2020-01-01T00:00:00.000Z",
+  deadlineAt: "2030-01-01T00:00:00.000Z",
+  backupPlan: "manual-backup-delete" as const,
+};
 function fixture(now = "2026-09-15T12:00:00.000Z") {
   const directory = mkdtempSync(join(tmpdir(), "consent-test-"));
   directories.push(directory);
@@ -82,7 +87,11 @@ describe("consent ledger", () => {
     const expired = ledger.accept("synthetic-expired", C1_CONSENT_VERSION);
     const retained = ledger.accept("synthetic-retained", C1_CONSENT_VERSION);
     setTime("2023-01-01T00:00:00.000Z");
-    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [retained.consentReceiptId] });
+    ledger.deleteExpired({
+      holdsReviewed: true,
+      protectedReceiptIds: [retained.consentReceiptId],
+      timing,
+    });
     ledger.close();
 
     // Точная форма таблиц, которую проверяет опубликованный image до #287.
@@ -122,7 +131,7 @@ describe("consent ledger", () => {
     const reopened = new ConsentLedger(path);
     ledgers.push(reopened);
     expect(reopened.find(retained.consentReceiptId)).toEqual(retained);
-    expect(reopened.destructionEvents().map((event) => event.consentReceiptId)).toEqual([
+    expect(reopened.pendingDestructions().map((event) => event.consentReceiptId)).toEqual([
       expired.consentReceiptId,
     ]);
   });
@@ -130,7 +139,7 @@ describe("consent ledger", () => {
     const { ledger, path, destructionPath, setTime } = fixture("2020-01-01T00:00:00.000Z");
     ledger.accept("synthetic-request", C1_CONSENT_VERSION);
     setTime("2023-01-01T00:00:00.000Z");
-    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [] });
+    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing });
     ledger.close();
     rmSync(destructionPath);
     expect(() => new ConsentLedger(path)).toThrow();
@@ -146,6 +155,7 @@ describe("consent ledger", () => {
     const receipt = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
     ledger.close();
     rmSync(destructionPath);
+    rmSync(`${path}.destruction-state.sqlite`);
     const oldDatabase = new DatabaseSync(path);
     oldDatabase.exec("PRAGMA user_version = 0");
     oldDatabase.close();
@@ -266,40 +276,58 @@ describe("consent ledger", () => {
     setTime("2027-01-01T00:00:00.000Z");
     expect(ledger.expired([held.consentReceiptId])).toEqual([expired]);
     expect(ledger.find(expired.consentReceiptId)).toEqual(expired);
-    expect(() => ledger.deleteExpired({ holdsReviewed: false, protectedReceiptIds: [] })).toThrow();
+    expect(() =>
+      ledger.deleteExpired({ holdsReviewed: false, protectedReceiptIds: [], timing }),
+    ).toThrow();
     expect(
-      ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [held.consentReceiptId] }),
+      ledger.deleteExpired({
+        holdsReviewed: true,
+        protectedReceiptIds: [held.consentReceiptId],
+        timing,
+      }),
     ).toEqual([expired]);
     expect(ledger.find(expired.consentReceiptId)).toBeUndefined();
     expect(ledger.find(held.consentReceiptId)).toEqual(held);
     expect(ledger.find(revoked.consentReceiptId)?.status).toBe("revoked");
     expect(readFileSync(path).includes(Buffer.from("synthetic-expired"))).toBe(false);
   });
-  it("keeps a minimal destruction event after deleting an expired receipt and does not duplicate it", () => {
+  it("keeps pending local deletion evidence without exporting final destruction", () => {
     const { ledger, path, destructionPath, setTime } = fixture("2020-01-01T00:00:00.000Z");
     const expired = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
     const held = ledger.accept("synthetic-held", C1_CONSENT_VERSION);
     setTime("2023-01-01T00:00:00.000Z");
     expect(
-      ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [held.consentReceiptId] }),
+      ledger.deleteExpired({
+        holdsReviewed: true,
+        protectedReceiptIds: [held.consentReceiptId],
+        timing,
+      }),
     ).toEqual([expired]);
     expect(ledger.find(expired.consentReceiptId)).toBeUndefined();
     expect(ledger.find(held.consentReceiptId)).toEqual(held);
-    expect(ledger.destructionEvents()).toEqual([
+    expect(ledger.destructionEvents()).toEqual([]);
+    expect(ledger.pendingDestructions()).toEqual([
       {
         consentReceiptId: expired.consentReceiptId,
-        destroyedAt: "2023-01-01T00:00:00.000Z",
+        status: "pending",
+        localDeletedAt: "2023-01-01T00:00:00.000Z",
+        legacyReviewRequired: false,
+        timing,
         dataCategory: "Данные о согласии Ц1",
         informationSystem: "consent ledger Ц1",
         reason: "истечение операторского срока хранения",
       },
     ]);
-    expect(ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [] })).toEqual([held]);
-    expect(ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [] })).toEqual([]);
+    expect(ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing })).toEqual([
+      held,
+    ]);
+    expect(ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing })).toEqual(
+      [],
+    );
     ledger.close();
     const reopened = new ConsentLedger(path);
     ledgers.push(reopened);
-    expect(reopened.destructionEvents().map((event) => event.consentReceiptId)).toEqual([
+    expect(reopened.pendingDestructions().map((event) => event.consentReceiptId)).toEqual([
       expired.consentReceiptId,
       held.consentReceiptId,
     ]);
@@ -331,7 +359,13 @@ describe("consent ledger", () => {
     const { ledger, setTime } = fixture("2021-02-28T10:00:00.000Z");
     const receipt = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
     setTime("2024-02-29T10:00:00.000Z");
-    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [] });
+    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing });
+    setTime("2024-03-01T10:00:00.000Z");
+    ledger.completeDestruction(receipt.consentReceiptId, {
+      backupLifecycleConfirmed: true,
+      completedAt: "2024-03-01T10:00:00.000Z",
+      completionMethod: "manual-backup-delete",
+    });
     setTime("2027-02-28T09:59:59.999Z");
     expect(ledger.expiredDestructionEvents()).toEqual([]);
     expect(() =>
@@ -341,7 +375,7 @@ describe("consent ledger", () => {
         protectedReceiptIds: [],
       }),
     ).toThrow();
-    setTime("2027-02-28T10:00:00.000Z");
+    setTime("2027-03-01T10:00:00.000Z");
     expect(ledger.expiredDestructionEvents().map((event) => event.consentReceiptId)).toEqual([
       receipt.consentReceiptId,
     ]);
@@ -371,22 +405,22 @@ describe("consent ledger", () => {
       "CREATE TRIGGER restore_delete AFTER DELETE ON consent_receipts BEGIN INSERT INTO consent_receipts VALUES (OLD.consentReceiptId, OLD.requestId, OLD.consentVersion, OLD.serverTimestamp, OLD.status, OLD.revocationTimestamp); END",
     ],
     [
-      "destruction",
-      "CREATE TRIGGER reject_event BEFORE INSERT ON consent_destructions BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
+      "state",
+      "CREATE TRIGGER reject_event BEFORE INSERT ON consent_destruction_state BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
     ],
     [
-      "destruction",
-      "CREATE TRIGGER ignore_event BEFORE INSERT ON consent_destructions BEGIN SELECT RAISE(IGNORE); END",
+      "state",
+      "CREATE TRIGGER ignore_event BEFORE INSERT ON consent_destruction_state BEGIN SELECT RAISE(IGNORE); END",
     ],
   ])("rolls back deletion without a false event when destruction cannot complete: %s %s", (database, trigger) => {
-    const { ledger, path, destructionPath, setTime } = fixture("2020-01-01T00:00:00.000Z");
+    const { ledger, path, setTime } = fixture("2020-01-01T00:00:00.000Z");
     const receipt = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
     setTime("2023-01-01T00:00:00.000Z");
-    const db = new DatabaseSync(database === "destruction" ? destructionPath : path);
+    const db = new DatabaseSync(database === "state" ? `${path}.destruction-state.sqlite` : path);
     try {
       db.exec(trigger);
       expect(() =>
-        ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [] }),
+        ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing }),
       ).toThrow();
       expect(ledger.find(receipt.consentReceiptId)).toEqual(receipt);
       expect(ledger.destructionEvents()).toEqual([]);
@@ -395,17 +429,17 @@ describe("consent ledger", () => {
     }
   });
   it("rolls back the whole batch when a later destruction event cannot be stored", () => {
-    const { ledger, destructionPath, setTime } = fixture("2020-01-01T00:00:00.000Z");
+    const { ledger, path, setTime } = fixture("2020-01-01T00:00:00.000Z");
     const first = ledger.accept("synthetic-first", C1_CONSENT_VERSION);
     const second = ledger.accept("synthetic-second", C1_CONSENT_VERSION);
     setTime("2023-01-01T00:00:00.000Z");
-    const db = new DatabaseSync(destructionPath);
+    const db = new DatabaseSync(`${path}.destruction-state.sqlite`);
     try {
       db.exec(
-        "CREATE TRIGGER reject_second_event BEFORE INSERT ON consent_destructions WHEN NEW.consentReceiptId = 'synthetic-receipt-2' BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
+        "CREATE TRIGGER reject_second_event BEFORE INSERT ON consent_destruction_state WHEN NEW.consentReceiptId = 'synthetic-receipt-2' BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
       );
       expect(() =>
-        ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [] }),
+        ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing }),
       ).toThrow();
       expect(ledger.find(first.consentReceiptId)).toEqual(first);
       expect(ledger.find(second.consentReceiptId)).toEqual(second);
@@ -419,7 +453,13 @@ describe("consent ledger", () => {
     const protectedReceipt = ledger.accept("synthetic-protected", C1_CONSENT_VERSION);
     const removableReceipt = ledger.accept("synthetic-removable", C1_CONSENT_VERSION);
     setTime("2023-01-01T00:00:00.000Z");
-    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [] });
+    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing });
+    for (const receipt of [protectedReceipt, removableReceipt])
+      ledger.completeDestruction(receipt.consentReceiptId, {
+        backupLifecycleConfirmed: true,
+        completedAt: "2023-01-01T00:00:00.000Z",
+        completionMethod: "manual-backup-delete",
+      });
     setTime("2026-01-01T00:00:00.000Z");
     expect(
       ledger
@@ -435,15 +475,20 @@ describe("consent ledger", () => {
     ]);
   });
   it.each([
-    "CREATE TRIGGER ignore_event_delete BEFORE DELETE ON consent_destructions BEGIN SELECT RAISE(IGNORE); END",
-    "CREATE TRIGGER restore_event_delete AFTER DELETE ON consent_destructions BEGIN INSERT INTO consent_destructions VALUES (OLD.consentReceiptId, OLD.destroyedAt, OLD.dataCategory, OLD.informationSystem, OLD.reason); END",
+    "CREATE TRIGGER ignore_event_delete BEFORE DELETE ON consent_destruction_state BEGIN SELECT RAISE(IGNORE); END",
+    "CREATE TRIGGER restore_event_delete AFTER DELETE ON consent_destruction_state BEGIN INSERT INTO consent_destruction_state VALUES (OLD.consentReceiptId, OLD.localDeletedAt, OLD.origin, OLD.timing, OLD.completedAt, OLD.completionMethod); END",
   ])("does not report journal removal when the event remains: %s", (trigger) => {
-    const { ledger, destructionPath, setTime } = fixture("2020-01-01T00:00:00.000Z");
+    const { ledger, path, setTime } = fixture("2020-01-01T00:00:00.000Z");
     const receipt = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
     setTime("2023-01-01T00:00:00.000Z");
-    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [] });
+    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing });
+    ledger.completeDestruction(receipt.consentReceiptId, {
+      backupLifecycleConfirmed: true,
+      completedAt: "2023-01-01T00:00:00.000Z",
+      completionMethod: "manual-backup-delete",
+    });
     setTime("2026-01-01T00:00:00.000Z");
-    const db = new DatabaseSync(destructionPath);
+    const db = new DatabaseSync(`${path}.destruction-state.sqlite`);
     try {
       db.exec(trigger);
       expect(() =>
@@ -459,5 +504,388 @@ describe("consent ledger", () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe("backup lifecycle destruction completion", () => {
+  const deadlineAt = "2023-01-10T00:00:00.000Z";
+  const rotationTiming = {
+    triggerAt: "2022-12-31T00:00:00.000Z",
+    deadlineAt,
+    backupPlan: "rotation" as const,
+    expectedRotationAt: "2023-01-08T00:00:00.000Z",
+    rotationSafetyMarginSeconds: 86400,
+  };
+  function pending() {
+    const setup = fixture("2020-01-01T00:00:00.000Z");
+    const receipt = setup.ledger.accept("synthetic-request", C1_CONSENT_VERSION);
+    setup.setTime("2023-01-01T00:00:00.000Z");
+    setup.ledger.deleteExpired({
+      holdsReviewed: true,
+      protectedReceiptIds: [],
+      timing: rotationTiming,
+    });
+    return { ...setup, receipt };
+  }
+  const confirmation = {
+    backupLifecycleConfirmed: true,
+    completedAt: "2023-01-08T00:00:00.000Z",
+    completionMethod: "rotation" as const,
+  };
+
+  it.each([
+    "rotation",
+    "manual-backup-delete",
+  ] as const)("exports actual %s completion, once, after reopen", (completionMethod) => {
+    const { ledger, receipt, path, setTime } = pending();
+    setTime(confirmation.completedAt);
+    const completed = ledger.completeDestruction(receipt.consentReceiptId, {
+      ...confirmation,
+      completionMethod,
+    });
+    expect(completed).toMatchObject({
+      status: "completed",
+      localDeletedAt: "2023-01-01T00:00:00.000Z",
+      completedAt: confirmation.completedAt,
+      completionMethod,
+      timely: true,
+      timing: rotationTiming,
+    });
+    expect(completed).not.toHaveProperty("destroyedAt");
+    expect(ledger.pendingDestructions()).toEqual([]);
+    expect(() =>
+      ledger.completeDestruction(receipt.consentReceiptId, { ...confirmation, completionMethod }),
+    ).toThrow();
+    ledger.close();
+    const reopened = new ConsentLedger(path);
+    ledgers.push(reopened);
+    expect(reopened.destructionEvents()).toEqual([completed]);
+  });
+  it.each([
+    { ...confirmation, backupLifecycleConfirmed: false },
+    { ...confirmation, completedAt: "2022-12-31T23:59:59.999Z" },
+    { ...confirmation, completedAt: "2023-01-01T00:00:00.000Z" },
+    { ...confirmation, completedAt: "2023-01-09T00:00:00.000Z" },
+  ])("rejects missing evidence, early or future completion: %j", (declaration) => {
+    const { ledger, receipt, setTime } = pending();
+    setTime(confirmation.completedAt);
+    expect(() => ledger.completeDestruction(receipt.consentReceiptId, declaration)).toThrow();
+    expect(ledger.destructionEvents()).toEqual([]);
+    expect(ledger.pendingDestructions()).toHaveLength(1);
+  });
+  it("retains late actual completion with timely false and the original deadline", () => {
+    const { ledger, receipt, setTime } = pending();
+    setTime("2023-01-11T00:00:00.000Z");
+    expect(
+      ledger.completeDestruction(receipt.consentReceiptId, {
+        ...confirmation,
+        completedAt: "2023-01-11T00:00:00.000Z",
+      }),
+    ).toMatchObject({ timely: false, timing: { deadlineAt } });
+    expect(ledger.destructionEvents()).toMatchObject([{ timely: false }]);
+  });
+  it("does not purge pending flows even after three years", () => {
+    const { ledger, setTime } = pending();
+    setTime("2040-01-01T00:00:00.000Z");
+    expect(ledger.expiredDestructionEvents()).toEqual([]);
+    expect(
+      ledger.purgeExpiredDestructionEvents({
+        holdsReviewed: true,
+        documentsArchived: true,
+        protectedReceiptIds: [],
+      }),
+    ).toEqual([]);
+    expect(ledger.pendingDestructions()).toHaveLength(1);
+  });
+  it.each([
+    { ...rotationTiming, deadlineAt: "2023-01-08T12:00:00.000Z" },
+    { ...rotationTiming, rotationSafetyMarginSeconds: 0 },
+    { ...rotationTiming, triggerAt: "2023-01-02T00:00:00.000Z" },
+    { ...rotationTiming, deadlineAt: "2022-12-30T00:00:00.000Z" },
+  ])("rejects unsafe timing without local deletion: %j", (unsafeTiming) => {
+    const { ledger, setTime } = fixture("2020-01-01T00:00:00.000Z");
+    const receipt = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
+    setTime("2023-01-01T00:00:00.000Z");
+    expect(() =>
+      ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing: unsafeTiming }),
+    ).toThrow();
+    expect(ledger.find(receipt.consentReceiptId)).toEqual(receipt);
+    expect(ledger.pendingDestructions()).toEqual([]);
+  });
+  it("requires manual completion when rotation cannot meet the declared deadline", () => {
+    const { ledger, setTime } = fixture("2020-01-01T00:00:00.000Z");
+    const receipt = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
+    setTime("2023-01-01T00:00:00.000Z");
+    ledger.deleteExpired({
+      holdsReviewed: true,
+      protectedReceiptIds: [],
+      timing: {
+        triggerAt: rotationTiming.triggerAt,
+        deadlineAt: "2023-01-02T00:00:00.000Z",
+        backupPlan: "manual-backup-delete",
+      },
+    });
+    setTime("2023-01-02T00:00:00.000Z");
+    expect(() =>
+      ledger.completeDestruction(receipt.consentReceiptId, {
+        ...confirmation,
+        completedAt: "2023-01-02T00:00:00.000Z",
+      }),
+    ).toThrow();
+    expect(
+      ledger.completeDestruction(receipt.consentReceiptId, {
+        ...confirmation,
+        completedAt: "2023-01-02T00:00:00.000Z",
+        completionMethod: "manual-backup-delete",
+      }),
+    ).toMatchObject({ timely: true });
+  });
+  it("rolls back pending evidence and local deletion if state insertion fails", () => {
+    const { ledger, path, setTime } = fixture("2020-01-01T00:00:00.000Z");
+    const receipt = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
+    setTime("2023-01-01T00:00:00.000Z");
+    const db = new DatabaseSync(`${path}.destruction-state.sqlite`);
+    try {
+      db.exec(
+        "CREATE TRIGGER reject_state BEFORE INSERT ON consent_destruction_state BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
+      );
+      expect(() =>
+        ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing }),
+      ).toThrow();
+      expect(ledger.find(receipt.consentReceiptId)).toEqual(receipt);
+      expect(ledger.pendingDestructions()).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+  it.each([
+    "CREATE TRIGGER reject_completion BEFORE UPDATE ON consent_destruction_state BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
+    "CREATE TRIGGER ignore_completion BEFORE UPDATE ON consent_destruction_state BEGIN SELECT RAISE(IGNORE); END",
+    "CREATE TRIGGER alter_completion AFTER UPDATE ON consent_destruction_state BEGIN UPDATE consent_destruction_state SET completedAt = '2023-01-07T00:00:00.000Z' WHERE consentReceiptId = NEW.consentReceiptId; END",
+  ])("does not report completion when durable confirmation fails: %s", (trigger) => {
+    const { ledger, receipt, path, setTime } = pending();
+    setTime(confirmation.completedAt);
+    const db = new DatabaseSync(`${path}.destruction-state.sqlite`);
+    try {
+      db.exec(trigger);
+      expect(() => ledger.completeDestruction(receipt.consentReceiptId, confirmation)).toThrow();
+      expect(ledger.destructionEvents()).toEqual([]);
+      expect(ledger.pendingDestructions()).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("legacy journal migration and rollback schema", () => {
+  function legacyJournal() {
+    const setup = fixture();
+    setup.ledger.close();
+    rmSync(`${setup.path}.destruction-state.sqlite`);
+    const db = new DatabaseSync(setup.destructionPath);
+    db.exec("PRAGMA user_version = 0");
+    db.prepare("INSERT INTO consent_destructions VALUES (?, ?, ?, ?, ?)").run(
+      "synthetic-legacy",
+      "2023-01-01T00:00:00.000Z",
+      "Данные о согласии Ц1",
+      "consent ledger Ц1",
+      "истечение операторского срока хранения",
+    );
+    db.close();
+    return setup;
+  }
+  function reopen(path: string) {
+    const ledger = new ConsentLedger(path, { now: () => new Date("2026-01-01T00:00:00.000Z") });
+    ledgers.push(ledger);
+    return ledger;
+  }
+  it("preserves legacy deletion as pending through repeat migration and explicit operator review", () => {
+    const { path, destructionPath } = legacyJournal();
+    const ledger = reopen(path);
+    expect(ledger.destructionEvents()).toEqual([]);
+    expect(ledger.pendingDestructions()).toMatchObject([
+      {
+        consentReceiptId: "synthetic-legacy",
+        localDeletedAt: "2023-01-01T00:00:00.000Z",
+        legacyReviewRequired: true,
+      },
+    ]);
+    expect(ledger.pendingDestructions()[0]).not.toHaveProperty("timing");
+    const declaration = {
+      backupLifecycleConfirmed: true,
+      completedAt: "2023-01-02T00:00:00.000Z",
+      completionMethod: "manual-backup-delete" as const,
+    };
+    expect(() => ledger.completeDestruction("synthetic-legacy", declaration)).toThrow();
+    expect(() =>
+      ledger.completeDestruction("synthetic-legacy", { ...declaration, legacyReviewed: true }),
+    ).toThrow();
+    ledger.close();
+    const migratedAgain = reopen(path);
+    expect(migratedAgain.pendingDestructions()).toHaveLength(1);
+    expect(
+      migratedAgain.completeDestruction("synthetic-legacy", {
+        ...declaration,
+        legacyReviewed: true,
+        timing,
+      }),
+    ).toMatchObject({ timely: true, completedAt: declaration.completedAt });
+    const db = new DatabaseSync(destructionPath, { readOnly: true });
+    expect(db.prepare("SELECT destroyedAt FROM consent_destructions").all()).toEqual([
+      { destroyedAt: "2023-01-01T00:00:00.000Z" },
+    ]);
+    db.close();
+  });
+  it("rolls back failed migration without losing legacy rows and safely retries", () => {
+    const { path, destructionPath } = legacyJournal();
+    const db = new DatabaseSync(destructionPath);
+    try {
+      db.prepare("INSERT INTO consent_destructions VALUES (?, ?, ?, ?, ?)").run(
+        "synthetic-invalid",
+        "invalid-timestamp",
+        "Данные о согласии Ц1",
+        "consent ledger Ц1",
+        "истечение операторского срока хранения",
+      );
+      expect(() => reopen(path)).toThrow();
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 0 });
+      expect(db.prepare("SELECT count(*) AS count FROM consent_destructions").get()).toEqual({
+        count: 2,
+      });
+      const stateDb = new DatabaseSync(`${path}.destruction-state.sqlite`);
+      expect(stateDb.prepare("SELECT name FROM sqlite_master").all()).toEqual([]);
+      expect(stateDb.prepare("PRAGMA user_version").get()).toEqual({ user_version: 0 });
+      stateDb.close();
+      db.prepare("UPDATE consent_destructions SET destroyedAt = ? WHERE consentReceiptId = ?").run(
+        "2023-01-01T00:00:00.000Z",
+        "synthetic-invalid",
+      );
+    } finally {
+      db.close();
+    }
+    expect(reopen(path).pendingDestructions()).toHaveLength(2);
+  });
+  it.each([
+    "PRAGMA user_version = 999",
+    `CREATE TABLE weakened (
+      consentReceiptId TEXT, localDeletedAt TEXT, origin TEXT,
+      timing TEXT, completedAt TEXT, completionMethod TEXT
+    ) STRICT;
+    INSERT INTO weakened SELECT * FROM consent_destruction_state;
+    DROP TABLE consent_destruction_state;
+    ALTER TABLE weakened RENAME TO consent_destruction_state;`,
+    "ALTER TABLE consent_destruction_state ADD COLUMN payload TEXT",
+    "CREATE TABLE unrelated (value TEXT)",
+    "UPDATE consent_destruction_state SET timing = 'invalid-json'",
+    "DELETE FROM consent_destruction_state",
+    "UPDATE consent_destruction_state SET localDeletedAt = '2024-01-01T00:00:00.000Z'",
+  ])("fails closed for unknown or corrupt migrated state: %s", (mutation) => {
+    const { path } = legacyJournal();
+    reopen(path).close();
+    const db = new DatabaseSync(`${path}.destruction-state.sqlite`);
+    db.exec(mutation);
+    db.close();
+    expect(() => reopen(path)).toThrow();
+  });
+  it("does not recreate a missing or empty mandatory state file", () => {
+    const { ledger, path } = fixture();
+    ledger.close();
+    rmSync(`${path}.destruction-state.sqlite`);
+    expect(() => reopen(path)).toThrow();
+    expect(() => statSync(`${path}.destruction-state.sqlite`)).toThrow();
+    writeFileSync(`${path}.destruction-state.sqlite`, "");
+    expect(() => reopen(path)).toThrow();
+  });
+  it("rejects unknown legacy markers and unmarked nonempty migration files", () => {
+    const { path, destructionPath } = legacyJournal();
+    const db = new DatabaseSync(destructionPath);
+    db.exec("PRAGMA user_version = 999");
+    expect(() => reopen(path)).toThrow();
+    expect(() => statSync(`${path}.destruction-state.sqlite`)).toThrow();
+    db.exec("PRAGMA user_version = 0");
+    db.close();
+    const stateDb = new DatabaseSync(`${path}.destruction-state.sqlite`);
+    stateDb.exec("CREATE TABLE unrelated (value TEXT)");
+    stateDb.close();
+    expect(() => reopen(path)).toThrow();
+  });
+  it("keeps the exact #286 schemas and main version after new deletes and completion", () => {
+    const { ledger, path, destructionPath, setTime } = fixture("2020-01-01T00:00:00.000Z");
+    const receipt = ledger.accept("synthetic-request", C1_CONSENT_VERSION);
+    setTime("2023-01-01T00:00:00.000Z");
+    ledger.deleteExpired({ holdsReviewed: true, protectedReceiptIds: [], timing });
+    ledger.completeDestruction(receipt.consentReceiptId, {
+      backupLifecycleConfirmed: true,
+      completedAt: "2023-01-01T00:00:00.000Z",
+      completionMethod: "manual-backup-delete",
+    });
+    ledger.close();
+    const db = new DatabaseSync(path, { readOnly: true });
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 286 });
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).toEqual([
+      { name: "consent_receipts" },
+    ]);
+    db.close();
+    const journal = new DatabaseSync(destructionPath, { readOnly: true });
+    expect(journal.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).toEqual([
+      { name: "consent_destructions" },
+    ]);
+    expect(
+      journal
+        .prepare("PRAGMA table_info(consent_destructions)")
+        .all()
+        .map((column) => [column.name, column.type]),
+    ).toEqual([
+      ["consentReceiptId", "TEXT"],
+      ["destroyedAt", "TEXT"],
+      ["dataCategory", "TEXT"],
+      ["informationSystem", "TEXT"],
+      ["reason", "TEXT"],
+    ]);
+    expect(journal.prepare("SELECT * FROM consent_destructions").all()).toEqual([]);
+    journal.close();
+    expect(statSync(`${path}.destruction-state.sqlite`).mode & 0o777).toBe(0o600);
+  });
+  it("purges legacy evidence only three years after completion, atomically with state", () => {
+    const { path, destructionPath } = legacyJournal();
+    let now = new Date("2024-02-29T10:00:00.000Z");
+    const ledger = new ConsentLedger(path, { now: () => now });
+    ledgers.push(ledger);
+    ledger.completeDestruction("synthetic-legacy", {
+      backupLifecycleConfirmed: true,
+      completedAt: now.toISOString(),
+      completionMethod: "manual-backup-delete",
+      legacyReviewed: true,
+      timing,
+    });
+    now = new Date("2027-02-28T09:59:59.999Z");
+    expect(ledger.expiredDestructionEvents()).toEqual([]);
+    now = new Date("2027-02-28T10:00:00.000Z");
+    const stateDb = new DatabaseSync(`${path}.destruction-state.sqlite`);
+    stateDb.exec(
+      "CREATE TRIGGER reject_purge BEFORE DELETE ON consent_destruction_state BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
+    );
+    expect(() =>
+      ledger.purgeExpiredDestructionEvents({
+        holdsReviewed: true,
+        documentsArchived: true,
+        protectedReceiptIds: [],
+      }),
+    ).toThrow();
+    expect(ledger.destructionEvents()).toHaveLength(1);
+    stateDb.exec("DROP TRIGGER reject_purge");
+    stateDb.close();
+    expect(
+      ledger.purgeExpiredDestructionEvents({
+        holdsReviewed: true,
+        documentsArchived: true,
+        protectedReceiptIds: [],
+      }),
+    ).toHaveLength(1);
+    const db = new DatabaseSync(destructionPath, { readOnly: true });
+    expect(db.prepare("SELECT * FROM consent_destructions").all()).toEqual([]);
+    db.close();
+    ledger.close();
+    expect(reopen(path).pendingDestructions()).toEqual([]);
   });
 });
