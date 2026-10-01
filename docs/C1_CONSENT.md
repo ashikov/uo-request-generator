@@ -162,8 +162,10 @@ Ledger отражает отзыв как `revoked` с `revocationTimestamp`; п
 проверки оснований и готовности применимого процесса подтверждения уничтожения.
 Защищённые receipt передаются через повторяемый `--protect`. Ошибка либо
 отсутствие обязательного подтверждения не обходятся автоматическим SQL `DELETE`.
-Команду удаления оператор выполняет при наступлении сроков и пересмотре
-исключений. Фоновое удаление без проверки закрытых исключений не реализовано.
+Команда атомарно удаляет запись из рабочего ledger и создаёт только pending
+evidence локального удаления. Это ещё не финальное уничтожение: запись может
+оставаться в применимой operator-visible backup copy. Фоновое удаление и
+автоматическая проверка панели платформы не реализованы.
 
 Для локального обслуживания используется собранная команда
 `node apps/web/dist/consent-ledger-command.js`. Её аргументы — команда,
@@ -172,14 +174,61 @@ Ledger отражает отзыв как `revoked` с `revocationTimestamp`; п
 - `find` — найти evidence после проверки заявителя
 - `revoke` — отразить подтверждённый отзыв после проверки заявителя
 - `preview-expired` — проверить кандидатов к удалению без изменения записей
-- `delete-expired` — удалить истёкшие записи с учётом явно защищённых receipt
-- `export-destruction-events` — получить выгрузку сохранённого журнала уничтожения
-- `preview-expired-destruction-events` — проверить события старше трёх лет
-- `purge-expired-destruction-events` — удалить такие события после проверки документов и исключений
+- `delete-expired` — локально удалить истёкшие записи и создать pending flows
+- `preview-pending-destructions` — просмотреть незавершённые destruction flows
+- `complete-destruction` — подтвердить выход receipt из backup lifecycle
+- `export-destruction-events` — выгрузить только завершённые destruction flows
+- `preview-expired-destruction-events` — проверить завершения старше трёх лет
+- `purge-expired-destruction-events` — удалить такие завершения после проверки документов и исключений
 
 Индивидуальная проверка подтверждается `--request-verified`; этот флаг —
 декларация оператора о выполненной процедуре, а не техническая аутентификация.
 Для удаления обязательны `--holds-reviewed` и `--destruction-evidence-ready`.
+Оператор также передаёт относящиеся к одному основанию уничтожения
+`--trigger-at`, `--deadline-at` и `--backup-plan`. Приложение не выводит trigger
+из SQL-delete и не переносит deadline на его дату. Один набор timing применяется
+ко всем удаляемым записям этого запуска. Trigger должен быть не позже local
+delete, а deadline — позже trigger. Deadline определяет своевременность, а не
+право выполнить позднюю remediation: пропущенный срок не разрешает хранить
+запись дальше, local delete не переносит deadline, а поздний completion сохраняется
+как поздний. Для плана `rotation` обязательны `--expected-rotation-at` и положительный
+`--rotation-safety-margin-seconds`: ожидаемая rotation с запасом должна
+укладываться в deadline и следовать после local delete. Если это невозможно,
+включая уже пропущенный deadline, оператор немедленно выбирает
+`manual-backup-delete`; ожидание будущей rotation и подмена deadline не служат
+заменой remediation.
+
+`complete-destruction` принимает `consentReceiptId`, `--completed-at`,
+`--completion-method rotation|manual-backup-delete` и обязательную декларацию
+`--backup-lifecycle-confirmed`. Для `rotation` она означает, что после local
+delete успешно создана новая copy, а прежняя содержащая запись copy отсутствует
+в observable lifecycle. Для `manual-backup-delete` она означает, что применимая
+содержащая запись copy фактически удалена оператором. Приложение не проверяет
+панель платформы и не подменяет декларацию автоматическим выводом. Будущая дата,
+дата раньше local delete и повторное completion отклоняются. Поздний факт
+сохраняется с `timely: false` и не представляется своевременным исполнением.
+Routine rotation сама по себе не требует отдельного акта: при наличии pending
+flow выход удалённой записи из backup lifecycle завершает конкретное уничтожение.
+Точная форма новых операторских команд:
+
+```text
+delete-expired <ledger> --holds-reviewed --destruction-evidence-ready \
+  --trigger-at <timestamp> --deadline-at <timestamp> \
+  --backup-plan rotation --expected-rotation-at <timestamp> \
+  --rotation-safety-margin-seconds <positive-integer> [--protect <receipt>]
+delete-expired <ledger> --holds-reviewed --destruction-evidence-ready \
+  --trigger-at <timestamp> --deadline-at <timestamp> \
+  --backup-plan manual-backup-delete [--protect <receipt>]
+preview-pending-destructions <ledger>
+complete-destruction <ledger> <receipt> --backup-lifecycle-confirmed \
+  --completed-at <timestamp> \
+  --completion-method rotation|manual-backup-delete
+export-destruction-events <ledger>
+```
+
+Для migrated legacy flow к `complete-destruction` добавляются
+`--legacy-reviewed` и тот же применимый набор timing-флагов. Для обычного flow
+timing уже сохранён при local delete и повторно при completion не передаётся.
 Для очистки журнала уничтожения обязательны `--holds-reviewed` и
 `--documents-archived`. Защищённые события передаются через `--protect`.
 Вывод команды содержит закрытое evidence, не предназначен для GitHub или
@@ -188,26 +237,39 @@ Ledger отражает отзыв как `revoked` с `revocationTimestamp`; п
 координирует; SQLite-транзакции не заменяют организационную проверку.
 
 При `delete-expired` приложение удаляет истёкшую запись из `CONSENT_LEDGER_FILE`
-и сохраняет событие в отдельном файле с суффиксом `.destruction.sqlite` в той
-же закрытой persistent области. SQLite подключает файл журнала через `ATTACH`:
-оба файла используют `journal_mode=DELETE` и `synchronous=EXTRA`, что
+и сохраняет pending state в отдельном файле с суффиксом
+`.destruction-state.sqlite` в той же закрытой persistent области. SQLite
+подключает все файлы через `ATTACH`; они используют `journal_mode=DELETE` и
+`synchronous=EXTRA`, что
 [по документации SQLite](https://www.sqlite.org/lang_attach.html) позволяет
 атомарную транзакцию между файловыми базами вне режима WAL. Приложение проверяет
 эти режимы до работы с ledger и закрывается с ошибкой, если они не установлены.
-После первого создания журнала `user_version` в заголовке исходного файла
-отмечает, что отдельный файл обязателен. Если он отсутствует или потерял
-таблицу событий, новый image завершается с ошибкой, не создавая пустую замену.
-Эта отметка не добавляет таблиц или полей в consent ledger. Его схема остаётся
-совместимой с предыдущим image; при rollback
-журнал не удаляется и вновь читается после возврата нового image. Событие
-содержит только `consentReceiptId`, дату уничтожения,
-категорию «Данные о согласии Ц1», систему «consent ledger Ц1» и причину
-«истечение операторского срока хранения». Ошибка удаления, проверки результата,
-записи события или `COMMIT` откатывает обе операции. Повторный запуск не создаёт
-событие для уже отсутствующей записи. Событие не включает `requestId`, версию
-согласия, пользовательский текст, результат, IP, cookie или CAPTCHA token.
 
-`export-destruction-events` читает долговечный журнал для закрытой выгрузки.
+Additive-схема #302 выбрана вместо изменения таблицы #286, чтобы прежний image мог
+открыть исходный ledger и прежний `.destruction.sqlite` с точной старой схемой.
+Основной `user_version` остаётся `286`; `destruction.user_version=302` отмечает,
+что новый state-файл обязателен, а сам state-файл имеет `user_version=302`.
+Таблица state содержит шесть `TEXT`-полей: `consentReceiptId`,
+`localDeletedAt`, `origin`, JSON `timing`, `completedAt` и `completionMethod`.
+Новые local delete записываются только в state-файл. Ошибка удаления, записи
+pending state, проверки результата или `COMMIT` откатывает всю операцию.
+
+При первом открытии старые строки `.destruction.sqlite` импортируются в state
+как `origin=legacy`, но старый `destroyedAt` становится только
+`localDeletedAt`. Он не считается `completedAt`. Импорт таблицы, создание state
+и оба version marker выполняются одной транзакцией трёх подключённых файлов,
+поэтому операция повторяема после rollback. Legacy flow остаётся pending до
+отдельного review: completion требует `--legacy-reviewed` и полного набора
+исходных timing-флагов. Потерянный обязательный state-файл, частичная,
+неизвестная или повреждённая схема и рассогласование legacy rows завершаются
+ошибкой. Файлы не содержат provider или snapshot IDs, адресов панели,
+account identifiers, credentials и пользовательского payload.
+
+`preview-pending-destructions` отдельно показывает pending flows, включая
+legacy flows, требующие review. Они не попадают в `export-destruction-events`.
+Выгрузка завершённых flows использует `completedAt` как дату уничтожения,
+сохраняет исходный `localDeletedAt`, timing, способ completion и признак
+`timely`; прежний `destroyedAt` не экспортируется как финальная дата.
 Сам stdout не является долговременным архивом. Оператор сохраняет применимую
 выгрузку и составляет отдельный акт со своими реквизитами, исполнителем,
 подписью и способом уничтожения. `consentReceiptId` используется как
@@ -217,17 +279,19 @@ Ledger отражает отзыв как `revoked` с `revocationTimestamp`; п
 а не подтверждённым соответствием.
 
 **Отдельный нормативный срок:** акт и применимая выгрузка подтверждения
-уничтожения хранятся три года с уничтожения по
+уничтожения хранятся три года с финального `completedAt` по
 [приказу Роскомнадзора №179](http://publication.pravo.gov.ru/Document/View/0001202211290008).
 Этот срок не является основанием срока consent ledger. Для применимой
 автоматизированной обработки требуются акт и выгрузка журнала событий,
 для неавтоматизированной — акт, для смешанной — оба.
 
-События приложения хранятся не меньше трёх календарных лет с даты уничтожения.
-Команда очистки не выбирает более новые события и требует декларации оператора
+Завершённые события приложения хранятся не меньше трёх календарных лет с
+`completedAt`. Pending flows не считаются истёкшими evidence и не выбираются
+обычной purge-командой. Команда очистки не выбирает более новые завершения и
+требует декларации оператора
 о сохранности акта и выгрузки и проверке исключений. Эти флаги не доказывают
 фактическое архивирование. Оператор хранит обязательные документы отдельно и
-проверяет сохранность обоих SQLite-файлов, применимость к их копиям и другим
+проверяет сохранность трёх SQLite-файлов, применимость к их копиям и другим
 областям обработки по #184.
 Простой SQL `DELETE`, `secure_delete`, вывод команды или одно событие журнала
 не являются полным подтверждением №179.
