@@ -60,6 +60,34 @@ describe("test scenario fixtures", () => {
     }
   });
 
+  it("содержит десять смысловых контролей кандидата B без эталонной фразы", () => {
+    const candidates = scenarios.filter(({ provenance }) => provenance?.issue === 267);
+    expect(candidates.map(({ id }) => id)).toEqual([
+      "request-item-emotional",
+      "request-item-conditional-repair",
+      "request-item-inspection-only",
+      "request-item-no-replacement",
+      "request-item-cleaning-working-door",
+      "request-item-generic",
+      "request-item-diagnosis-only",
+      "request-item-explicit-component",
+      "request-item-compound-constraints",
+      "request-item-contradictory",
+    ]);
+    for (const scenario of candidates) {
+      expect(scenario.expectedOutcome).toBe("generated");
+      if (scenario.expectedOutcome !== "generated") throw new Error("Ожидался generated");
+      expect(scenario.input.desiredActions).toBeTruthy();
+      expect(scenario.mustPreserveFacts.length).toBeGreaterThan(0);
+      expect(scenario.mustNotInvent.length).toBeGreaterThan(0);
+      expect(scenario.expectationClassification?.qualityExpectations.length).toBeGreaterThan(0);
+      expect(scenario.semanticExpectations.join(" ")).toMatch(
+        /requestItem.*problem.*impact.*subject.*warnings.*outcome/u,
+      );
+      expect(scenario.semanticExpectations.join(" ")).toContain("null");
+    }
+  });
+
   it("не закрепляет удалённую procedural ontology", () => {
     const serialized = JSON.stringify(scenarios);
 

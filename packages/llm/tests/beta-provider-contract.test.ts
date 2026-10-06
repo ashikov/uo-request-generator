@@ -13,6 +13,7 @@ const generatedWireDraft = {
   problem: "В помещении общего пользования не работает освещение.",
   circumstances: null,
   impact: null,
+  requestItem: null,
   subject: null,
   warnings: [],
 } as const;
@@ -23,6 +24,7 @@ const multipleIssuesWireDraft = {
   problem: null,
   circumstances: null,
   impact: null,
+  requestItem: null,
   subject: null,
   warnings: [],
 } as const;
@@ -66,7 +68,16 @@ describe("beta provider response contract", () => {
     }
     expect(
       Object.keys(createRequestDraftJsonSchema(undefined).properties.draft.properties),
-    ).toEqual(["outcome", "title", "problem", "circumstances", "impact", "subject", "warnings"]);
+    ).toEqual([
+      "outcome",
+      "title",
+      "problem",
+      "circumstances",
+      "impact",
+      "requestItem",
+      "subject",
+      "warnings",
+    ]);
   });
 
   it("использует byte-identical schema независимо от наличия desiredActions", () => {
@@ -106,7 +117,7 @@ describe("beta provider response contract", () => {
     expect(JSON.stringify(enabledSubject)).toContain("common_area_premises_lighting");
   });
 
-  it("prompt оставляет desiredActions authoritative context, но не поручает модели требования", () => {
+  it("prompt ограничивает нормализацию исходным desiredActions без процедурных ролей", () => {
     const prompt = createRequestDraftSystemPrompt(undefined);
 
     expect(prompt).toContain("desiredActions — authoritative требование пользователя");
