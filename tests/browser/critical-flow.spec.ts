@@ -592,6 +592,7 @@ test("проходит по интерактивным элементам кла
     "#confirmed-problem-subject",
     "#consent-accepted",
     "#consent-text a",
+    "#personal-data-policy-link",
     "#submit-button",
   ]) {
     await page.keyboard.press("Tab");
