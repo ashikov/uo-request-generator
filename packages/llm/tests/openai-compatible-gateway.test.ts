@@ -81,7 +81,7 @@ const VALID_LLM_RESPONSE = {
       COMMON_LEGAL_BASIS_BLOCK,
       "",
       "Прошу:",
-      "1. Устранить наблюдаемую проблему.",
+      "1. Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению.",
     ].join("\n"),
     warnings: [],
   },
@@ -584,6 +584,52 @@ describe("OpenAiCompatibleGateway", () => {
     );
   });
 
+  it.each([
+    "chat-completions",
+    "responses",
+  ] as const)("сохраняет production/evaluation parity нового fallback через %s без реальной сети", async (apiProtocol) => {
+    const responseDraft = {
+      ...VALID_DRAFT,
+      subject: {
+        kind: "common_area_premises_lighting",
+        evidence: [{ sourceField: "description", quote: VALID_INPUT.description }],
+      },
+    };
+    const content = createLlmText(responseDraft);
+    const mockFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify(
+              apiProtocol === "responses"
+                ? { output_text: content }
+                : { choices: [{ message: { content } }] },
+            ),
+            { status: 200 },
+          ),
+      );
+    const gateway = createGateway({ apiProtocol });
+    const input = {
+      ...VALID_INPUT,
+      confirmedProblemSubject: "common_area_premises_lighting" as const,
+    };
+
+    const production = await gateway.generateRequest(input);
+    const evaluation = await gateway.generateRequestForEvaluation(input);
+
+    expect(evaluation.status).toBe("success");
+    if (evaluation.status !== "success") throw new Error("Ожидался успешный evaluation");
+    expect(evaluation.outcome).toEqual(production);
+    if (evaluation.observation.draftOutcome !== "generated") throw new Error("Ожидался generated");
+    expect(evaluation.observation.draft).toMatchObject({
+      requestItems: [
+        "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
+      ],
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("парсит ответ с предупреждениями", async () => {
     const input = { description: "На кухне течёт кран." };
     const text = createLlmText({
@@ -607,7 +653,9 @@ describe("OpenAiCompatibleGateway", () => {
       throw new Error("Ожидался готовый результат");
     }
     expect(result.result.title).toBe("Течь на кухне");
-    expect(result.result.body).toContain("Устранить наблюдаемую проблему");
+    expect(result.result.body).toContain(
+      "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
+    );
     expect(result.result.warnings).toHaveLength(2);
   });
 
@@ -644,7 +692,9 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.body).toContain(draft.problem);
     expect(result.result.body).toContain(draft.circumstances);
     expect(result.result.body).toContain(draft.impact);
-    expect(result.result.body).toContain("Прошу:\n1. Устранить наблюдаемую проблему");
+    expect(result.result.body).toContain(
+      "Прошу:\n1. Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
+    );
     expect(result.result.body).toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
     expect(result.result.body).not.toContain("\n2. ");
     expect(result.result.body).not.toContain("доводчик повреждён");

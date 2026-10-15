@@ -12,7 +12,9 @@ const VALID_DRAFT = {
   circumstances: null,
   impact: null,
   subject: null,
-  requestItems: ["Устранить наблюдаемую проблему"],
+  requestItems: [
+    "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
+  ],
   warnings: [],
 } satisfies PrimaryRequestDraft;
 
@@ -96,7 +98,9 @@ describe("renderPrimaryRequestDraft", () => {
       result.body.indexOf("Проблема наблюдается вечером."),
     );
     expect(result.body.indexOf("Прошу:")).toBeGreaterThan(result.body.indexOf("Жилищного кодекса"));
-    expect(result.body).toContain("Прошу:\n1. Устранить наблюдаемую проблему.");
+    expect(result.body).toContain(
+      "Прошу:\n1. Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению.",
+    );
   });
 
   it("не добавляет второй завершающий знак", () => {
