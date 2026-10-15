@@ -19,6 +19,7 @@ const PROVIDER_DRAFT = {
   problem: DESCRIPTION,
   circumstances: null,
   impact: null,
+  requestItem: null,
   subject: null,
   warnings: [],
 };

@@ -49,6 +49,7 @@ const VALID_DRAFT = {
   problem: "На лестничной площадке не горит свет.",
   circumstances: null,
   impact: null,
+  requestItem: null,
   subject: null,
   warnings: [],
 };
@@ -93,6 +94,7 @@ const MULTIPLE_ISSUES_LLM_TEXT = createLlmText({
   problem: null,
   circumstances: null,
   impact: null,
+  requestItem: null,
   subject: null,
   warnings: [],
 });
@@ -592,6 +594,7 @@ describe("OpenAiCompatibleGateway", () => {
       problem: input.description,
       circumstances: null,
       impact: null,
+      requestItem: null,
       subject: null,
       warnings: ["Пользователь выразил эмоции", "Не указана причина протечки"],
     });
@@ -617,6 +620,7 @@ describe("OpenAiCompatibleGateway", () => {
       title: "Отсутствует ручка входной двери",
       problem: "У входной двери подъезда полностью отсутствует ручка.",
       circumstances: "Дверь оставляют открытой и фиксируют ограничителем.",
+      requestItem: null,
       impact:
         "Такой способ эксплуатации создаёт риск дополнительной нагрузки на доводчик и крепления.",
       subject: {
@@ -834,6 +838,7 @@ describe("OpenAiCompatibleGateway", () => {
       problem: "В первом подъезде около двух недель не проводится уборка.",
       circumstances: null,
       impact: null,
+      requestItem: null,
       subject: {
         kind: "common_area_premises_cleaning",
         evidence: [
@@ -1106,6 +1111,7 @@ describe("OpenAiCompatibleGateway", () => {
         problem: null,
         circumstances: null,
         impact: null,
+        requestItem: null,
         subject: null,
         warnings: [],
       }),
@@ -1151,6 +1157,7 @@ describe("OpenAiCompatibleGateway", () => {
         problem: VALID_DRAFT.problem,
         circumstances: null,
         impact: null,
+        requestItem: null,
         verification: null,
         subject: null,
         actionPlan: {

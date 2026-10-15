@@ -16,6 +16,7 @@ function createDraft(overrides: Readonly<Record<string, unknown>> = {}) {
     problem: DESCRIPTION,
     circumstances: null,
     impact: null,
+    requestItem: null,
     subject: null,
     warnings: [],
     ...overrides,
@@ -35,7 +36,10 @@ describe("provider JSON Schema", () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
-    app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false } } });
+    app = Fastify({
+      logger: false,
+      ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
+    });
     app.post(
       "/without-subject",
       { schema: { body: createRequestDraftJsonSchema(undefined) } },
@@ -65,11 +69,32 @@ describe("provider JSON Schema", () => {
           problem: null,
           circumstances: null,
           impact: null,
+          requestItem: null,
           subject: null,
           warnings: [],
         })
       ).accepted,
     ).toBe(true);
+  });
+
+  it.each([
+    [null, true],
+    ["Принять меры для прекращения затопления", true],
+    ["А".repeat(500), true],
+    ["😀".repeat(500), true],
+    ["А".repeat(501), false],
+    ["😀".repeat(501), false],
+    [undefined, false],
+    [42, false],
+    [[], false],
+    ["", false],
+    ["  ", false],
+    ["Осмотреть\nустранить", false],
+    ["Осмотреть\rустранить", false],
+  ])("проверяет string|null requestItem штатным JSON Schema validator", async (requestItem, accepted) => {
+    expect(
+      (await providerSchemaAccepts(app, "/without-subject", createDraft({ requestItem }))).accepted,
+    ).toBe(accepted);
   });
 
   it("не содержит полей для формирования раздела требований", () => {
