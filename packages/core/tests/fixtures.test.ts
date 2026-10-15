@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { generateRequestInputSchema } from "../src/index.js";
+import {
+  generateRequestInputSchema,
+  materializePrimaryRequestDraft,
+  renderPrimaryRequestDraft,
+} from "../src/index.js";
 import { type ScenarioCategory, scenarios } from "./fixtures.js";
 
 const REQUIRED_CATEGORIES: ScenarioCategory[] = [
@@ -46,6 +50,26 @@ function scenarioById(id: string) {
 }
 
 describe("test scenario fixtures", () => {
+  it("проводит составное условное требование из corpus через production materializer и renderer", () => {
+    const scenario = scenarioById("desired-actions-conditional-door");
+    const draft = materializePrimaryRequestDraft(scenario.input, {
+      outcome: "generated",
+      title: "Входная дверь не закрывается",
+      problem: scenario.input.description,
+      circumstances: null,
+      impact: null,
+      subject: null,
+      warnings: [],
+    });
+
+    expect(draft.requestItems).toEqual([
+      "Только осмотреть дверь. Если регулировка необходима, сначала согласовать её. Замок не менять.",
+    ]);
+    expect(renderPrimaryRequestDraft(draft, scenario.input).body).toContain(
+      "Прошу:\n1. Только осмотреть дверь. Если регулировка необходима, сначала согласовать её. Замок не менять.",
+    );
+  });
+
   it("содержит уникальные id, валидные inputs и актуальные категории", () => {
     expect(new Set(scenarios.map(({ id }) => id)).size).toBe(scenarios.length);
     const categories = new Set(scenarios.map(({ category }) => category));
