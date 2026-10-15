@@ -113,7 +113,9 @@ describe("сохранение структурированного места �
     expect(result.body).toContain(problem);
     expect(result.body).toContain(location);
     expect(result.body.endsWith(`Прошу:\n1. ${desiredActions}.`)).toBe(true);
-    expect(result.body).not.toContain("Устранить наблюдаемую проблему");
+    expect(result.body).not.toContain(
+      "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
+    );
 
     // На один символ сверх лимита отклоняется вся заявка, а не часть явного ввода.
     expect(() => render(input, { problem: `${problem}П`, subject })).toThrow();

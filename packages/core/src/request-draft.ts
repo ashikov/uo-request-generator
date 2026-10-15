@@ -44,7 +44,8 @@ export const requestDraftSchema = z.discriminatedUnion("outcome", [
 export type GeneratedRequestDraft = z.infer<typeof generatedRequestDraftSchema>;
 export type RequestDraft = z.infer<typeof requestDraftSchema>;
 
-export const PRIMARY_REQUEST_GENERIC_ITEM = "Устранить наблюдаемую проблему";
+export const PRIMARY_REQUEST_GENERIC_ITEM =
+  "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению";
 
 function normalizeAuthoritativeRequestItem(value: string): string {
   const normalizedAction = value
