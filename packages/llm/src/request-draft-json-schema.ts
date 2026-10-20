@@ -59,7 +59,7 @@ const inferredSubject = {
 } as const;
 
 const impactDescription =
-  '<impact-role source="consequences" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden"> Помещай сюда весь смысл явно переданных consequences ровно один раз. Сохраняй фактический смысл, конкретность, объём и уже естественную формулировку. Перефразируй только контекстно неестественную формулировку, не добавляя исполнителя, группы людей, обстоятельства или последствия.';
+  '<impact-role source="input-and-direct-inference" occurrence="exactly-once" preservation="semantic-over-lexical" paraphrase="natural-when-needed" natural-wording="preserve" subject-expansion="forbidden"> Сохрани весь смысл явно переданных consequences ровно один раз, его конкретность, объём и естественную формулировку. При нормализации не добавляй исполнителя, группы людей, обстоятельства или последствия. Сверх переданных смыслов предпочти один полезный непосредственный вывод из исходных фактов независимо от категории: конкретное практическое значение либо, при его отсутствии, наиболее прямой риск, явно обозначенный как возможность. Не предполагай причины, скрытые повреждения, оборудование, людей или события. Не повторяй вход ради обогащения и не добавляй общие фразы. При недостаточном основании или нехватке общего лимита воздержись от добавки, сохранив существенные входные сведения. Если нет ни переданных последствий, ни безопасного вывода, укажи null. Вывод не подтверждает subject или нормативный модуль.';
 
 function universalDraftSchema(subject: typeof disabledSubject | typeof inferredSubject) {
   return {
