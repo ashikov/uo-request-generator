@@ -81,7 +81,7 @@ const VALID_LLM_RESPONSE = {
       COMMON_LEGAL_BASIS_BLOCK,
       "",
       "Прошу:",
-      "1. Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению.",
+      "1. Проверить описанную проблему и при её подтверждении принять меры по устранению.",
     ].join("\n"),
     warnings: [],
   },
@@ -624,7 +624,7 @@ describe("OpenAiCompatibleGateway", () => {
     if (evaluation.observation.draftOutcome !== "generated") throw new Error("Ожидался generated");
     expect(evaluation.observation.draft).toMatchObject({
       requestItems: [
-        "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
+        "Проверить описанную проблему и при её подтверждении принять меры по устранению",
       ],
     });
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -654,7 +654,7 @@ describe("OpenAiCompatibleGateway", () => {
     }
     expect(result.result.title).toBe("Течь на кухне");
     expect(result.result.body).toContain(
-      "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
+      "Проверить описанную проблему и при её подтверждении принять меры по устранению",
     );
     expect(result.result.warnings).toHaveLength(2);
   });
@@ -693,7 +693,7 @@ describe("OpenAiCompatibleGateway", () => {
     expect(result.result.body).toContain(draft.circumstances);
     expect(result.result.body).toContain(draft.impact);
     expect(result.result.body).toContain(
-      "Прошу:\n1. Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
+      "Прошу:\n1. Проверить описанную проблему и при её подтверждении принять меры по устранению",
     );
     expect(result.result.body).toContain(COMMON_AREA_DOOR_LEGAL_BASIS_MODULE.paragraphs[0]);
     expect(result.result.body).not.toContain("\n2. ");
