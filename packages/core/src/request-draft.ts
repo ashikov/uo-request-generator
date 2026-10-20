@@ -45,7 +45,7 @@ export type GeneratedRequestDraft = z.infer<typeof generatedRequestDraftSchema>;
 export type RequestDraft = z.infer<typeof requestDraftSchema>;
 
 export const PRIMARY_REQUEST_GENERIC_ITEM =
-  "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению";
+  "Проверить описанную проблему и при её подтверждении принять меры по устранению";
 
 function normalizeAuthoritativeRequestItem(value: string): string {
   const normalizedAction = value

@@ -12,9 +12,7 @@ const VALID_DRAFT = {
   circumstances: null,
   impact: null,
   subject: null,
-  requestItems: [
-    "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению",
-  ],
+  requestItems: ["Проверить описанную проблему и при её подтверждении принять меры по устранению"],
   warnings: [],
 } satisfies PrimaryRequestDraft;
 
@@ -99,7 +97,7 @@ describe("renderPrimaryRequestDraft", () => {
     );
     expect(result.body.indexOf("Прошу:")).toBeGreaterThan(result.body.indexOf("Жилищного кодекса"));
     expect(result.body).toContain(
-      "Прошу:\n1. Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению.",
+      "Прошу:\n1. Проверить описанную проблему и при её подтверждении принять меры по устранению.",
     );
   });
 

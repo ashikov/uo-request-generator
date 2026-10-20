@@ -12,7 +12,7 @@ import {
 import { scenarios } from "./fixtures.js";
 
 const GENERIC_REQUEST_ITEM =
-  "Проверить изложенные обстоятельства и при подтверждении проблемы принять меры по её устранению";
+  "Проверить описанную проблему и при её подтверждении принять меры по устранению";
 
 function generatedDraft(overrides: Record<string, unknown> = {}) {
   return {
