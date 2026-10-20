@@ -525,12 +525,16 @@ function providerConfig(
   }
 
   const { LLM_API_URL, LLM_API_KEY, LLM_AUTH_SCHEME, LLM_FOLDER_ID, LLM_PROVIDER } = result.data;
+  const extraHeaders = {
+    ...(LLM_FOLDER_ID === undefined ? {} : { "x-folder-id": LLM_FOLDER_ID }),
+    ...(LLM_PROVIDER === "yandex" ? { "x-data-logging-enabled": "false" } : {}),
+  };
   return {
     apiUrl: LLM_API_URL,
     apiKey: LLM_API_KEY,
     authScheme: LLM_AUTH_SCHEME,
     provider: LLM_PROVIDER,
-    ...(LLM_FOLDER_ID === undefined ? {} : { extraHeaders: { "x-folder-id": LLM_FOLDER_ID } }),
+    extraHeaders,
   };
 }
 

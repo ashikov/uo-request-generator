@@ -1405,6 +1405,59 @@ describe("LLM benchmark", () => {
     ]);
   });
 
+  it.each([
+    { provider: "yandex", folderId: undefined, privacyHeader: "false" },
+    { provider: "yandex", folderId: "synthetic-folder", privacyHeader: "false" },
+    { provider: "benchmark-provider", folderId: undefined, privacyHeader: null },
+    { provider: "benchmark-provider", folderId: "synthetic-folder", privacyHeader: null },
+  ])("передаёт privacy headers через HTTP для $provider с folder $folderId", async ({
+    provider,
+    folderId,
+    privacyHeader,
+  }) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: "completed",
+          output_text: JSON.stringify({ draft: EVALUATION_REQUEST_DRAFT }),
+        }),
+        { status: 200 },
+      ),
+    );
+    const runtime = dependencies({
+      environment: {
+        LLM_API_URL: "https://provider.example/v1/responses",
+        LLM_API_KEY: API_KEY,
+        LLM_AUTH_SCHEME: "Api-Key",
+        LLM_PROVIDER: provider,
+        ...(folderId === undefined ? {} : { LLM_FOLDER_ID: folderId }),
+      },
+      readFile: vi.fn().mockResolvedValue(JSON.stringify(configForModels(["current"]))),
+      confirm: vi.fn().mockResolvedValue("RUN 1"),
+      createGateway: vi.fn((config) => new OpenAiCompatibleGateway(config)),
+    });
+
+    await runLlmBenchmark(["--config", CONFIG_PATH, "--run", "--limit", "1"], runtime);
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const url = fetchSpy.mock.calls[0]?.[0];
+    const request = fetchSpy.mock.calls[0]?.[1];
+    const headers = new Headers(request?.headers);
+    const body = JSON.parse(String(request?.body));
+    expect(url).toBe("https://provider.example/v1/responses");
+    expect(headers.get("authorization")).toBe(`Api-Key ${API_KEY}`);
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(headers.get("x-data-logging-enabled")).toBe(privacyHeader);
+    expect(headers.get("x-folder-id")).toBe(folderId ?? null);
+    expect(body).toMatchObject({
+      model: "current",
+      max_output_tokens: 1200,
+      temperature: 0.3,
+      store: false,
+      text: { format: { type: "json_schema", strict: true } },
+    });
+  });
+
   it("не записывает API key и raw error в report или stdout", async () => {
     const generateRequestForEvaluation = vi
       .fn()
