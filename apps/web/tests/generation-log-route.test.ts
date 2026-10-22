@@ -299,7 +299,7 @@ describe("структурированные события POST /api/generate",
               httpStatus < 500 ? { inputTokens: 101, outputTokens: 52, totalTokens: 153 } : null,
             usageStatus: httpStatus < 500 ? "available" : "missing",
             systemPromptHash:
-              "sha256:3f263db4c3869abea1695cc6bf34dd16b860eb283ec89327b866ec5b37f17c83",
+              "sha256:31557bcb0820e3e899a2003434273a57e7e3edf9133b6222d5d0b180b6990207",
             durationMs: expect.any(Number),
           },
         });
