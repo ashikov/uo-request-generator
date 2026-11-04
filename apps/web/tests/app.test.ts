@@ -1118,6 +1118,37 @@ describe("обработка ответа генерации в приложен
     });
   });
 
+  it("сохраняет копирование после ошибки подготовки файла", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+      throw new Error("download unavailable");
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        headers: new Headers(),
+        ok: true,
+        json: () => Promise.resolve({ title: "Освещение", body: "Проверить свет.", warnings: [] }),
+      }),
+    );
+    setFormValues();
+    submitForm();
+    await vi.waitFor(() => expect(getCopyButton()).not.toBeNull());
+
+    const downloadButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Скачать .txt",
+    );
+    expect(downloadButton).toBeDefined();
+    downloadButton?.click();
+
+    expect(document.querySelector('#result-area [role="status"]')?.textContent).toContain(
+      "Не удалось подготовить файл",
+    );
+    getCopyButton()?.click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("Освещение\n\nПроверить свет."));
+  });
+
   it("блокирует повторный submit до завершения первого запроса", async () => {
     let resolveResponse: (value: Response) => void = () => {
       throw new Error("Обработчик Promise не инициализирован");
