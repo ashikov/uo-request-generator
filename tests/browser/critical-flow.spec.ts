@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, type Locator, type Page, type Route, test } from "@playwright/test";
 import {
   expectNoHorizontalDocumentOverflow,
@@ -558,6 +559,58 @@ test("показывает длинный результат, позволяет
   await expect
     .poll(() => page.evaluate(() => Reflect.get(window, "__browserTestCopiedText")))
     .toBe(expectedCopiedText);
+});
+
+test("скачивает текущую заявку текстовым файлом без предупреждений", async ({ page }, testInfo) => {
+  const generatedRequests = [
+    {
+      title: "Освещение учебной площадки",
+      body: "На учебной площадке не горит свет.\n\nПрошу:\n1. Проверить освещение.",
+      warnings: ["Перед отправкой проверьте сведения."],
+    },
+    {
+      title: "Повторная проверка света",
+      body: "Светильник по-прежнему не включается.\n\nПрошу:\n1. Проверить выключатель.",
+      warnings: ["Проверьте новый текст."],
+    },
+  ];
+  let generationRequestCount = 0;
+  await page.route(generateUrlPattern, async (route) => {
+    await fulfillJson(route, 200, generatedRequests[generationRequestCount++]);
+  });
+  await page.goto("/");
+  const downloadButton = page.getByRole("button", { name: "Скачать .txt", exact: true });
+  await expect(downloadButton).toHaveCount(0);
+  await page.locator("#consent-accepted").check();
+  await page.locator("#description").fill(requiredDescription);
+
+  for (const [index, generatedRequest] of generatedRequests.entries()) {
+    await page.locator("#submit-button").click();
+    await expect(page.locator("#result-area h3")).toHaveText(generatedRequest.title);
+    await expect(downloadButton).toBeEnabled();
+    await page.getByRole("button", { name: "Скопировать заявку" }).focus();
+    await page.keyboard.press("Tab");
+    await expectVisibleFocusIndication(downloadButton);
+    await expectNoHorizontalDocumentOverflow(page);
+    await expectWithinViewportHorizontally(page, [
+      { name: "кнопка скачивания", locator: downloadButton },
+    ]);
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.keyboard.press("Enter");
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("zayavka.txt");
+    const downloadedPath = testInfo.outputPath(`request-${index}.txt`);
+    await download.saveAs(downloadedPath);
+    expect(await readFile(downloadedPath, "utf8")).toBe(
+      `${generatedRequest.title}\n\n${generatedRequest.body}`,
+    );
+    expect(generationRequestCount).toBe(index + 1);
+  }
+
+  const screenshotPath = testInfo.outputPath("overview-download.png");
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  await testInfo.attach("overview-download", { path: screenshotPath, contentType: "image/png" });
 });
 
 test("проходит по интерактивным элементам клавишами в логичном порядке", async ({ page }) => {

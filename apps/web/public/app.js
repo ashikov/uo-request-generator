@@ -250,6 +250,33 @@ export function initializeCaptcha() {
     });
   }
 
+  function handleDownload() {
+    if (currentResult === null) return;
+
+    const link = document.createElement("a");
+    let objectUrl;
+    try {
+      const text = formatCopyText(currentResult.title, currentResult.body);
+      const file = new Blob([text], { type: "text/plain;charset=utf-8" });
+      objectUrl = URL.createObjectURL(file);
+      link.href = objectUrl;
+      link.download = "zayavka.txt";
+      link.hidden = true;
+      document.body.append(link);
+      link.click();
+    } catch {
+      showCopyStatus(
+        "error",
+        "Не удалось подготовить файл. Скопируйте заявку или выделите текст вручную",
+      );
+    } finally {
+      link.remove();
+      if (objectUrl !== undefined) {
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      }
+    }
+  }
+
   function renderResult(result) {
     currentResult = result;
 
@@ -267,7 +294,13 @@ export function initializeCaptcha() {
     copyButton.textContent = "Скопировать заявку";
     copyButton.addEventListener("click", handleCopy);
 
-    resultArea.replaceChildren(resultTitle, title, body, copyButton);
+    const downloadButton = document.createElement("button");
+    downloadButton.type = "button";
+    downloadButton.className = "btn btn-outline-secondary w-100 mt-2";
+    downloadButton.textContent = "Скачать .txt";
+    downloadButton.addEventListener("click", handleDownload);
+
+    resultArea.replaceChildren(resultTitle, title, body, copyButton, downloadButton);
 
     if (result.warnings.length > 0) {
       const warnings = document.createElement("ul");
