@@ -33,6 +33,20 @@ describe("generateRequestInputSchema", () => {
     expect(description).toHaveLength(generateRequestLimits.description.max + 1);
   });
 
+  it.each([
+    " ".repeat(10),
+    "\n\t ".repeat(4),
+    "\u00a0".repeat(10),
+    "  Течь    ",
+  ])("rejects whitespace-padded insufficient descriptions: %j", (description) => {
+    expect(generateRequestInputSchema.safeParse({ description }).success).toBe(false);
+  });
+
+  it("preserves accepted description whitespace for provider evidence", () => {
+    const description = "  На площадке не горит свет\n";
+    expect(generateRequestInputSchema.parse({ description }).description).toBe(description);
+  });
+
   it("rejects a location longer than the maximum", () => {
     const result = generateRequestInputSchema.safeParse({
       description: "На лестничной площадке не горит свет",

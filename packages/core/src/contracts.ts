@@ -41,8 +41,8 @@ export const generateRequestInputSchema = z
   .object({
     description: z
       .string()
-      .min(
-        generateRequestLimits.description.min,
+      .refine(
+        (description) => description.trim().length >= generateRequestLimits.description.min,
         `Описание должно содержать не менее ${generateRequestLimits.description.min} символов`,
       )
       .max(

@@ -88,7 +88,7 @@ export function initializeCaptcha() {
   }
 
   function validateForm(input) {
-    if (input.description.length < description.minLength) {
+    if (input.description.trim().length < description.minLength) {
       return `Описание должно содержать не менее ${description.minLength} символов`;
     }
 
@@ -303,7 +303,7 @@ export function initializeCaptcha() {
     const validationMessage = validateForm(input);
     if (validationMessage !== undefined) {
       const hasDescriptionValidationError =
-        input.description.length < description.minLength ||
+        input.description.trim().length < description.minLength ||
         input.description.length > description.maxLength;
       renderError(validationMessage, hasDescriptionValidationError);
       return;

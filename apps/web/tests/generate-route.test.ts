@@ -220,6 +220,20 @@ describe("POST /api/generate", () => {
     });
   });
 
+  it("rejects whitespace-only input before calling the gateway", async () => {
+    const gateway = new DisabledLlmGateway();
+    const generateRequest = vi.spyOn(gateway, "generateRequest");
+
+    const response = await injectGenerate({ description: " ".repeat(10) }, gateway);
+
+    expect(response.statusCode).toBe(400);
+    expectApiError(response.json(), {
+      code: "validation_error",
+      message: "Проверьте формат и содержание запроса",
+    });
+    expect(generateRequest).not.toHaveBeenCalled();
+  });
+
   it("returns the validation error format for malformed JSON", async () => {
     const app = createApp();
     apps.push(app);

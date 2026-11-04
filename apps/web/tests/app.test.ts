@@ -681,6 +681,24 @@ describe("обработка ответа генерации в приложен
     expectDescriptionDescribedBy("description-hint", "description-count", "error-area");
   });
 
+  it.each([
+    " ".repeat(10),
+    "\n\t ".repeat(4),
+    "  Течь    ",
+  ])("отклоняет пробельное заполнение до запроса: %j", async (description) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    setFormValues(description);
+
+    submitForm();
+
+    await expectError("Описание должно содержать не менее 10 символов");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getDescription().getAttribute("aria-invalid")).toBe("true");
+    expectDescriptionDescribedBy("description-hint", "description-count", "error-area");
+    expect(getDescription().value).toBe(description);
+  });
+
   it("снимает состояние ошибки описания после изменения значения", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError("network error"));
     vi.stubGlobal("fetch", fetchMock);
