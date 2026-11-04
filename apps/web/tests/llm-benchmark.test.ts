@@ -12,14 +12,17 @@ import {
 } from "@uo-request-generator/core";
 import {
   type EvaluationDiagnosticTrace,
+  createOpenAiCompatibleRepeatRequestBody,
   OpenAiCompatibleGateway,
   sanitizeValidationIssues,
 } from "@uo-request-generator/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { repeatScenarios } from "../../../packages/core/tests/repeat-fixtures.js";
 import { scenarios } from "../../../packages/core/tests/fixtures.js";
 import {
   type BenchmarkDependencies,
   createBenchmarkPlan,
+  createRepeatBenchmarkPlan,
   DEFAULT_BENCHMARK_REPEATS,
   MAX_BENCHMARK_REPEATS,
   MAX_BENCHMARK_REQUESTS,
@@ -248,6 +251,47 @@ function configForModels(modelLabels: readonly string[]) {
   };
 }
 
+const REPEAT_GENERATED_WIRE = {
+  outcome: "generated",
+  title: "Повторное обращение об освещении",
+  originalProblem: "В общем коридоре не горит светильник",
+  previousRequestSummary: "Ранее просил восстановить освещение общего коридора",
+  responseSummary: null,
+  performedActions: null,
+  currentState: "Светильник в том же коридоре по-прежнему не горит",
+  unresolvedQuestions: null,
+  circumstancesToVerify: null,
+  newFacts: null,
+  warnings: [],
+};
+
+function repeatRuntime() {
+  return dependencies({
+    readFile: vi.fn().mockResolvedValue(
+      JSON.stringify({
+        ...VALID_CONFIG,
+        maxOutputTokens: 4000,
+        models: [
+          { ...VALID_CONFIG.models[0], label: "repeat-current", model: "private-repeat-model" },
+        ],
+      }),
+    ),
+    confirm: vi.fn().mockResolvedValue("RUN 1"),
+    createGateway: (config) => new OpenAiCompatibleGateway(config),
+  });
+}
+
+function mockRepeatProvider(draft: unknown) {
+  return vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({ draft }),
+        usage: { input_tokens: 160, output_tokens: 80, total_tokens: 240 },
+      }),
+    ),
+  );
+}
+
 describe("LLM benchmark", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -366,6 +410,296 @@ describe("LLM benchmark", () => {
 
     expect(runtime.createGateway).not.toHaveBeenCalled();
     expect(runtime.writeLine).toHaveBeenCalledWith("Запуск отменён. Выполнено 0 запросов.");
+  });
+
+  it("выбирает repeat только явно и показывает план без provider", async () => {
+    const runtime = dependencies({
+      readFile: vi
+        .fn()
+        .mockResolvedValue(JSON.stringify({ ...VALID_CONFIG, maxOutputTokens: 4000 })),
+    });
+
+    await expect(
+      runLlmBenchmark(["--config", CONFIG_PATH, "--profile", "repeat"], runtime),
+    ).resolves.toBe(0);
+
+    expect(runtime.writeLine).toHaveBeenCalledWith("Profile: repeat");
+    expect(runtime.writeLine).toHaveBeenCalledWith("Total requests: 24");
+    expect(runtime.writeLine).toHaveBeenCalledWith(expect.stringContaining("repeat-no-response"));
+    expect(runtime.createGateway).not.toHaveBeenCalled();
+    expect(runtime.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("не квалифицирует repeat с output cap другого профиля", async () => {
+    const runtime = dependencies();
+
+    await expect(
+      runLlmBenchmark(["--config", CONFIG_PATH, "--profile", "repeat"], runtime),
+    ).resolves.toBe(1);
+
+    expect(runtime.writeLine).toHaveBeenCalledWith("Repeat profile requires maxOutputTokens: 4000");
+    expect(runtime.createGateway).not.toHaveBeenCalled();
+  });
+
+  it("ограничивает paid repeat одной попыткой для review до следующего ответа", async () => {
+    const runtime = dependencies({
+      readFile: vi
+        .fn()
+        .mockResolvedValue(JSON.stringify({ ...VALID_CONFIG, maxOutputTokens: 4000 })),
+    });
+
+    await expect(
+      runLlmBenchmark(["--config", CONFIG_PATH, "--profile", "repeat", "--run"], runtime),
+    ).resolves.toBe(1);
+
+    expect(runtime.confirm).not.toHaveBeenCalled();
+    expect(runtime.createGateway).not.toHaveBeenCalled();
+    expect(runtime.writeLine).toHaveBeenCalledWith(
+      "Repeat semantic review requires exactly one planned request per paid run. Выполнено 0 запросов.",
+    );
+  });
+
+  it("оценивает repeat по полному фактическому provider body для обоих протоколов", () => {
+    const fixture = repeatScenarios.find(({ id }) => id === "repeat-long-history");
+    if (fixture === undefined) throw new Error("Missing long-history fixture");
+    for (const apiProtocol of ["responses", "chat-completions"] as const) {
+      const config = parseBenchmarkConfig({
+        ...VALID_CONFIG,
+        apiProtocol,
+        maxOutputTokens: 4000,
+        ...(apiProtocol === "chat-completions"
+          ? { chatCompletionsOutputTokenParameter: "max_completion_tokens" }
+          : {}),
+      });
+      const plan = createRepeatBenchmarkPlan(
+        config,
+        [fixture],
+        1,
+        new Date("2026-01-01T00:00:00Z"),
+      );
+      for (const request of plan.requests) {
+        const body = createOpenAiCompatibleRepeatRequestBody(
+          {
+            apiProtocol,
+            model: request.model.model,
+            maxOutputTokens: 4000,
+            ...(config.chatCompletionsOutputTokenParameter === undefined
+              ? {}
+              : {
+                  chatCompletionsOutputTokenParameter: config.chatCompletionsOutputTokenParameter,
+                }),
+          },
+          fixture.input,
+        );
+        expect(request.inputTokenUpperBound).toBe(Buffer.byteLength(JSON.stringify(body), "utf8"));
+        expect(request.maximumCost).toBeCloseTo(
+          (request.inputTokenUpperBound * request.model.inputPricePerMillion +
+            4000 * request.model.outputPricePerMillion) /
+            1_000_000,
+          12,
+        );
+      }
+    }
+  });
+
+  it("записывает repeat-документ, проверенный draft и usage без конфигурационных секретов", async () => {
+    const fetchSpy = mockRepeatProvider(REPEAT_GENERATED_WIRE);
+    const runtime = repeatRuntime();
+
+    await expect(
+      runLlmBenchmark(
+        [
+          "--config",
+          CONFIG_PATH,
+          "--profile",
+          "repeat",
+          "--scenario",
+          "repeat-no-response",
+          "--run",
+        ],
+        runtime,
+      ),
+    ).resolves.toBe(0);
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Profile: repeat");
+    expect(report).toContain("Hard checks: PASS");
+    expect(report).toContain("Materialized RepeatRequestDraft:");
+    expect(report).toContain("PASS: repeat deterministic rendering parity");
+    expect(report).toContain('"previousRequestNumber": "SYN-REPEAT-01"');
+    expect(report).toContain("Реквизиты SYN-REPEAT-01 и 2026-01-12");
+    expect(report).toContain("Outcome: `generated`");
+    expect(report).toContain("Actual aggregate usage: input 160, output 80, total 240");
+    expect(report).not.toContain("private-repeat-model");
+    expect(report).not.toContain(API_KEY);
+    expect(report).not.toContain("Authorization");
+    expect(report).not.toContain("https://provider.example");
+    expect(report).not.toContain("Materialized PrimaryRequestDraft:");
+  });
+
+  it.each([
+    ["repeat-unrelated-issues", "multiple_issues"],
+    ["repeat-conflicting-history", "insufficient_history"],
+  ])("отчёт %s сохраняет только проверенный отказ без частичного документа", async (scenarioId, outcome) => {
+    const fetchSpy = mockRepeatProvider({
+      outcome,
+      title: null,
+      originalProblem: null,
+      previousRequestSummary: null,
+      responseSummary: null,
+      performedActions: null,
+      currentState: null,
+      unresolvedQuestions: null,
+      circumstancesToVerify: null,
+      newFacts: null,
+      warnings: [],
+    });
+    const runtime = repeatRuntime();
+
+    await expect(
+      runLlmBenchmark(
+        ["--config", CONFIG_PATH, "--profile", "repeat", "--scenario", scenarioId, "--run"],
+        runtime,
+      ),
+    ).resolves.toBe(0);
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Hard checks: PASS");
+    expect(report).toContain(`Outcome: \`${outcome}\``);
+    expect(report).toContain(JSON.stringify({ outcome }, null, 2));
+    expect(report).not.toContain('"title": null');
+    expect(report).not.toContain("Materialized RepeatRequestDraft:");
+    expect(report).not.toContain("Body:");
+  });
+
+  it("считает несовпадение repeat renderer ошибкой hard checks", async () => {
+    mockRepeatProvider(REPEAT_GENERATED_WIRE);
+    const runtime = repeatRuntime();
+    runtime.createGateway = (config) => {
+      const gateway = new OpenAiCompatibleGateway(config);
+      return {
+        generateRequestForEvaluation: (input) => gateway.generateRequestForEvaluation(input),
+        generateRepeatRequestForEvaluation: async (input) => {
+          const generation = await gateway.generateRepeatRequestForEvaluation(input);
+          if (generation.status !== "success" || generation.outcome.status !== "generated")
+            return generation;
+          return {
+            ...generation,
+            outcome: {
+              ...generation.outcome,
+              result: { ...generation.outcome.result, body: "Несовпадающий текст" },
+            },
+          };
+        },
+      };
+    };
+
+    await expect(
+      runLlmBenchmark(
+        [
+          "--config",
+          CONFIG_PATH,
+          "--profile",
+          "repeat",
+          "--scenario",
+          "repeat-no-response",
+          "--run",
+        ],
+        runtime,
+      ),
+    ).resolves.toBe(1);
+
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("FAIL: repeat deterministic rendering parity");
+    expect(report).toContain("Hard checks: FAIL");
+  });
+
+  it("не публикует сырую repeat-ошибку и сохраняет отказ без retry", async () => {
+    const privateError = "private-provider-response-content";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { message: privateError, apiKey: API_KEY },
+        }),
+        { status: 500 },
+      ),
+    );
+    const runtime = repeatRuntime();
+
+    await expect(
+      runLlmBenchmark(
+        [
+          "--config",
+          CONFIG_PATH,
+          "--profile",
+          "repeat",
+          "--scenario",
+          "repeat-no-response",
+          "--run",
+        ],
+        runtime,
+      ),
+    ).resolves.toBe(1);
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const report = vi.mocked(runtime.writeFile).mock.calls.at(-1)?.[1];
+    expect(report).toContain("Attempted requests: 1 / 1");
+    expect(report).toContain("HTTP status: 500");
+    expect(report).not.toContain(privateError);
+    expect(report).not.toContain(API_KEY);
+    expect(report).not.toContain("private-repeat-model");
+  });
+
+  it.each(["dirty", "non-tty"])("блокирует repeat dispatch при %s", async (guard) => {
+    const runtime = repeatRuntime();
+    runtime.createGateway = vi.fn(runtime.createGateway);
+    if (guard === "dirty")
+      runtime.sourceState = () => ({ status: "dirty", tracked: true, untracked: false });
+    else runtime.isStdinTty = false;
+
+    await expect(
+      runLlmBenchmark(
+        [
+          "--config",
+          CONFIG_PATH,
+          "--profile",
+          "repeat",
+          "--scenario",
+          "repeat-no-response",
+          "--run",
+        ],
+        runtime,
+      ),
+    ).resolves.toBe(1);
+
+    expect(runtime.createGateway).not.toHaveBeenCalled();
+    expect(runtime.confirm).not.toHaveBeenCalled();
+  });
+
+  it.each(["other", "", "--run"])("отклоняет неподдержанный профиль %j", async (profile) => {
+    const runtime = dependencies();
+
+    await expect(
+      runLlmBenchmark(["--config", CONFIG_PATH, "--profile", profile], runtime),
+    ).resolves.toBe(1);
+
+    expect(runtime.createGateway).not.toHaveBeenCalled();
+  });
+
+  it("сохраняет primary по умолчанию и при явном выборе", async () => {
+    const implicit = dependencies();
+    const explicit = dependencies();
+
+    await expect(runLlmBenchmark(["--config", CONFIG_PATH], implicit)).resolves.toBe(0);
+    await expect(
+      runLlmBenchmark(["--config", CONFIG_PATH, "--profile", "primary"], explicit),
+    ).resolves.toBe(0);
+
+    expect(vi.mocked(explicit.writeLine).mock.calls).toEqual(
+      vi.mocked(implicit.writeLine).mock.calls,
+    );
   });
 
   it("считает models × scenarios × repeats", () => {

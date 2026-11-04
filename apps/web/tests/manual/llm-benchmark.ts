@@ -7,6 +7,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import {
   generatedRequestDraftSchema,
+  generatedRepeatRequestDraftSchema,
+  materializeRepeatRequestDraft,
+  renderRepeatRequestDraft,
+  repeatRequestProviderDraftSchema,
+  repeatRequestResultSchema,
+  type RepeatRequestInput,
   generateRequestResultSchema,
   materializePrimaryRequestDraft,
   multipleIssuesRequestDraftSchema,
@@ -17,6 +23,10 @@ import {
 import {
   CHAT_COMPLETIONS_OUTPUT_TOKEN_PARAMETERS,
   createOpenAiCompatibleRequestBody,
+  createOpenAiCompatibleRepeatRequestBody,
+  type OpenAiCompatibleRepeatEvaluationGeneration,
+  type OpenAiCompatibleRepeatEvaluationObservation,
+  type RepeatRequestGenerationOutcome,
   type EvaluationDiagnosticStageResult,
   type EvaluationDiagnosticTrace,
   LLM_API_PROTOCOLS,
@@ -28,6 +38,10 @@ import {
 } from "@uo-request-generator/llm";
 import { z } from "zod";
 import { scenarios, type TestScenario } from "../../../../packages/core/tests/fixtures.js";
+import {
+  repeatScenarios,
+  type RepeatTestScenario,
+} from "../../../../packages/core/tests/repeat-fixtures.js";
 import { findGeneratedResultError } from "./llm-result-checks.js";
 
 export const DEFAULT_BENCHMARK_REPEATS = 1;
@@ -53,6 +67,7 @@ export type BenchmarkConfig = {
 
 type BenchmarkCliOptions = {
   configPath: string;
+  profile: "primary" | "repeat";
   scenarioIds: string[];
   limit?: number;
   repeats: number;
@@ -66,16 +81,19 @@ export type ScenarioSelection = {
 
 type PlannedBenchmarkRequest = {
   model: BenchmarkModel;
-  scenario: TestScenario;
   repeat: number;
   inputTokenUpperBound: number;
   maximumCost: number;
-};
+} & (
+  | { profile: "primary"; scenario: TestScenario }
+  | { profile: "repeat"; scenario: RepeatTestScenario }
+);
 
 export type BenchmarkPlan = {
+  profile: "primary" | "repeat";
   config: BenchmarkConfig;
   sourceState: BenchmarkSourceState;
-  scenarios: readonly TestScenario[];
+  scenarios: readonly (TestScenario | RepeatTestScenario)[];
   repeats: number;
   totalRequests: number;
   maximumCost: number;
@@ -86,11 +104,12 @@ export type BenchmarkPlan = {
 type BenchmarkRequestRecord = {
   request: PlannedBenchmarkRequest;
   durationMs: number;
-  outcome?: GenerateRequestOutcome;
+  outcome?: GenerateRequestOutcome | RepeatRequestGenerationOutcome;
   usage?: LlmProviderUsage;
   actualEstimatedCost?: number;
   hardChecks?: HardCheckResult[];
   observation?: BenchmarkObservation;
+  repeatObservation?: OpenAiCompatibleRepeatEvaluationObservation;
   systemPromptHash?: string;
   error?: string;
   failureKind?: "request" | "provider";
@@ -139,7 +158,23 @@ type BenchmarkGeneration =
 
 type BenchmarkGateway = {
   generateRequestForEvaluation(input: GenerateRequestInput): Promise<BenchmarkGeneration>;
+  generateRepeatRequestForEvaluation?(
+    input: RepeatRequestInput,
+  ): Promise<OpenAiCompatibleRepeatEvaluationGeneration>;
 };
+
+type CheckedBenchmarkGeneration =
+  | {
+      status: "success";
+      outcome: GenerateRequestOutcome | RepeatRequestGenerationOutcome;
+      usage?: LlmProviderUsage;
+      observation?: BenchmarkObservation;
+      repeatObservation?: OpenAiCompatibleRepeatEvaluationObservation;
+      systemPromptHash?: string;
+      diagnosticTrace?: EvaluationDiagnosticTrace;
+      hardChecks: HardCheckResult[];
+    }
+  | Extract<BenchmarkGeneration, { status: "failure" }>;
 
 type BenchmarkObservation = OpenAiCompatibleEvaluationObservation;
 
@@ -290,6 +325,7 @@ function parsePositiveInteger(value: string | undefined, option: string): number
 function parseBenchmarkCliArguments(arguments_: string[]): BenchmarkCliOptions {
   const cliArguments = arguments_[0] === "--" ? arguments_.slice(1) : arguments_;
   let configPath: string | undefined;
+  let profile: "primary" | "repeat" | undefined;
   const scenarioIds: string[] = [];
   let limit: number | undefined;
   let repeats = DEFAULT_BENCHMARK_REPEATS;
@@ -300,6 +336,16 @@ function parseBenchmarkCliArguments(arguments_: string[]): BenchmarkCliOptions {
 
     if (argument === "--config") {
       configPath = cliArguments[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (argument === "--profile") {
+      const value = cliArguments[index + 1];
+      if (profile !== undefined || (value !== "primary" && value !== "repeat")) {
+        throw new BenchmarkInputError("--profile требует один явный профиль primary или repeat");
+      }
+      profile = value;
       index += 1;
       continue;
     }
@@ -349,6 +395,7 @@ function parseBenchmarkCliArguments(arguments_: string[]): BenchmarkCliOptions {
 
   return {
     configPath,
+    profile: profile ?? "primary",
     scenarioIds,
     ...(limit === undefined ? {} : { limit }),
     repeats,
@@ -358,8 +405,16 @@ function parseBenchmarkCliArguments(arguments_: string[]): BenchmarkCliOptions {
 
 export function selectBenchmarkScenarios(
   selection: ScenarioSelection,
-  scenarioFixtures: readonly TestScenario[] = scenarios,
-): readonly TestScenario[] {
+  scenarioFixtures?: readonly TestScenario[],
+): readonly TestScenario[];
+export function selectBenchmarkScenarios(
+  selection: ScenarioSelection,
+  scenarioFixtures: readonly RepeatTestScenario[],
+): readonly RepeatTestScenario[];
+export function selectBenchmarkScenarios(
+  selection: ScenarioSelection,
+  scenarioFixtures: readonly (TestScenario | RepeatTestScenario)[] = scenarios,
+): readonly (TestScenario | RepeatTestScenario)[] {
   if (selection.scenarioIds.length > 0 && selection.limit !== undefined) {
     throw new BenchmarkInputError("Нельзя одновременно использовать --scenario и --limit");
   }
@@ -442,11 +497,87 @@ export function createBenchmarkPlan(
       const maximumCost = estimateCost(inputTokenUpperBound, config.maxOutputTokens, model);
 
       for (let repeat = 1; repeat <= repeats; repeat += 1) {
-        requests.push({ model, scenario, repeat, inputTokenUpperBound, maximumCost });
+        requests.push({
+          profile: "primary",
+          model,
+          scenario,
+          repeat,
+          inputTokenUpperBound,
+          maximumCost,
+        });
       }
     }
   }
 
+  return finishBenchmarkPlan(
+    config,
+    selectedScenarios,
+    repeats,
+    timestamp,
+    sourceState,
+    requests,
+    "primary",
+  );
+}
+
+export function createRepeatBenchmarkPlan(
+  config: BenchmarkConfig,
+  selectedScenarios: readonly RepeatTestScenario[],
+  repeats: number,
+  timestamp: Date,
+  sourceState: BenchmarkSourceState = { status: "unavailable" },
+): BenchmarkPlan {
+  if (config.maxOutputTokens !== 4000) {
+    throw new BenchmarkInputError("Repeat profile requires maxOutputTokens: 4000");
+  }
+  const requests: PlannedBenchmarkRequest[] = [];
+  for (const model of config.models) {
+    for (const scenario of selectedScenarios) {
+      const requestBody = createOpenAiCompatibleRepeatRequestBody(
+        {
+          apiProtocol: config.apiProtocol,
+          model: model.model,
+          maxOutputTokens: config.maxOutputTokens,
+          ...(config.chatCompletionsOutputTokenParameter === undefined
+            ? {}
+            : { chatCompletionsOutputTokenParameter: config.chatCompletionsOutputTokenParameter }),
+        },
+        scenario.input,
+      );
+      const inputTokenUpperBound = estimateInputTokenUpperBound(requestBody);
+      const maximumCost = estimateCost(inputTokenUpperBound, config.maxOutputTokens, model);
+      for (let repeat = 1; repeat <= repeats; repeat += 1) {
+        requests.push({
+          profile: "repeat",
+          model,
+          scenario,
+          repeat,
+          inputTokenUpperBound,
+          maximumCost,
+        });
+      }
+    }
+  }
+  return finishBenchmarkPlan(
+    config,
+    selectedScenarios,
+    repeats,
+    timestamp,
+    sourceState,
+    requests,
+    "repeat",
+  );
+}
+
+function finishBenchmarkPlan(
+  config: BenchmarkConfig,
+  selectedScenarios: readonly (TestScenario | RepeatTestScenario)[],
+  repeats: number,
+  timestamp: Date,
+  sourceState: BenchmarkSourceState,
+  requests: PlannedBenchmarkRequest[],
+  profile: "primary" | "repeat",
+): BenchmarkPlan {
   if (requests.length > MAX_BENCHMARK_REQUESTS) {
     throw new BenchmarkInputError(
       `План не может содержать больше ${String(MAX_BENCHMARK_REQUESTS)} запросов`,
@@ -454,6 +585,7 @@ export function createBenchmarkPlan(
   }
 
   return {
+    profile,
     config,
     sourceState,
     scenarios: selectedScenarios,
@@ -462,7 +594,7 @@ export function createBenchmarkPlan(
     maximumCost: requests.reduce((sum, request) => sum + request.maximumCost, 0),
     reportPath: path.join(
       BENCHMARK_REPORT_DIRECTORY,
-      `llm-benchmark-${reportTimestamp(timestamp)}.md`,
+      `llm-benchmark-${profile === "repeat" ? "repeat-" : ""}${reportTimestamp(timestamp)}.md`,
     ),
     requests,
   };
@@ -489,6 +621,7 @@ function formatSourceState(sourceState: BenchmarkSourceState): string {
 
 function writePlan(plan: BenchmarkPlan, writeLine: (message: string) => void): void {
   writeLine("LLM benchmark plan (provider requests: 0)");
+  if (plan.profile === "repeat") writeLine("Profile: repeat");
   writeLine(`Protocol: ${plan.config.apiProtocol}`);
   writeLine(`Models (${String(plan.config.models.length)}):`);
   for (const model of plan.config.models) {
@@ -703,11 +836,116 @@ function automaticChecks(
   return checks;
 }
 
+function automaticRepeatChecks(
+  scenario: RepeatTestScenario,
+  outcome: RepeatRequestGenerationOutcome,
+  observation: OpenAiCompatibleRepeatEvaluationObservation | undefined,
+): HardCheckResult[] {
+  const checks = [
+    hardCheck(
+      `expectedOutcome: ${scenario.expectedOutcome}`,
+      outcome.status === scenario.expectedOutcome,
+      `outcome: ${outcome.status}`,
+    ),
+  ];
+  if (outcome.status !== "generated") {
+    const providerDraft =
+      observation?.draftOutcome === outcome.status ? observation.providerDraft : undefined;
+    const parsed = repeatRequestProviderDraftSchema.safeParse(providerDraft);
+    checks.push(
+      hardCheck(
+        "provider response schema",
+        parsed.success && parsed.data.outcome === outcome.status,
+        parsed.success
+          ? `canonical ${parsed.data.outcome} draft: valid`
+          : "refusal draft: unavailable or invalid",
+      ),
+    );
+    return checks;
+  }
+
+  const generatedObservation = observation?.draftOutcome === "generated" ? observation : undefined;
+  const providerDraft = generatedRepeatRequestDraftSchema.safeParse(
+    generatedObservation?.requestDraft,
+  );
+  checks.push(
+    hardCheck(
+      "provider response schema",
+      providerDraft.success,
+      providerDraft.success
+        ? "repeat descriptive draft: valid"
+        : "repeat draft: unavailable or invalid",
+    ),
+  );
+  let materializationMatches = false;
+  let renderedResultMatches = false;
+  if (providerDraft.success && generatedObservation !== undefined) {
+    try {
+      const draft = materializeRepeatRequestDraft(scenario.input, providerDraft.data);
+      materializationMatches = isDeepStrictEqual(draft, generatedObservation.draft);
+      renderedResultMatches = isDeepStrictEqual(renderRepeatRequestDraft(draft), outcome.result);
+    } catch {
+      materializationMatches = false;
+      renderedResultMatches = false;
+    }
+  }
+  checks.push(
+    hardCheck(
+      "core repeat materialization",
+      materializationMatches,
+      materializationMatches
+        ? "backend-owned metadata and requirement match RepeatRequestDraft"
+        : "repeat draft: unavailable or inconsistent",
+    ),
+    hardCheck(
+      "repeat public result contract",
+      repeatRequestResultSchema.safeParse(outcome.result).success,
+      repeatRequestResultSchema.safeParse(outcome.result).success
+        ? "repeat result: valid"
+        : "repeat result: invalid",
+    ),
+    hardCheck(
+      "repeat deterministic rendering parity",
+      renderedResultMatches,
+      renderedResultMatches
+        ? "result matches core renderer"
+        : "result: unavailable or inconsistent",
+    ),
+  );
+  return checks;
+}
+
+async function evaluateBenchmarkRequest(
+  request: PlannedBenchmarkRequest,
+  gateway: BenchmarkGateway,
+): Promise<CheckedBenchmarkGeneration> {
+  if (request.profile === "repeat") {
+    if (gateway.generateRepeatRequestForEvaluation === undefined) {
+      throw new Error("Repeat evaluation is unavailable");
+    }
+    const generation = await gateway.generateRepeatRequestForEvaluation(request.scenario.input);
+    if (generation.status === "failure") return generation;
+    const { observation, ...metadata } = generation;
+    return {
+      ...metadata,
+      repeatObservation: observation,
+      hardChecks: automaticRepeatChecks(request.scenario, generation.outcome, observation),
+    };
+  }
+
+  const generation = await gateway.generateRequestForEvaluation(request.scenario.input);
+  if (generation.status === "failure") return generation;
+  return {
+    ...generation,
+    hardChecks: automaticChecks(request.scenario, generation.outcome, generation.observation),
+  };
+}
+
 function hardChecksPassed(checks: readonly HardCheckResult[]): boolean {
   return checks.every((check) => check.status === "PASS");
 }
 
-function formatInput(input: GenerateRequestInput): string {
+function formatInput(input: GenerateRequestInput | RepeatRequestInput): string {
   return JSON.stringify(input, null, 2);
 }
 
@@ -721,7 +959,8 @@ function formatHardChecks(checks: readonly HardCheckResult[] | undefined): strin
   );
 }
 
-function formatExpectationClassification(scenario: TestScenario): string[] {
+function formatExpectationClassification(scenario: TestScenario | RepeatTestScenario): string[] {
+  if (!("expectationClassification" in scenario)) return [];
   const classification = scenario.expectationClassification;
   if (classification === undefined) return [];
 
@@ -740,9 +979,9 @@ function formatExpectationClassification(scenario: TestScenario): string[] {
   ];
 }
 
-function formatOutcome(outcome: GenerateRequestOutcome): string[] {
-  if (outcome.status === "multiple_issues") {
-    return ["Outcome: `multiple_issues`"];
+function formatOutcome(outcome: GenerateRequestOutcome | RepeatRequestGenerationOutcome): string[] {
+  if (outcome.status !== "generated") {
+    return [`Outcome: \`${outcome.status}\``];
   }
 
   return [
@@ -801,6 +1040,34 @@ function formatObservation(observation: BenchmarkObservation | undefined): strin
       return unsupportedObservation;
     }
   }
+}
+
+function formatRepeatObservation(
+  observation: OpenAiCompatibleRepeatEvaluationObservation | undefined,
+): string[] {
+  if (observation === undefined) return ["Deterministic observations: unavailable"];
+  if (observation.draftOutcome !== "generated") {
+    return [
+      "Validated provider output:",
+      "",
+      "```json",
+      JSON.stringify(observation.providerDraft, null, 2),
+      "```",
+    ];
+  }
+  return [
+    "Validated provider output:",
+    "",
+    "```json",
+    JSON.stringify(observation.requestDraft, null, 2),
+    "```",
+    "",
+    "Materialized RepeatRequestDraft:",
+    "",
+    "```json",
+    JSON.stringify(observation.draft, null, 2),
+    "```",
+  ];
 }
 
 function withHardExpectationDiagnostic(
@@ -1050,6 +1317,7 @@ function formatReport(report: BenchmarkRunReport): string {
     `- Finished at: ${report.finishedAt.toISOString()}`,
     `- Status: ${report.status}`,
     `- Source state: ${formatSourceState(report.plan.sourceState)}`,
+    ...(report.plan.profile === "repeat" ? ["- Profile: repeat"] : []),
     `- Protocol: ${report.plan.config.apiProtocol}`,
     `- Model labels: ${report.plan.config.models.map((model) => model.label).join(", ")}`,
     `- Scenarios: ${String(report.plan.scenarios.length)}`,
@@ -1146,10 +1414,21 @@ function formatReport(report: BenchmarkRunReport): string {
       ...formatHardChecks(record.hardChecks),
       "",
       ...formatExpectationClassification(record.request.scenario),
+      ...(record.request.profile === "repeat"
+        ? [
+            "Facts to preserve:",
+            ...record.request.scenario.mustPreserveFacts.map((fact) => `- ${fact}`),
+            "Facts not to invent:",
+            ...record.request.scenario.mustNotInvent.map((fact) => `- ${fact}`),
+            "",
+          ]
+        : []),
       "Semantic expectations:",
       ...record.request.scenario.semanticExpectations.map((expectation) => `- ${expectation}`),
       "",
-      ...formatObservation(record.observation),
+      ...(record.request.profile === "repeat"
+        ? formatRepeatObservation(record.repeatObservation)
+        : formatObservation(record.observation)),
       "",
       ...(record.outcome === undefined ? [] : formatOutcome(record.outcome)),
     );
@@ -1244,7 +1523,7 @@ async function executeBenchmark(
     let providerFailed = false;
 
     try {
-      const generation = await gateway.generateRequestForEvaluation(request.scenario.input);
+      const generation = await evaluateBenchmarkRequest(request, gateway);
       const durationMs = dependencies.monotonicNow() - requestStartedAt;
       const usageMetadata =
         generation.usage === undefined
@@ -1284,11 +1563,7 @@ async function executeBenchmark(
         hasErrors = true;
         providerFailed = generation.failureKind === "provider";
       } else {
-        const hardChecks = automaticChecks(
-          request.scenario,
-          generation.outcome,
-          generation.observation,
-        );
+        const hardChecks = generation.hardChecks;
         const diagnosticTrace = withHardExpectationDiagnostic(
           generation.diagnosticTrace,
           hardChecks,
@@ -1299,6 +1574,9 @@ async function executeBenchmark(
           outcome: generation.outcome,
           ...usageMetadata,
           ...(generation.observation === undefined ? {} : { observation: generation.observation }),
+          ...(generation.repeatObservation === undefined
+            ? {}
+            : { repeatObservation: generation.repeatObservation }),
           ...(generation.systemPromptHash === undefined
             ? {}
             : { systemPromptHash: generation.systemPromptHash }),
@@ -1392,21 +1670,37 @@ export async function runLlmBenchmark(
   try {
     const options = parseBenchmarkCliArguments(arguments_);
     const config = await loadConfig(options.configPath, dependencies);
-    const selectedScenarios = selectBenchmarkScenarios({
+    const selection = {
       scenarioIds: options.scenarioIds,
       ...(options.limit === undefined ? {} : { limit: options.limit }),
-    });
-    const plan = createBenchmarkPlan(
-      config,
-      selectedScenarios,
-      options.repeats,
-      dependencies.now(),
-      dependencies.sourceState(),
-    );
+    };
+    const plan =
+      options.profile === "repeat"
+        ? createRepeatBenchmarkPlan(
+            config,
+            selectBenchmarkScenarios(selection, repeatScenarios),
+            options.repeats,
+            dependencies.now(),
+            dependencies.sourceState(),
+          )
+        : createBenchmarkPlan(
+            config,
+            selectBenchmarkScenarios(selection),
+            options.repeats,
+            dependencies.now(),
+            dependencies.sourceState(),
+          );
     writePlan(plan, dependencies.writeLine);
 
     if (!options.run) {
       return 0;
+    }
+
+    if (plan.profile === "repeat" && plan.totalRequests !== 1) {
+      dependencies.writeLine(
+        "Repeat semantic review requires exactly one planned request per paid run. Выполнено 0 запросов.",
+      );
+      return 1;
     }
 
     if (plan.sourceState.status !== "clean") {

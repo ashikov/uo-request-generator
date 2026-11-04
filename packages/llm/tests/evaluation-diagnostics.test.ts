@@ -274,3 +274,55 @@ describe("evaluation diagnostics", () => {
     }
   });
 });
+
+describe("profile-aware structural probe", () => {
+  it("recognizes repeat fields and insufficient history while preserving primary defaults", () => {
+    const response = {
+      draft: {
+        outcome: "insufficient_history",
+        originalProblem: null,
+        newFacts: null,
+        private_diagnostic_key: "private-diagnostic-value",
+      },
+    };
+    expect(probeProviderResponse(response, "repeat")).toEqual({
+      rootType: "object",
+      draftPresence: "present",
+      draftType: "object",
+      knownKeysPresent: ["outcome", "originalProblem", "newFacts"],
+      unknownKeyCount: 1,
+      outcome: "insufficient_history",
+    });
+    expect(probeProviderResponse(response)).toEqual({
+      rootType: "object",
+      draftPresence: "present",
+      draftType: "object",
+      knownKeysPresent: ["outcome"],
+      unknownKeyCount: 3,
+    });
+    expect(JSON.stringify(probeProviderResponse(response, "repeat"))).not.toContain("private");
+  });
+});
+
+describe("profile-aware validation diagnostics", () => {
+  it("preserves known repeat paths and redacts unknown names with unchanged primary defaults", () => {
+    const issues = [
+      { code: "invalid_type", path: ["draft", "responseSummary"], expected: "string" },
+      {
+        code: "invalid_type",
+        path: ["draft", "currentState", "private_field"],
+        expected: "string",
+        message: "private-value",
+      },
+    ];
+    expect(sanitizeValidationIssues(issues, "repeat")).toEqual([
+      { code: "invalid_type", path: "draft.responseSummary", expected: "string" },
+      { code: "invalid_type", path: "draft.currentState.<unknown>", expected: "string" },
+    ]);
+    expect(sanitizeValidationIssues(issues)).toEqual([
+      { code: "invalid_type", path: "draft.<unknown>", expected: "string" },
+      { code: "invalid_type", path: "draft.<unknown>.<unknown>", expected: "string" },
+    ]);
+    expect(JSON.stringify(sanitizeValidationIssues(issues, "repeat"))).not.toContain("private");
+  });
+});

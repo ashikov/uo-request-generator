@@ -31,7 +31,7 @@ export type SafeJsonType =
   | "boolean"
   | "null"
   | "unknown";
-export type KnownProviderOutcome = "generated" | "multiple_issues";
+export type KnownProviderOutcome = "generated" | "multiple_issues" | "insufficient_history";
 export type ProviderErrorCode =
   | "server_error"
   | "rate_limit_exceeded"
@@ -72,7 +72,23 @@ const KNOWN_DRAFT_FIELDS = [
   "warnings",
 ] as const;
 
-export type KnownProviderDraftField = (typeof KNOWN_DRAFT_FIELDS)[number];
+const KNOWN_REPEAT_DRAFT_FIELDS = [
+  "outcome",
+  "title",
+  "originalProblem",
+  "previousRequestSummary",
+  "responseSummary",
+  "performedActions",
+  "currentState",
+  "unresolvedQuestions",
+  "circumstancesToVerify",
+  "newFacts",
+  "warnings",
+] as const;
+
+export type KnownProviderDraftField =
+  | (typeof KNOWN_DRAFT_FIELDS)[number]
+  | (typeof KNOWN_REPEAT_DRAFT_FIELDS)[number];
 
 export type ProviderStructuralProbe = {
   rootType: SafeJsonType;
@@ -176,6 +192,8 @@ const KNOWN_PROVIDER_FIELDS = new Set([
   "sourceField",
 ]);
 
+const KNOWN_REPEAT_PROVIDER_FIELDS = new Set<string>(["draft", ...KNOWN_REPEAT_DRAFT_FIELDS]);
+
 const SAFE_ISSUE_CODE_SET = new Set<string>(SAFE_ISSUE_CODES);
 const SAFE_EXPECTED_TYPES = new Set(["array", "boolean", "null", "number", "object", "string"]);
 
@@ -200,7 +218,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function probeProviderResponse(value: unknown): ProviderStructuralProbe {
+export function probeProviderResponse(
+  value: unknown,
+  profile: "primary" | "repeat" = "primary",
+): ProviderStructuralProbe {
+  const knownProviderFields =
+    profile === "repeat" ? KNOWN_REPEAT_PROVIDER_FIELDS : KNOWN_PROVIDER_FIELDS;
+  const knownDraftFields = profile === "repeat" ? KNOWN_REPEAT_DRAFT_FIELDS : KNOWN_DRAFT_FIELDS;
   const rootType = jsonType(value);
   if (!isRecord(value)) {
     return {
@@ -215,7 +239,7 @@ export function probeProviderResponse(value: unknown): ProviderStructuralProbe {
   const draft = draftPresent ? value.draft : undefined;
   const draftRecord = isRecord(draft) ? draft : undefined;
   const draftKeys = draftRecord === undefined ? [] : Object.keys(draftRecord);
-  const knownKeysPresent = KNOWN_DRAFT_FIELDS.filter((key) => draftKeys.includes(key));
+  const knownKeysPresent = knownDraftFields.filter((key) => draftKeys.includes(key));
   const outcome =
     draftRecord !== undefined && Object.hasOwn(draftRecord, "outcome")
       ? draftRecord.outcome
@@ -226,12 +250,16 @@ export function probeProviderResponse(value: unknown): ProviderStructuralProbe {
     draftPresence: draftPresent ? "present" : "missing",
     ...(draftPresent ? { draftType: jsonType(draft) } : {}),
     knownKeysPresent,
-    unknownKeyCount: countUnknownKeys(value),
-    ...(outcome === "generated" || outcome === "multiple_issues" ? { outcome } : {}),
+    unknownKeyCount: countUnknownKeys(value, knownProviderFields),
+    ...(outcome === "generated" ||
+    outcome === "multiple_issues" ||
+    (profile === "repeat" && outcome === "insufficient_history")
+      ? { outcome }
+      : {}),
   };
 }
 
-function countUnknownKeys(value: unknown): number {
+function countUnknownKeys(value: unknown, knownProviderFields: ReadonlySet<string>): number {
   const pending = [value];
   let count = 0;
 
@@ -244,7 +272,7 @@ function countUnknownKeys(value: unknown): number {
     if (!isRecord(current)) continue;
 
     for (const [key, nestedValue] of Object.entries(current)) {
-      count += Number(!KNOWN_PROVIDER_FIELDS.has(key));
+      count += Number(!knownProviderFields.has(key));
       pending.push(nestedValue);
     }
   }
@@ -262,7 +290,10 @@ type UnsafeValidationIssue = {
 
 export function sanitizeValidationIssues(
   issues: readonly UnsafeValidationIssue[],
+  profile: "primary" | "repeat" = "primary",
 ): readonly SafeValidationIssue[] {
+  const knownProviderFields =
+    profile === "repeat" ? KNOWN_REPEAT_PROVIDER_FIELDS : KNOWN_PROVIDER_FIELDS;
   return issues.map((issue) => {
     const code: SafeValidationIssueCode =
       typeof issue.code === "string" && SAFE_ISSUE_CODE_SET.has(issue.code)
@@ -274,7 +305,7 @@ export function sanitizeValidationIssues(
           if (typeof segment === "number" && Number.isSafeInteger(segment) && segment >= 0) {
             return String(segment);
           }
-          return typeof segment === "string" && KNOWN_PROVIDER_FIELDS.has(segment)
+          return typeof segment === "string" && knownProviderFields.has(segment)
             ? segment
             : "<unknown>";
         })

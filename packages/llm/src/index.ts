@@ -25,6 +25,7 @@ export {
 export {
   CHAT_COMPLETIONS_OUTPUT_TOKEN_PARAMETERS,
   type ChatCompletionsOutputTokenParameter,
+  createOpenAiCompatibleRepeatRequestBody,
   createOpenAiCompatibleRequestBody,
   LLM_API_PROTOCOLS,
   type LlmApiProtocol,
@@ -34,7 +35,15 @@ export {
   OpenAiCompatibleGateway,
   type OpenAiCompatibleGatewayConfig,
   type OpenAiCompatibleGeneration,
+  type OpenAiCompatibleRepeatEvaluationGeneration,
+  type OpenAiCompatibleRepeatEvaluationObservation,
   type OpenAiCompatibleRequestBodyConfig,
+  type RepeatRequestGenerationOutcome,
   type ResponsesFailureDiagnostic,
 } from "./openai-compatible-gateway.js";
+export {
+  createRepeatRequestDraftJsonSchema,
+  REPEAT_REQUEST_RESPONSE_FORMAT_NAME,
+  REPEAT_REQUEST_SYSTEM_PROMPT,
+} from "./repeat-request-draft.js";
 export { COMMON_LEGAL_BASIS_BLOCK } from "./request-draft.js";

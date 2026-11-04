@@ -1,5 +1,6 @@
 import {
   evaluateSpecificLegalBasisSelection,
+  type GeneratedRepeatRequestDraft,
   type GenerateRequestInput,
   type GenerateRequestOutcome,
   type LlmGateway,
@@ -8,8 +9,15 @@ import {
   type LlmUsage,
   type LlmUsageStatus,
   materializePrimaryRequestDraft,
+  materializeRepeatRequestDraft,
   type PrimaryRequestDraft,
+  type RepeatRequestDraft,
+  type RepeatRequestInput,
+  type RepeatRequestProviderDraft,
+  type RepeatRequestResult,
   renderPrimaryRequestDraft,
+  renderRepeatRequestDraft,
+  repeatRequestInputSchema,
   type SpecificLegalBasisSelectionStatus,
 } from "@uo-request-generator/core";
 import { z } from "zod";
@@ -26,6 +34,13 @@ import {
   GenerationProviderUnavailableError,
   GenerationTimeoutError,
 } from "./generation-error.js";
+import {
+  createRepeatRequestDraftJsonSchema,
+  createRepeatRequestUserMessage,
+  parseRepeatRequestDraftForEvaluation,
+  REPEAT_REQUEST_RESPONSE_FORMAT_NAME,
+  REPEAT_REQUEST_SYSTEM_PROMPT,
+} from "./repeat-request-draft.js";
 import {
   createRequestDraftJsonSchema,
   createRequestDraftSystemPrompt,
@@ -121,6 +136,42 @@ export type OpenAiCompatibleGeneration =
   | OpenAiCompatibleGenerationSuccess
   | OpenAiCompatibleGenerationFailure;
 
+export type RepeatRequestGenerationOutcome =
+  | { status: "generated"; result: RepeatRequestResult }
+  | { status: "multiple_issues" | "insufficient_history" };
+
+export type OpenAiCompatibleRepeatEvaluationObservation =
+  | {
+      draftOutcome: "generated";
+      requestDraft: GeneratedRepeatRequestDraft;
+      draft: RepeatRequestDraft;
+    }
+  | {
+      draftOutcome: "multiple_issues" | "insufficient_history";
+      providerDraft: RepeatRequestProviderDraft;
+    };
+
+type RepeatGenerationSuccess = {
+  status: "success";
+  outcome: RepeatRequestGenerationOutcome;
+  metadata: LlmGenerationMetadata;
+  observation: OpenAiCompatibleRepeatEvaluationObservation;
+  usageStatus: LlmUsageStatus;
+  usage?: LlmProviderUsage;
+  diagnosticStages: readonly EvaluationDiagnosticStageResult[];
+  providerDurationMs: number;
+};
+type InternalRepeatGeneration =
+  | RepeatGenerationSuccess
+  | Extract<InternalGeneration, { status: "failure" }>;
+
+export type OpenAiCompatibleRepeatEvaluationGeneration =
+  | (Omit<RepeatGenerationSuccess, "diagnosticStages" | "providerDurationMs" | "usageStatus"> & {
+      systemPromptHash: string;
+      diagnosticTrace: EvaluationDiagnosticTrace;
+    })
+  | Extract<OpenAiCompatibleEvaluationGeneration, { status: "failure" }>;
+
 type MultipleIssuesRequestDraft = Extract<RequestDraft, { outcome: "multiple_issues" }>;
 type GeneratedRequestDraft = Extract<RequestDraft, { outcome: "generated" }>;
 
@@ -185,6 +236,15 @@ type InternalGeneration =
       diagnosticStages: readonly EvaluationDiagnosticStageResult[];
     });
 
+type ProviderTransportSuccess = UsageExtraction & {
+  status: "success";
+  content: string;
+  diagnosticStages: readonly EvaluationDiagnosticStageResult[];
+};
+type ProviderTransportGeneration =
+  | (ProviderTransportSuccess & { providerDurationMs: number })
+  | (InternalGenerationFailure & { providerDurationMs: number });
+
 type OpenAiChatMessage = {
   role: "system" | "user";
   content: string;
@@ -197,9 +257,11 @@ type OpenAiChatCompletionRequest = {
   response_format: {
     type: "json_schema";
     json_schema: {
-      name: typeof REQUEST_DRAFT_RESPONSE_FORMAT_NAME;
+      name: string;
       strict: true;
-      schema: ReturnType<typeof createRequestDraftJsonSchema>;
+      schema:
+        | ReturnType<typeof createRequestDraftJsonSchema>
+        | ReturnType<typeof createRepeatRequestDraftJsonSchema>;
     };
   };
   max_tokens?: number;
@@ -216,9 +278,11 @@ type OpenAiResponsesRequest = {
   text: {
     format: {
       type: "json_schema";
-      name: typeof REQUEST_DRAFT_RESPONSE_FORMAT_NAME;
+      name: string;
       strict: true;
-      schema: ReturnType<typeof createRequestDraftJsonSchema>;
+      schema:
+        | ReturnType<typeof createRequestDraftJsonSchema>
+        | ReturnType<typeof createRepeatRequestDraftJsonSchema>;
     };
   };
 };
@@ -303,6 +367,37 @@ export function createOpenAiCompatibleRequestBody(
   const userMessage = createUserMessage(normalizedInput);
   const jsonSchema = createRequestDraftJsonSchema(normalizedInput.confirmedProblemSubject);
 
+  return createStructuredRequestBody(
+    config,
+    userMessage,
+    systemPrompt,
+    jsonSchema,
+    REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
+  );
+}
+
+export function createOpenAiCompatibleRepeatRequestBody(
+  config: OpenAiCompatibleRequestBodyConfig,
+  rawInput: RepeatRequestInput,
+  systemPrompt = REPEAT_REQUEST_SYSTEM_PROMPT,
+): OpenAiChatCompletionRequest | OpenAiResponsesRequest {
+  const input = repeatRequestInputSchema.parse(rawInput);
+  return createStructuredRequestBody(
+    config,
+    createRepeatRequestUserMessage(input),
+    systemPrompt,
+    createRepeatRequestDraftJsonSchema(),
+    REPEAT_REQUEST_RESPONSE_FORMAT_NAME,
+  );
+}
+
+function createStructuredRequestBody(
+  config: OpenAiCompatibleRequestBodyConfig,
+  userMessage: string,
+  systemPrompt: string,
+  jsonSchema: OpenAiChatCompletionRequest["response_format"]["json_schema"]["schema"],
+  responseFormatName: string,
+): OpenAiChatCompletionRequest | OpenAiResponsesRequest {
   if (config.apiProtocol === "responses") {
     return {
       model: config.model,
@@ -314,7 +409,7 @@ export function createOpenAiCompatibleRequestBody(
       text: {
         format: {
           type: "json_schema",
-          name: REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
+          name: responseFormatName,
           strict: true,
           schema: jsonSchema,
         },
@@ -332,7 +427,7 @@ export function createOpenAiCompatibleRequestBody(
     response_format: {
       type: "json_schema",
       json_schema: {
-        name: REQUEST_DRAFT_RESPONSE_FORMAT_NAME,
+        name: responseFormatName,
         strict: true,
         schema: jsonSchema,
       },
@@ -704,9 +799,21 @@ function toDiagnosticTrace(generation: {
 }
 
 function withProviderDuration(
+  generation: InternalGenerationFailure,
+  providerDurationMs: number,
+): InternalGenerationFailure & { providerDurationMs: number };
+function withProviderDuration(
   generation: UnannotatedGeneration,
   providerDurationMs: number,
-): TimedGeneration {
+): TimedGeneration;
+function withProviderDuration(
+  generation: ProviderTransportSuccess,
+  providerDurationMs: number,
+): ProviderTransportSuccess & { providerDurationMs: number };
+function withProviderDuration(
+  generation: UnannotatedGeneration | ProviderTransportSuccess,
+  providerDurationMs: number,
+): TimedGeneration | ProviderTransportGeneration {
   return { ...generation, providerDurationMs };
 }
 
@@ -868,6 +975,130 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     };
   }
 
+  async generateRepeatRequest(
+    input: RepeatRequestInput,
+    _requestId?: string,
+  ): Promise<RepeatRequestGenerationOutcome> {
+    const generation = await this.executeRepeatGeneration(input);
+    if (generation.status === "failure") throw generation.productionError;
+    return generation.outcome;
+  }
+
+  async generateRepeatRequestForEvaluation(
+    input: RepeatRequestInput,
+  ): Promise<OpenAiCompatibleRepeatEvaluationGeneration> {
+    const generation = await this.executeRepeatGeneration(input);
+    if (generation.status === "failure") {
+      const {
+        productionError: _productionError,
+        providerDurationMs: _providerDurationMs,
+        diagnosticStages: _diagnosticStages,
+        metadata,
+        ...failure
+      } = generation;
+      return {
+        ...failure,
+        systemPromptHash: metadata.systemPromptHash,
+        diagnosticTrace: toDiagnosticTrace(generation),
+      };
+    }
+    const {
+      usageStatus: _usageStatus,
+      providerDurationMs: _providerDurationMs,
+      diagnosticStages: _diagnosticStages,
+      ...success
+    } = generation;
+    return {
+      ...success,
+      systemPromptHash: success.metadata.systemPromptHash,
+      diagnosticTrace: toDiagnosticTrace(generation),
+    };
+  }
+
+  private async executeRepeatGeneration(
+    rawInput: RepeatRequestInput,
+  ): Promise<InternalRepeatGeneration> {
+    const input = repeatRequestInputSchema.parse(rawInput);
+    const requestBody = createOpenAiCompatibleRepeatRequestBody(
+      {
+        apiProtocol: this.apiProtocol,
+        model: this.model,
+        maxOutputTokens: this.maxOutputTokens,
+        ...(this.chatCompletionsOutputTokenParameter === undefined
+          ? {}
+          : { chatCompletionsOutputTokenParameter: this.chatCompletionsOutputTokenParameter }),
+      },
+      input,
+    );
+    const transport = await this.executeProviderTransport(requestBody);
+    const metadata: LlmGenerationMetadata = {
+      ...(this.configurationClass === undefined
+        ? {}
+        : { configurationClass: this.configurationClass }),
+      provider: this.provider,
+      model: this.model,
+      usage: transport.usage ?? null,
+      usageStatus: transport.usageStatus,
+      systemPromptHash: createRequestDraftSystemPromptHash(REPEAT_REQUEST_SYSTEM_PROMPT),
+      durationMs: transport.providerDurationMs,
+    };
+    if (transport.status === "failure") return { ...transport, metadata };
+    const usage: UsageExtraction = {
+      usageStatus: transport.usageStatus,
+      ...(transport.usage === undefined ? {} : { usage: transport.usage }),
+    };
+    const fail = (
+      stages: readonly EvaluationDiagnosticStageResult[],
+    ): InternalRepeatGeneration => ({
+      ...createGenerationFailure("request", new GenerationInvalidResponseError(), {
+        ...usage,
+        diagnosticStages: stages,
+      }),
+      providerDurationMs: transport.providerDurationMs,
+      metadata,
+    });
+    const parsing = parseRepeatRequestDraftForEvaluation(transport.content);
+    const parsingStages = [...transport.diagnosticStages, ...parsing.stages];
+    if (parsing.status === "failure") return fail(parsingStages);
+    const providerDraft = parsing.draft;
+    if (providerDraft.outcome !== "generated") {
+      return {
+        status: "success",
+        outcome: { status: providerDraft.outcome },
+        observation: { draftOutcome: providerDraft.outcome, providerDraft },
+        metadata,
+        diagnosticStages: parsingStages,
+        providerDurationMs: transport.providerDurationMs,
+        ...usage,
+      };
+    }
+    let draft: RepeatRequestDraft;
+    try {
+      draft = materializeRepeatRequestDraft(input, providerDraft);
+    } catch {
+      return fail([...parsingStages, { stage: "materialization", status: "fail" }]);
+    }
+    const materializedStages: EvaluationDiagnosticStageResult[] = [
+      ...parsingStages,
+      { stage: "materialization", status: "pass" },
+    ];
+    let result: RepeatRequestResult;
+    try {
+      result = renderRepeatRequestDraft(draft);
+    } catch {
+      return fail([...materializedStages, { stage: "renderer", status: "fail" }]);
+    }
+    return {
+      status: "success",
+      outcome: { status: "generated", result },
+      observation: { draftOutcome: "generated", requestDraft: providerDraft, draft },
+      metadata,
+      diagnosticStages: [...materializedStages, { stage: "renderer", status: "pass" }],
+      providerDurationMs: transport.providerDurationMs,
+      ...usage,
+    };
+  }
+
   private async executeGeneration(input: GenerateRequestInput): Promise<InternalGeneration> {
     const normalizedInput = normalizeGenerationInput(input);
     const systemPrompt = createRequestDraftSystemPrompt(normalizedInput.confirmedProblemSubject);
@@ -902,10 +1133,9 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     return { ...generation, metadata };
   }
 
-  private async executeProviderGeneration(
-    input: GenerateRequestInput,
+  private async executeProviderTransport(
     requestBody: OpenAiChatCompletionRequest | OpenAiResponsesRequest,
-  ): Promise<TimedGeneration> {
+  ): Promise<ProviderTransportGeneration> {
     const startedAt = performance.now();
     const providerDurationMs = () => Math.round(performance.now() - startedAt);
     const signal = AbortSignal.timeout(this.timeoutMs);
@@ -1122,6 +1352,26 @@ export class OpenAiCompatibleGateway implements LlmGateway {
         completedProviderDurationMs,
       );
     }
+
+    return withProviderDuration(
+      { status: "success", content, diagnosticStages: providerStages, ...usage },
+      completedProviderDurationMs,
+    );
+  }
+
+  private async executeProviderGeneration(
+    input: GenerateRequestInput,
+    requestBody: OpenAiChatCompletionRequest | OpenAiResponsesRequest,
+  ): Promise<TimedGeneration> {
+    const transport = await this.executeProviderTransport(requestBody);
+    if (transport.status === "failure") return transport;
+    const content = transport.content;
+    const providerStages = transport.diagnosticStages;
+    const completedProviderDurationMs = transport.providerDurationMs;
+    const usage: UsageExtraction = {
+      usageStatus: transport.usageStatus,
+      ...(transport.usage === undefined ? {} : { usage: transport.usage }),
+    };
 
     const parsing = parseRequestDraftForEvaluation(content);
     const parsingStages = [...providerStages, ...parsing.stages];
