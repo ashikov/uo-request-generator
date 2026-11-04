@@ -914,6 +914,7 @@ export class OpenAiCompatibleGateway implements LlmGateway {
     try {
       response = await fetch(this.apiUrl, {
         method: "POST",
+        redirect: "error",
         headers: {
           "Content-Type": "application/json",
           Authorization: `${this.authScheme} ${this.apiKey}`,
