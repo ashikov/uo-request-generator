@@ -1,3 +1,5 @@
+import { once } from "node:events";
+import { createServer } from "node:http";
 import {
   COMMON_AREA_CLEANING_LEGAL_BASIS_MODULE,
   COMMON_AREA_DOOR_LEGAL_BASIS_MODULE,
@@ -1254,6 +1256,67 @@ describe("OpenAiCompatibleGateway", () => {
 
     const headers = mockFetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
     expect(headers["x-folder-id"]).toBe("test-folder");
+  });
+
+  it("не отправляет дополнительные секретные заголовки при перенаправлении на другой origin", async () => {
+    let sourceRequests = 0;
+    let destinationRequests = 0;
+    let receivedAdditionalKey: string | string[] | undefined;
+    const destination = createServer((request, response) => {
+      destinationRequests++;
+      receivedAdditionalKey = request.headers["x-additional-key"];
+      request.resume();
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ choices: [{ message: { content: VALID_LLM_TEXT } }] }));
+    });
+    destination.listen(0, "127.0.0.1");
+    await once(destination, "listening");
+    const destinationAddress = destination.address();
+    if (destinationAddress === null || typeof destinationAddress === "string") {
+      throw new Error("Ожидался локальный TCP-сервер");
+    }
+    const source = createServer((request, response) => {
+      sourceRequests++;
+      request.resume();
+      response.writeHead(307, {
+        Location: `http://127.0.0.1:${destinationAddress.port}/redirected`,
+      });
+      response.end();
+    });
+    source.listen(0, "127.0.0.1");
+    await once(source, "listening");
+    try {
+      const sourceAddress = source.address();
+      if (sourceAddress === null || typeof sourceAddress === "string") {
+        throw new Error("Ожидался локальный TCP-сервер");
+      }
+      const gateway = new OpenAiCompatibleGateway({
+        ...GATEWAY_CONFIG,
+        apiUrl: `http://127.0.0.1:${sourceAddress.port}/generate`,
+        extraHeaders: { "X-Additional-Key": "synthetic-private-value" },
+      });
+      let generationError: unknown;
+      try {
+        await gateway.generateRequest(VALID_INPUT);
+      } catch (error) {
+        generationError = error;
+      }
+      expect(sourceRequests).toBe(1);
+      expect(destinationRequests).toBe(0);
+      expect(receivedAdditionalKey).toBeUndefined();
+      expect(generationError).toBeInstanceOf(GenerationNetworkError);
+      expect(String(generationError)).not.toContain("synthetic-private-value");
+      expect(String(generationError)).not.toContain("X-Additional-Key");
+    } finally {
+      await Promise.all(
+        [source, destination].map(
+          (server) =>
+            new Promise<void>((resolve, reject) => {
+              server.close((error) => (error === undefined ? resolve() : reject(error)));
+            }),
+        ),
+      );
+    }
   });
 
   it("бросает GenerationNetworkError при сетевой ошибке", async () => {

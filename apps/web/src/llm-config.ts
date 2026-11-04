@@ -1,3 +1,4 @@
+import { validateHeaderName, validateHeaderValue } from "node:http";
 import type { LlmGateway } from "@uo-request-generator/core";
 import {
   DisabledLlmGateway,
@@ -19,6 +20,7 @@ const LLM_CONFIGURATION_VARIABLES = [
   "LLM_PROVIDER",
   "LLM_AUTH_SCHEME",
   "LLM_FOLDER_ID",
+  "LLM_EXTRA_HEADERS",
 ] as const;
 const providerIdentifierSchema = z
   .string()
@@ -35,7 +37,75 @@ const llmEnvironmentSchema = z.object({
   LLM_PROVIDER: providerIdentifierSchema.optional(),
   LLM_AUTH_SCHEME: z.string().trim().min(1).optional(),
   LLM_FOLDER_ID: z.string().trim().min(1).optional(),
+  LLM_EXTRA_HEADERS: z.string().optional(),
 });
+
+const reservedExtraHeaderNames = new Set([
+  "authorization",
+  "content-type",
+  "host",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+  "keep-alive",
+  "content-encoding",
+  "accept-encoding",
+  "expect",
+  "te",
+  "trailer",
+  "upgrade",
+  "cookie",
+  "cookie2",
+  "set-cookie",
+  "origin",
+  "referer",
+  "via",
+  "x-folder-id",
+  "x-data-logging-enabled",
+]);
+
+function readExtraHeaders(serialized: string | undefined): Record<string, string> {
+  if (serialized === undefined) return {};
+
+  try {
+    const parsed: unknown = JSON.parse(serialized);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error();
+    }
+    const entries: Array<[string, string]> = [];
+    for (const [name, value] of Object.entries(parsed)) {
+      if (typeof value !== "string") throw new Error();
+      validateHeaderName(name);
+      validateHeaderValue(name, value);
+      const normalizedName = name.toLowerCase();
+      if (
+        reservedExtraHeaderNames.has(normalizedName) ||
+        /^(?:proxy-|sec-)/u.test(normalizedName)
+      ) {
+        throw new Error();
+      }
+      entries.push([name, value]);
+    }
+
+    // JSON.parse теряет повторные ключи, включая прежние нестроковые значения.
+    // Каждая итоговая пара даёт два токена, а дубликат добавляет хотя бы токен имени.
+    const stringTokens = serialized.match(/"(?:[^"\\]|\\.)*"/gu) ?? [];
+    if (stringTokens.length !== entries.length * 2) throw new Error();
+    const names = new Set<string>();
+    for (let index = 0; index < stringTokens.length; index += 2) {
+      const token = stringTokens[index];
+      if (token === undefined) throw new Error();
+      const name: unknown = JSON.parse(token);
+      if (typeof name !== "string") throw new Error();
+      const normalizedName = name.toLowerCase();
+      if (names.has(normalizedName)) throw new Error();
+      names.add(normalizedName);
+    }
+    return Object.fromEntries(entries);
+  } catch {
+    throw new Error("Invalid LLM configuration");
+  }
+}
 
 function isLlmConfigurationAbsent(environment: NodeJS.ProcessEnv): boolean {
   return LLM_CONFIGURATION_VARIABLES.every(
@@ -62,6 +132,7 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
     LLM_FOLDER_ID,
     LLM_MODEL,
     LLM_PROVIDER,
+    LLM_EXTRA_HEADERS,
   } = environmentValidation.data;
 
   if (LLM_API_KEY === undefined) {
@@ -69,6 +140,7 @@ export function createLlmGateway(environment: NodeJS.ProcessEnv): LlmGateway {
   }
 
   const extraHeaders = {
+    ...readExtraHeaders(LLM_EXTRA_HEADERS),
     ...(LLM_FOLDER_ID === undefined ? {} : { "x-folder-id": LLM_FOLDER_ID }),
     ...(LLM_API_URL === undefined || LLM_PROVIDER === "yandex"
       ? { "x-data-logging-enabled": "false" }

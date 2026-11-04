@@ -385,6 +385,149 @@ describe("createLlmGateway", () => {
     expect(() => createLlmGateway(environment)).toThrow("Invalid LLM configuration");
   });
 
+  it.each([
+    "chat-completions",
+    "responses",
+  ] as const)("передаёт дополнительные заголовки в %s без изменения авторизации", async (apiProtocol) => {
+    const fetchMock =
+      apiProtocol === "responses" ? mockOpenAiResponsesProviderResponse() : mockProviderResponse();
+    const gateway = createLlmGateway({
+      ...completeCustomConfiguration,
+      LLM_API_PROTOCOL: apiProtocol,
+      LLM_EXTRA_HEADERS: JSON.stringify({
+        "X-Provider-Feature": "synthetic-v1",
+        "X-Additional-Key": "synthetic-private-value",
+      }),
+    });
+    if (!(gateway instanceof OpenAiCompatibleGateway)) {
+      throw new Error("Ожидался OpenAiCompatibleGateway");
+    }
+    const generation = await gateway.generateRequestWithMetadata({
+      description: "На площадке не горит свет",
+    });
+    expect(JSON.stringify(generation)).not.toContain("X-Additional-Key");
+    expect(JSON.stringify(generation)).not.toContain("synthetic-private-value");
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer test-private-api-key",
+      "X-Provider-Feature": "synthetic-v1",
+      "X-Additional-Key": "synthetic-private-value",
+    });
+  });
+
+  it("сохраняет встроенные Yandex и privacy headers вместе с дополнительными", async () => {
+    const fetchMock = mockProviderResponse();
+    const gateway = createLlmGateway({
+      LLM_API_KEY: "test-api-key",
+      LLM_FOLDER_ID: "test-folder-id",
+      LLM_EXTRA_HEADERS: '{"X-Provider-Feature":"synthetic-v1"}',
+    });
+    await gateway.generateRequest({ description: "На площадке не горит свет" });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Api-Key test-api-key",
+      "x-folder-id": "test-folder-id",
+      "x-data-logging-enabled": "false",
+      "X-Provider-Feature": "synthetic-v1",
+    });
+  });
+
+  it("не принимает строковое содержимое значения за повторное имя заголовка", () => {
+    expect(
+      createLlmGateway({
+        ...completeCustomConfiguration,
+        LLM_EXTRA_HEADERS: JSON.stringify({
+          "X-Key": 'value: "X-Key", synthetic',
+          "X-Other": "value",
+        }),
+      }),
+    ).toBeInstanceOf(OpenAiCompatibleGateway);
+    expect(
+      createLlmGateway({ ...completeCustomConfiguration, LLM_EXTRA_HEADERS: "{}" }),
+    ).toBeInstanceOf(OpenAiCompatibleGateway);
+  });
+
+  it("считает дополнительные заголовки без остальных настроек неполной конфигурацией", () => {
+    expect(() => createLlmGateway({ LLM_EXTRA_HEADERS: "{}" })).toThrow(
+      "Invalid LLM configuration",
+    );
+  });
+
+  it.each([
+    "",
+    "not-json",
+    "null",
+    "[]",
+    '"header"',
+    '{"X-Key":17}',
+    '{"X-Key":null}',
+    '{"X-Key":["value"]}',
+    '{"X-Key":{"nested":"value"}}',
+    '{"Invalid Header":"value"}',
+    JSON.stringify({ "X-Key": "value\r\nInjected: value" }),
+    '{"X-Key":"Приватный ключ"}',
+    '{"X-Key":"one","x-key":"two"}',
+    '{"X-Key":"one","X-Key":"two"}',
+    '{"X-Key":{},"X-Key":"value"}',
+    '{"X-Key":false,"X-Key":"okay"}',
+    String.raw`{"X-Key":"one","\u0078-key":"two"}`,
+  ])("отклоняет недопустимые дополнительные заголовки без provider request: %s", (LLM_EXTRA_HEADERS) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    expect(() => createLlmGateway({ ...completeCustomConfiguration, LLM_EXTRA_HEADERS })).toThrow(
+      "Invalid LLM configuration",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "Authorization",
+    "Content-Type",
+    "HOST",
+    "Content-Length",
+    "Transfer-Encoding",
+    "Connection",
+    "Keep-Alive",
+    "Content-Encoding",
+    "Accept-Encoding",
+    "Expect",
+    "TE",
+    "Trailer",
+    "Upgrade",
+    "Cookie",
+    "Cookie2",
+    "Set-Cookie",
+    "Origin",
+    "Referer",
+    "Via",
+    "Proxy-Authorization",
+    "Sec-Fetch-Site",
+    "X-Folder-Id",
+    "X-Data-Logging-Enabled",
+  ])("запрещает переопределение служебного заголовка %s", (headerName) => {
+    const LLM_EXTRA_HEADERS = JSON.stringify({ [headerName]: "synthetic-private-value" });
+    expect(() => createLlmGateway({ ...completeCustomConfiguration, LLM_EXTRA_HEADERS })).toThrow(
+      "Invalid LLM configuration",
+    );
+  });
+
+  it("не раскрывает имя и значение ошибочного заголовка в ошибке", () => {
+    const headerName = "private-header-sentinel";
+    const headerValue = "private-value-sentinel\r\nInjected: value";
+    try {
+      createLlmGateway({
+        ...completeCustomConfiguration,
+        LLM_EXTRA_HEADERS: JSON.stringify({ [headerName]: headerValue }),
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect(String(error)).toBe("Error: Invalid LLM configuration");
+      expect(String(error)).not.toContain(headerName);
+      expect(String(error)).not.toContain("private-value-sentinel");
+      return;
+    }
+    throw new Error("Ожидалась ошибка конфигурации LLM");
+  });
+
   it("не раскрывает private configuration values в сообщении ошибки", () => {
     const privateApiKey = "test-private-api-key-sentinel";
     const privateUrl = "https://provider.example/private-endpoint";
