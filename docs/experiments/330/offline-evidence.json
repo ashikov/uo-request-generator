@@ -1,0 +1,71 @@
+{
+  "baseCommit": "c93cf47984d2da22b542cb4bd461c90471cf67f7",
+  "kind": "offline_contract_arithmetic_and_manually_authored_reference",
+  "providerAttempts": 0,
+  "limits": {
+    "description": {
+      "min": 10,
+      "max": 2000
+    },
+    "location": {
+      "max": 120
+    },
+    "consequences": {
+      "max": 500
+    },
+    "desiredActions": {
+      "max": 500
+    },
+    "result": {
+      "titleMax": 120,
+      "bodyMax": 2500,
+      "warningsMax": 5,
+      "warningMax": 200
+    }
+  },
+  "problemLimit": 1526,
+  "commonLegalLength": 535,
+  "maximumLegalLength": 959,
+  "genericRequestLength": 78,
+  "maximumInputAccepted": true,
+  "maximumInputTextLength": 3120,
+  "literalDescriptionBodyLength": 2629,
+  "reference": {
+    "origin": "Manually authored synthetic draft, not provider output or implemented candidate",
+    "input": {
+      "description": "Входная дверь подъезда не закрывается, вход с улицы остаётся открытым.",
+      "desiredActions": "Только осмотреть дверь. Если регулировка необходима, сначала согласовать её. Замок не менять."
+    },
+    "draft": {
+      "outcome": "generated",
+      "title": "Заявка о незакрывающейся входной двери",
+      "problem": "Входная дверь подъезда не закрывается, вход с улицы остаётся открытым.",
+      "circumstances": null,
+      "impact": "Через открытый вход возможен посторонний доступ.",
+      "subject": null,
+      "warnings": []
+    },
+    "document": {
+      "title": "Заявка о незакрывающейся входной двери",
+      "body": "Входная дверь подъезда не закрывается, вход с улицы остаётся открытым.\n\nЧерез открытый вход возможен посторонний доступ.\n\nВ соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.\n\nПодпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.\n\nПрошу:\n1. Только осмотреть дверь. Если регулировка необходима, сначала согласовать её. Замок не менять.",
+      "warnings": []
+    },
+    "bodyLength": 762
+  },
+  "qualification": {
+    "status": "not_started",
+    "criticalRate": null,
+    "enrichmentErrorRate": null,
+    "usefulnessRate": null,
+    "manualAcceptance": null
+  },
+  "budget": {
+    "newAttempts": 0,
+    "newCostRub": 0,
+    "cumulativeAttempts": 9,
+    "cumulativeCostRub": 8.1104,
+    "remainingRub": 491.8896,
+    "unknownUsageReserveRub": 0,
+    "source": "https://github.com/ashikov/uo-request-generator/blob/d3b87e6094c2c45f3ae84668563e81f42310d358/docs/experiments/328/RESULT.md"
+  }
+}
