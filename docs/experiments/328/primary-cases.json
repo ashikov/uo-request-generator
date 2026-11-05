@@ -1,0 +1,90 @@
+[
+  {
+    "id": "emotional-participant-mutation",
+    "origin": "constructed mutation based on historical extracted packet; provenance incomplete, not a transferable baseline",
+    "input": {
+      "description": "Кошмар! Третью неделю лифт не работает! Соседка на восьмом этаже еле ходит, а мы с коляской как альпинисты. Когда это прекратится?! Сил нет!"
+    },
+    "draft": {
+      "outcome": "generated",
+      "title": "Неработающий лифт",
+      "problem": "Лифт не работает уже третью неделю",
+      "circumstances": null,
+      "impact": "Создаются трудности для маломобильных граждан и семей с маленькими детьми",
+      "subject": null,
+      "warnings": []
+    },
+    "expected": "corrected",
+    "anchors": ["третья неделя", "конкретная соседка на восьмом этаже еле ходит", "мы с коляской"],
+    "forbidden": ["новая группа семей", "возраст", "причина поломки", "травма", "три полные недели"]
+  },
+  {
+    "id": "correct-lighting-control",
+    "origin": "constructed correct control",
+    "input": {
+      "description": "На лестничной площадке не работает освещение."
+    },
+    "draft": {
+      "outcome": "generated",
+      "title": "Не работает освещение на лестничной площадке",
+      "problem": "На лестничной площадке не работает освещение.",
+      "circumstances": null,
+      "impact": null,
+      "subject": null,
+      "warnings": []
+    },
+    "expected": "unchanged",
+    "anchors": ["место", "отсутствие освещения"],
+    "forbidden": ["причина", "ремонт компонента", "происшествие"]
+  },
+  {
+    "id": "working-door-negation-mutation",
+    "origin": "constructed erroneous draft",
+    "input": {
+      "description": "Технически исправная входная дверь загрязнена, но нормально открывается и закрывается.",
+      "desiredActions": "Очистить входную дверь от загрязнения."
+    },
+    "draft": {
+      "outcome": "generated",
+      "title": "Загрязнение входной двери",
+      "problem": "Входная дверь загрязнена и не закрывается.",
+      "circumstances": null,
+      "impact": null,
+      "subject": null,
+      "warnings": []
+    },
+    "expected": "corrected",
+    "anchors": [
+      "загрязнение",
+      "технически исправна",
+      "нормально открывается и закрывается",
+      "исходное desiredActions"
+    ],
+    "forbidden": ["неисправность", "ремонт", "замена"]
+  },
+  {
+    "id": "conditional-actions-control",
+    "origin": "constructed correct control",
+    "input": {
+      "description": "Входная дверь подъезда не закрывается полностью, вход с улицы открыт.",
+      "desiredActions": "Только осмотреть дверь. Если регулировка необходима, сначала согласовать её. Замок не менять."
+    },
+    "draft": {
+      "outcome": "generated",
+      "title": "Входная дверь не закрывается полностью",
+      "problem": "Входная дверь подъезда не закрывается полностью, вход с улицы открыт.",
+      "circumstances": null,
+      "impact": null,
+      "subject": null,
+      "warnings": []
+    },
+    "expected": "unchanged",
+    "anchors": [
+      "только осмотр",
+      "условие необходимости регулировки",
+      "предварительное согласование",
+      "запрет замены замка"
+    ],
+    "forbidden": ["безусловная регулировка", "замена замка", "новый диагноз"]
+  }
+]
