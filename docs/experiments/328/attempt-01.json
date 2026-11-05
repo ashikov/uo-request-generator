@@ -1,0 +1,87 @@
+{
+  "snapshot": {
+    "commit": "78442d25206b1c4bea49a405b3b436f4dd661e24",
+    "fixtureHash": "a3f5795e60fcf90718bb2b1ce1afaccb7ae169a0029204aaeccf8e3a8129587e",
+    "model": "YandexGPT 5.1 Pro",
+    "protocol": "responses",
+    "outputCap": 4000,
+    "temperature": 0.3,
+    "priorAttempts": 8,
+    "priorRub": 7.7728,
+    "plans": [
+      {
+        "id": "emotional-participant-mutation",
+        "promptHash": "sha256:eaebf442f86123ac9409fc6b2a34727b794e841f94aae889fc4e30a37b696a8c",
+        "schemaHash": "sha256:d07277c5795504b5e19b737549f87ddd6767446e8d10cee4972339145d8e4d05",
+        "maximumRub": 6.7208000000000006
+      },
+      {
+        "id": "correct-lighting-control",
+        "promptHash": "sha256:eaebf442f86123ac9409fc6b2a34727b794e841f94aae889fc4e30a37b696a8c",
+        "schemaHash": "sha256:d07277c5795504b5e19b737549f87ddd6767446e8d10cee4972339145d8e4d05",
+        "maximumRub": 6.534400000000001
+      },
+      {
+        "id": "working-door-negation-mutation",
+        "promptHash": "sha256:eaebf442f86123ac9409fc6b2a34727b794e841f94aae889fc4e30a37b696a8c",
+        "schemaHash": "sha256:d07277c5795504b5e19b737549f87ddd6767446e8d10cee4972339145d8e4d05",
+        "maximumRub": 6.639200000000001
+      },
+      {
+        "id": "conditional-actions-control",
+        "promptHash": "sha256:eaebf442f86123ac9409fc6b2a34727b794e841f94aae889fc4e30a37b696a8c",
+        "schemaHash": "sha256:d07277c5795504b5e19b737549f87ddd6767446e8d10cee4972339145d8e4d05",
+        "maximumRub": 6.7504
+      }
+    ],
+    "maximumRub": 26.644800000000004
+  },
+  "scenario": "emotional-participant-mutation",
+  "status": "attempted",
+  "chargedRub": 0.3376,
+  "attempt": {
+    "durationMs": 2318,
+    "usage": {
+      "input_tokens": 325,
+      "output_tokens": 97,
+      "total_tokens": 422
+    },
+    "responseText": "{\"draft\": {\"outcome\": \"generated\", \"subject\": null, \"impact\": \"Создаются трудности для маломобильных граждан и семей с маленькими детьми\", \"problem\": \"Лифт не работает уже третью неделю\", \"title\": \"Неработающий лифт\", \"warnings\": [], \"circumstances\": \"Есть конкретные примеры трудностей: соседка на восьмом этаже еле ходит, семьи с маленькими детьми вынуждены пользоваться лифтом как альпинисты\"}, \"status\": \"corrected\"}",
+    "result": {
+      "status": "corrected",
+      "draft": {
+        "outcome": "generated",
+        "title": "Неработающий лифт",
+        "problem": "Лифт не работает уже третью неделю",
+        "circumstances": "Есть конкретные примеры трудностей: соседка на восьмом этаже еле ходит, семьи с маленькими детьми вынуждены пользоваться лифтом как альпинисты",
+        "impact": "Создаются трудности для маломобильных граждан и семей с маленькими детьми",
+        "subject": null,
+        "warnings": []
+      },
+      "document": {
+        "title": "Неработающий лифт",
+        "body": "Лифт не работает уже третью неделю.\n\nЕсть конкретные примеры трудностей: соседка на восьмом этаже еле ходит, семьи с маленькими детьми вынуждены пользоваться лифтом как альпинисты.\n\nСоздаются трудности для маломобильных граждан и семей с маленькими детьми.\n\nВ соответствии с частями 1 и 2.3 статьи 161 Жилищного кодекса РФ управление многоквартирным домом должно обеспечивать благоприятные и безопасные условия проживания граждан, а управляющая организация несёт ответственность за надлежащее содержание общего имущества.\n\nПодпункт «з» пункта 4 Правил осуществления деятельности по управлению многоквартирными домами, утверждённых постановлением Правительства РФ от 15.05.2013 № 416, предусматривает приём и рассмотрение заявок, предложений и обращений собственников и пользователей помещений.\n\nПрошу:\n1. Проверить описанную проблему и при её подтверждении принять меры по устранению.",
+        "warnings": []
+      }
+    }
+  },
+  "syntheticScenario": {
+    "id": "emotional-participant-mutation",
+    "origin": "constructed mutation based on historical extracted packet; provenance incomplete, not a transferable baseline",
+    "input": {
+      "description": "Кошмар! Третью неделю лифт не работает! Соседка на восьмом этаже еле ходит, а мы с коляской как альпинисты. Когда это прекратится?! Сил нет!"
+    },
+    "draft": {
+      "outcome": "generated",
+      "title": "Неработающий лифт",
+      "problem": "Лифт не работает уже третью неделю",
+      "circumstances": null,
+      "impact": "Создаются трудности для маломобильных граждан и семей с маленькими детьми",
+      "subject": null,
+      "warnings": []
+    },
+    "expected": "corrected",
+    "anchors": ["третья неделя", "конкретная соседка на восьмом этаже еле ходит", "мы с коляской"],
+    "forbidden": ["новая группа семей", "возраст", "причина поломки", "травма", "три полные недели"]
+  }
+}
